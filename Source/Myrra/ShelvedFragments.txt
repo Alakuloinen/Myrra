@@ -1,0 +1,1066 @@
+﻿
+//==============================================================================================================
+// обновить нормаль после удара (развернуть компонент-стрелку плавно в сторону новой нормали)
+//==============================================================================================================
+void FCONTACTOR::UpdateContactRot (FVector NewNormal, float BlendStep)
+{
+	//если пришла нулевая (по умолчанию) - это неправильно, ничего не делать (это значит, нет изменений в нормаль)
+	if (NewNormal == FVector::ZeroVector)	return;
+
+	BlendStep *= 0.1 + 0.9*FMath::Abs(FVector::DotProduct(ContactNormal(), NewNormal));
+	FQuat OldHitQuat = attach_dummy->GetComponentQuat();
+	FQuat NewHitQuat = FRotationMatrix::MakeFromZX(NewNormal, -owner->Orientation).ToQuat();
+	attach_dummy->SetWorldRotation (FQuat::Slerp(OldHitQuat, NewHitQuat, BlendStep));
+
+}
+
+//==============================================================================================================
+//безусловно обновить точку контакта с опорой (сделать плавный шаг к этой точке)
+// обновив позицию компонента-стрелки
+//==============================================================================================================
+void FCONTACTOR::UpdateContactPoint (FVector NewPoint, float BlendStep)
+{
+	//актуальная трансформация точки касания - положение в пространстве
+	FVector OldHitPoint = attach_dummy->GetComponentLocation();
+	FVector NewHitPoint = OldHitPoint + (NewPoint - OldHitPoint)*BlendStep;
+	attach_dummy->SetWorldLocation(NewHitPoint);
+}
+
+//==============================================================================================================
+// двигать отдельный контактор по той ветке, на которой он сидит (пока не используется)
+//==============================================================================================================
+bool FCONTACTOR::Push (FVector DesiredWorldDir, float DesiredGain)
+{
+	//---------------------------------------------------------
+	//ветвь как цельный компонент
+	//---------------------------------------------------------
+	if(auto Vietvis = Branch())
+	{
+		//странный случай, когда в опоре ветка распознаётся, а индекс членика ветки неверный
+		//с другой стороны неправильный индекс = отсутствие опоры
+		if (BaseBodyIndex == 255)
+		{ 
+			UE_LOG(LogTemp, Error, TEXT("CONTACTOR %s: Push NO BRANCH NUMBER %s"),
+				*owner->GetName(),
+				*Vietvis->GetName());
+			return 0;
+		}
+
+		//рассчитать устойчивое направление по ветке
+		const FVector GuidedDir = Vietvis->GetMoveGuideDirection (
+				BaseBodyIndex,
+				ContactPointAbsolute(),
+				ContactNormal(),
+				DesiredWorldDir);
+
+		//основной толчок вдоль ветки - только если есть силы
+		if(owner->WasteStamina (DesiredGain * 0.001))
+		{
+			//толкнуть и прижать к центру ветки
+			component->AddImpulse (GuidedDir*DesiredGain, NAME_None, true);
+			component->AddImpulse (10*ContactNormal(), NAME_None, true);
+			return true;
+		}
+		else
+		{
+			//не двигаться, но прижать к центру ветки
+			component->AddImpulse (10*ContactNormal(), NAME_None, true);
+			return false;
+		}
+
+	}
+	//---------------------------------------------------------
+	// обычное движение 
+	// в отсутствие ветки надо явно проверять, что мы в воздухе
+	//---------------------------------------------------------
+	else if(in_air < 10 && !owner->bJumpPressed)
+	{
+		// если есть силы
+		if(owner->WasteStamina (DesiredGain * 0.00001))
+		{
+			//касательное направление для движения + немного вниз/вжать, чтобы не дребезжало касание
+			FVector PlaneSlideDir = FVector::VectorPlaneProject(DesiredWorldDir, ContactNormal()) - 0.1*ContactNormal();
+
+			// толкнуть в желаемом направлении с желаемой скоростью
+			component->AddImpulse (PlaneSlideDir * DesiredGain, NAME_None, true);
+			return true;
+		}
+		//если нет сил
+		else
+		{
+			// вжаться в опору
+			component->AddImpulse (10*ContactNormal(), NAME_None, true);
+			return false;
+		}
+	}
+
+	return false;
+}
+
+
+
+//###################################################################################################################
+// квант/костыль взаимодействия двух пересекающихся скелеток, собранный по [OverlapEvent]
+// эксперимент, который не сработал, удалить
+//###################################################################################################################
+UENUM(BlueprintType) enum class EOVERLAPPED : uint8 { NEW, ADD, RENEW, NONE, WTF  };
+struct OVERLAP_EVENT_QUANTUM
+{
+	int16 Body1 = -1;
+	int16 Body2 = -1;
+	USkeletalMeshComponent* Mesh1 = nullptr;
+	USkeletalMeshComponent* Mesh2 = nullptr;
+
+	//возвращуны состояний
+	bool Empty()	{ return (!Mesh1)&&(!Mesh2); }
+	bool Valid()	{ return Mesh1 && Mesh2; }
+	bool OneLacks() { return Valid() && Body1*Body2<0; }
+
+	//очистить
+	void Reset() { Body1=-1; Body2=-1; Mesh1=nullptr; Mesh2=nullptr; }
+
+	//ввести очередной приход события пересечения - постараться заполнить 
+	EOVERLAPPED Intrude( USkeletalMeshComponent* M1, USkeletalMeshComponent* M2, int B2)
+	{
+		if (B2 == -1)				{								return EOVERLAPPED::NONE;  } else
+		if(Empty())					{Mesh1=M1; Mesh2=M2; Body2=B2;	return EOVERLAPPED::NEW; } else
+		if(Mesh2==M1 && Mesh1==M2)	{Body1=B2;						return EOVERLAPPED::ADD; } else
+		if(Mesh2==M2 && Mesh1==M1)  {Body2=B2;						return EOVERLAPPED::RENEW; } else
+																	return EOVERLAPPED::WTF;				}
+};
+
+//###################################################################################################################
+//глупый вариант маски атак для редактирования в блюпринт-редакторе способностей разных частей тела быть опасными в разных атаках
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FAttacksEdit
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(EditAnywhere) uint32 Attack0_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack0_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack0_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack0_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack1_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack1_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack1_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack1_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack2_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack2_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack2_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack2_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack3_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack3_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack3_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack3_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack4_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack4_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack4_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack4_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack5_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack5_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack5_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack5_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack6_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack6_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack6_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack6_Descend : 1;
+	UPROPERTY(EditAnywhere) uint32 Attack7_Ascend : 1;	UPROPERTY(EditAnywhere) uint32 Attack7_Ready : 1;	UPROPERTY(EditAnywhere) uint32 Attack7_Strike : 1;	UPROPERTY(EditAnywhere) uint32 Attack7_Descend : 1;
+
+	uint32& DW(void) { return *((uint32*)this); }
+};
+
+
+
+
+
+//==============================================================================================================
+//включить или выключить постоянную физику для указанного сегмента (подмножества члеников) всего тела
+//использовать для хвостов, висюлек и прочей мерзости, абсолютно бесполезной для народного хозяйства
+//теоретически эти висюльки должны ловить Hit Event и также огребать урон, но без изменения свойств
+//практически этого почему-то не происходит...
+//==============================================================================================================
+void UMyrCreatureMesh::LoosenBodyPart (EBodyPhysioType BodyPartType, bool Loosen)
+{
+/*	for (int i = 0; i < BodyBioData.Num(); i++)
+	{
+		//для всех члеников, удовлетворяющих принадлежности к данной части тела
+		if (BodyBioData[i].PhysioType == BodyPartType || BodyPartType == EBodyPhysioType::DEFAULT)
+		{
+			//расслабить = не восстанавливать кинематику; восстанавливать = не расслаблять
+			BodyBioData[i].bRestoreKinematic = !Loosen;
+
+			//если расслаблять
+			if (Loosen)
+			{
+				//часть тела чтоб симулировало физику
+				Bodies[i]->SetInstanceSimulatePhysics(true);
+
+				//сделать так, чтобы тело не проникало, но сталкивалось
+				Bodies[i]->SetResponseToChannel(ECollisionChannel::ECC_WorldDynamic, ECollisionResponse::ECR_Block);
+			}
+			//если наоборот перевести в кинематическое состояние
+			else
+			{
+				//отключать симулацию физики только если этот членик физически здоров
+				if(BodyBioData[i].TimeToRecover <= 0.0)
+					Bodies[i]->SetInstanceSimulatePhysics(false);
+			}
+		}
+	}*/
+}
+
+//==============================================================================================================
+//модифицировать темп анимации атаки по фазе атаки
+//==============================================================================================================
+void UMyrCreatureAnimInst::UpdateAttackPhase (F_ATTACKS& attacks, int index, float delta, float& rate, float &tsuspend)
+{
+	//в данном виде функция предназначена для покадрового вызова, хотя скорость прокрутки можно менять по событиям
+	//с другой стороны эта функция позволяет реализовать ускорение/замедление анимации атаки
+	//соответственно, взводить счетчик надо в другом месте - именно по событию смены фазы атаки (видимо, в блюпринте)
+	switch (Attacks().GetPhase(index))
+	{
+	case EAttackPhase::PEACE:	rate = 0.0f; break;					// остановить (по досижении нулевого кадра) то есть обнулить
+	case EAttackPhase::ASCEND:	rate = 1.0f; break;					// нормальная скорость вперед
+	case EAttackPhase::READY:										// достигли середины анимации - период выдержки/ожидания команды
+		if (tsuspend > 0)	{	tsuspend -= delta; rate = 0.0f;	}		// задержать атаку (остаться с поднятой лапой) пока не дотикает
+		else				{	tsuspend = 0.0f;
+		attacks.SetPhase(index, EAttackPhase::DESCEND);	}	break;
+	case EAttackPhase::STRIKE:	rate = 1.0f; break;					// бить - здесь можно ввести ускоритель из навыков персонажа
+	case EAttackPhase::DESCEND:	rate = -0.5f; break;				// развернуть вспять, пока не достигнет оповещателя "начало"
+	}
+}
+
+//====================================================================================================
+//выдать список всех сохраненных игр - не мое, стырено
+//====================================================================================================
+TArray<FString> UMyrraGameInstance::GetAllSaveGameSlotNames()
+{
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+	//такой вот изврат - подкласс искателя файлов внутри функции
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+	class FFindSavesVisitor : public IPlatformFile::FDirectoryVisitor
+	{
+	public:
+
+		//конструктор пуст, а зачем он нужен явно хз
+		FFindSavesVisitor() {}
+
+		//внутренний накопитель найденных имен файлов
+		TArray<FString> SavesFound;
+
+		//переопределение функции ответа на нахождение файла или папки
+		virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory)
+		{
+			//если это папка
+			if (!bIsDirectory)
+			{
+				FString FullFilePath(FilenameOrDirectory);
+				if (FPaths::GetExtension(FullFilePath) == TEXT("sav"))
+				{
+					FString CleanFilename = FPaths::GetBaseFilename(FullFilePath);
+					CleanFilename = CleanFilename.Replace(TEXT(".sav"), TEXT(""));
+					SavesFound.Add(CleanFilename);
+				}
+			}
+			return true;
+		}
+
+	};
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+
+	//массив найденных имен файлов
+	TArray<FString> Saves;
+
+
+	//директория, где лежат сохраненные игры - здесь нужно что-то более вразумительное, например ini-свойство
+	const FString SavesFolder = FPaths::GameSavedDir() + TEXT("SavedGames");
+
+	//если выше определенная папка с сохранениями не пуста
+	if (!SavesFolder.IsEmpty())
+	{
+		//создаем системный искатель файлов
+		FFindSavesVisitor Visitor;
+		FPlatformFileManager::Get().GetPlatformFile().IterateDirectory(*SavesFolder, Visitor);
+		Saves = Visitor.SavesFound;
+	}
+
+	if(Saves.Num()==0) Saves.Add(TEXT("--no-saves--"));
+
+	return Saves;
+}
+
+			UE_LOG(LogTemp, Log, TEXT("to fcolor [%g %g %g %g] to [%d %d %d %d]"),
+				Goal0.LiveEmotion.EquiColor.R, Goal0.LiveEmotion.EquiColor.G, Goal0.LiveEmotion.EquiColor.B, Goal0.LiveEmotion.EquiColor.A,
+				Goal0.Gestalt->EmoColor.R, Goal0.Gestalt->EmoColor.G, Goal0.Gestalt->EmoColor.B, Goal0.Gestalt->EmoColor.A);
+
+	UE_LOG(LogTemp, Log, TEXT("from fcolor [%d %d %d %d] to [%g %g %g %g]"),
+		Goal0.Gestalt->EmoColor.R, Goal0.Gestalt->EmoColor.G, Goal0.Gestalt->EmoColor.B, Goal0.Gestalt->EmoColor.A,
+		Goal0.LiveEmotion.EquiColor.R, Goal0.LiveEmotion.EquiColor.G, Goal0.LiveEmotion.EquiColor.B, Goal0.LiveEmotion.EquiColor.A);
+
+			/*UE_LOG(LogTemp, Log, TEXT("%s %s %s Do/Dn=%g, Po=%g, Pn=%g"),
+				*Me->GetName(), Heard ? TEXT("hears") : TEXT("sees"), *NeuGestalt->object->GetName(),
+				BirdInTheHandWeight, Goal0.Gestalt->Emotion.Power(), NeuGestalt->Emotion.Power());*/
+
+
+		//сложная штука, чтобы вместе с атакой дать знать всем окружающим существам
+		if (GetCurrentActionInfo()->General.StrengthFactor > 0)
+		{
+			//хз как это все работает
+			TArray<AActor*> Creatures;
+			const TArray<TEnumAsByte<EObjectTypeQuery>> ObjectTypes;
+			UKismetSystemLibrary::SphereOverlapActors(
+				GetWorld(),
+				GetFrontLocation(),
+				GetCurrentActionInfo()->Spatial.DistMaxEffect + GetCurrentActionInfo()->Spatial.DistRange,
+				ObjectTypes,
+				AMyrraCreature::StaticClass(),
+				TArray<AActor*>(),
+				Creatures);
+			for (auto Cre : Creatures)
+			{
+				//((AMyrraCreature*)Cre)->MyrraAI()->BewareAttack()
+			}
+		}
+
+//==============================================================================================================
+// • попытаться построить путь к другому контактору, считая разные опоры
+EYouAndMe AMyrraCreature::FindWayTo (AMyrraCreature* Other, USceneComponent** BaseIGo, int8& SegmentIGo)
+{
+	//чтобы не перебирать все секции со всеми: место 4-ногих определяет передок, а 2-ногих - низ (задок)
+	auto MyMainSection = IsBipedal() ? GetBack() : GetFront();
+	auto UrMainSection = Other->IsBipedal() ? Other->GetBack() : Other->GetFront();
+	return MyMainSection->FindWayTo (UrMainSection, BaseIGo, SegmentIGo);
+}
+
+UENUM(BlueprintType) enum class EBaseEmotion : uint8
+{
+	Disgust,			//отвращение	R*   G*   B*		апатия,		негатив,	осознанность
+	Shame,				//досада		R*   G*   B**		апатия,		негатив,	равновесие
+	Sorrow,				//горе			R*   G*   B***		апатия,		негатив,	рабство
+	Boredom,			//скука			R*   G**  B*		апатия,		годнота,	осознанность
+	Serenity,			//безмятежность	R*   G**  B**		апатия,		годнота,	равновесие			сонность
+	Obedience,			//покорность	R*   G**  B***		апатия,		годнота,	рабство
+	Confidence,			//надёжность	R*   G*** B*		апатия,		позитив,	осознанность		уверенность, гордость
+	Happiness,			//счастье		R*   G*** B**		апатия,		позитив,	равновесие
+	Charmedness,		//очарованность	R*   G*** B***		апатия,		позитив,	рабство				кайф, очарованность, надежда
+
+	Spite,				//злость		R**  G*   B*		бодрость,	негатив,	осознанность
+	Despair,			//пессимизм		R**  G*   B**		бодрость,	негатив,	равновесие
+	Anxiety,			//тревога		R**  G*   B***		бодрость,	негатив,	рабство
+	Vigilance,			//бдительность	R**  G**  B*		бодрость,	годнота,	осознанность		любопытство?
+	Saneness,			//здравость		R**  G**  B**		бодрость,	годнота,	равновесие
+	Reverie,			//рассеянность	R**  G**  B***		бодрость,	годнота,	рабство
+	Kindness,			//доброта		R**  G*** B*		бодрость,	позитив,	осознанность
+	Joy,				//радость		R**  G*** B**		бодрость,	позитив,	равновесие
+	Delight,			//наслаждение	R**  G*** B***		бодрость,	позитив,	рабство
+
+	Violence,			//жестокость	R***  G*   B*		бурление,	негатив,	осознанность
+	Madness,			//бешенство		R***  G*   B**		бурление,	негатив,	равновесие			фрустрация, бесит
+	Fear,				//страх			R***  G*   B***		бурление,	негатив,	рабство
+	Stubbornness,		//упрямство		R***  G**  B*		бурление,	годнота,	осознанность
+	Excitation,			//возбуждение	R***  G**  B**		бурление,	годнота,	равновесие
+	Frenzy,				//безрассудство	R***  G**  B***		бурление,	годнота,	рабство
+	Passion,			//страсть		R***  G*** B*		бурление,	позитив,	осознанность
+	Pride,				//гордость		R***  G*** B**		бурление,	позитив,	равновесие
+	Spree,				//утеха			R***  G*** B***		бурление,	позитив,	рабство
+
+};
+
+
+//###################################################################################################################
+//сборка данных для трилинейной интерполяции мимики по подпространству эмоций
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FEmotionSubGrid
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_x_x_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_R_x_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_x_G_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_x_x_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_R_G_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_x_G_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_R_x_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Emotion_R_G_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_x_x_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_R_x_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_x_G_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_x_x_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_R_G_x;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_x_G_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_R_x_B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float Alpha_R_G_B;
+};
+
+	//сгенерировать координаты нижней опорной точки в кубе эмоций
+	FIntVector GetIntGridOrigin()
+	{	return FIntVector(
+			FMath::FloorToInt(EquiColor.R * 3.0f),
+			FMath::FloorToInt(EquiColor.G * 3.0f),
+			FMath::FloorToInt(EquiColor.B * 3.0f));
+	}
+
+	//выдать произвольную точку кубика сетки, в котором заключена текущая эмоция
+	EBaseEmotion GetClosestRefPoint(int dR, int dG, int dB)
+	{	FIntVector B = GetIntGridOrigin();
+		return (EBaseEmotion)((B.X + dR) * 9 + (B.Y + dG) * 3 + B.Z + dB);
+	}
+
+	//утилита для получения линейной позиции опорной точки из уже посчитанных трехмерных координат начала
+	static EBaseEmotion GetClosestRefPoint(FIntVector B, int dR, int dG, int dB)
+	{		return (EBaseEmotion)((B.X + dR) * 9 + (B.Y + dG) * 3 + B.Z + dB);	}
+
+
+	//сгенерировать вектор приращений/разностей
+	FVector GetDeltas(FIntVector B)
+	{	return FVector(EquiColor.R - B.X, EquiColor.G - B.Y, EquiColor.B - B.Z);	}
+	FVector GetDeltas()
+	{	FIntVector B = GetIntGridOrigin();
+		return GetDeltas(B);
+	}
+
+	
+//###################################################################################################################
+// список опорных эмоций. Почему не массив? Ради имён, удобных для редактирования (числом 27 и не будет меняться)
+// И чтобы не заморачиваться с TMap, а иметь прозрачную адресацию - просто в анимацию указатели на вершины подкуба
+// а в коде использовать функцию доступа по адресу как в массиве
+// вообще всё это костыль, пока нет 3D AimOffset
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FRefEmotionAnims
+{
+	GENERATED_USTRUCT_BODY()
+
+	//начальное отношение к живому представителю какой-то расы/вида
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* Gestures;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesDisgust;			//отвращение	R*   G*   B*		апатия,		негатив,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesShame;			//досада		R*   G*   B**		апатия,		негатив,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesSorrow;			//горе			R*   G*   B***		апатия,		негатив,	рабство
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesBoredom;			//скука			R*   G**  B*		апатия,		годнота,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesSerenity;		//безмятежность	R*   G**  B**		апатия,		годнота,	равновесие			сонность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesObedience;		//покорность	R*   G**  B***		апатия,		годнота,	рабство
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesConfidence;		//надёжность	R*   G*** B*		апатия,		позитив,	осознанность		уверенность, гордость
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesHappiness;		//счастье		R*   G*** B**		апатия,		позитив,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesCharmedness;		//очарованность	R*   G*** B***		апатия,		позитив,	рабство				кайф, очарованность, надежда
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesSpite;			//злость		R**  G*   B*		бодрость,	негатив,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesDespair;			//пессимизм		R**  G*   B**		бодрость,	негатив,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesAnxiety;			//тревога		R**  G*   B***		бодрость,	негатив,	рабство
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesVigilance;		//бдительность	R**  G**  B*		бодрость,	годнота,	осознанность		любопытство?
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesSaneness;		//здравость		R**  G**  B**		бодрость,	годнота,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesReverie;			//рассеянность	R**  G**  B***		бодрость,	годнота,	рабство
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesKindness;		//доброта		R**  G*** B*		бодрость,	позитив,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesJoy;				//радость		R**  G*** B**		бодрость,	позитив,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesDelight;			//наслаждение	R**  G*** B***		бодрость,	позитив,	рабство
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesViolence;		//жестокость	R***  G*   B*		бурление,	негатив,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesMadness;			//бешенство		R***  G*   B**		бурление,	негатив,	равновесие			фрустрация, бесит
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesFear;			//страх			R***  G*   B***		бурление,	негатив,	рабство
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesStubbornness;	//упрямство		R***  G**  B*		бурление,	годнота,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesExcitation;		//возбуждение	R***  G**  B**		бурление,	годнота,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesFrenzy;			//безрассудство	R***  G**  B***		бурление,	годнота,	рабство
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesPassion;			//страсть		R***  G*** B*		бурление,	позитив,	осознанность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesPride;			//гордость		R***  G*** B**		бурление,	позитив,	равновесие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequenceBase* GesturesSpree;			//утеха			R***  G*** B***		бурление,	позитив,	рабство
+
+	//используется в коде для инициализации эмоции.
+	UAnimSequenceBase* Get(EBaseEmotion Index) { return ((UAnimSequenceBase**)(this))[(int)Index]; }
+	UAnimSequenceBase* Get(int Index) { return ((UAnimSequenceBase**)(this))[Index]; }
+};
+
+//==============================================================================================================
+// подобрать опорные точки и коэффиенты смешивания для текущей эмоции
+// это явно не каждый кадр, так что надо детектировать, когда это реально важно
+//или вообще вызывать извне
+//==============================================================================================================
+void UMyrAnimInst::FindEmotionSubGrid(FEmotion Emotion)
+{
+	//целая часть - вершина куба
+	auto B = Emotion.GetIntGridOrigin();
+
+	//взять опорные анимации, соответствующие разным вершинам куба
+	EmotionSubGrid.Emotion_x_x_x = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 0, 0, 0));
+	EmotionSubGrid.Emotion_x_x_B = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 0, 0, 1));
+	EmotionSubGrid.Emotion_x_G_x = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 0, 1, 0));
+	EmotionSubGrid.Emotion_R_x_x = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 1, 0, 0));
+	EmotionSubGrid.Emotion_R_G_x = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 1, 1, 0));
+	EmotionSubGrid.Emotion_x_G_B = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 0, 1, 1));
+	EmotionSubGrid.Emotion_R_x_B = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 1, 0, 1));
+	EmotionSubGrid.Emotion_R_G_B = Owner->GetGenePool()->RefEmotionAnims.Get(Emotion.GetClosestRefPoint(B, 1, 1, 1));
+	
+	//получить коэффициенты смеси (между позициями вершин куба) по всем осям эмоции
+	FVector Alphas = Emotion.GetDeltas(B);
+
+	//коэффициенты трилинейной интерполяции
+	EmotionSubGrid.Alpha_x_x_x = (1 - Alphas.X) * (1 - Alphas.Y) * (1 - Alphas.Z);
+	EmotionSubGrid.Alpha_R_x_x = (    Alphas.X) * (1 - Alphas.Y) * (1 - Alphas.Z);
+	EmotionSubGrid.Alpha_x_G_x = (1 - Alphas.X) * (    Alphas.Y) * (1 - Alphas.Z);
+	EmotionSubGrid.Alpha_x_x_B = (1 - Alphas.X) * (1 - Alphas.Y) * (    Alphas.Z);
+	EmotionSubGrid.Alpha_R_x_B = (    Alphas.X) * (1 - Alphas.Y) * (    Alphas.Z);
+	EmotionSubGrid.Alpha_x_G_B = (1 - Alphas.X) * (    Alphas.Y) * (    Alphas.Z);
+	EmotionSubGrid.Alpha_R_G_x = (    Alphas.X) * (    Alphas.Y) * (1 - Alphas.Z);
+	EmotionSubGrid.Alpha_R_G_B = (    Alphas.X) * (    Alphas.Y) * (    Alphas.Z);
+}
+
+void UMyrPhyCreatureMesh::PhyPullOnPlane(FBodyInstance* BodyInst, FLimb& Limb, FGirdle& Girdle, float AdvMult)
+{
+	FVector GirdleX = GetGirdleAxisForth(Girdle);
+	FVector GirdleY = GetGirdleAxisLeft(Girdle);
+
+	FVector ProjVel = WholeDirection * MyrOwner()->GetDesiredVelocity();
+	float DVelX = FVector::DotProduct ( ProjVel, GirdleX);
+	float DVelY = FVector::DotProduct ( ProjVel, GirdleY);
+	float RVelX = FVector::DotProduct ( Girdle.VelocityAgaintFloor, GirdleX);
+	float RVelY = FVector::DotProduct ( Girdle.VelocityAgaintFloor, GirdleY);
+	float UnderspeedX = DVelX - RVelX;
+	float UnderspeedY = DVelY - RVelY;
+	if (FMath::Abs(UnderspeedY) < 0.01 * MyrOwner()->GetDesiredVelocity()) UnderspeedY = 0;
+
+	FVector Gain = (GirdleX * FMath::Max(UnderspeedX, 0.0f) + GirdleY * UnderspeedY) * AdvMult * AdvMoveFactor;
+	BodyInst->AddForce(Gain, false, true);
+	DrawDebugLine(GetOwner()->GetWorld(), BodyInst->GetCOMPosition(), BodyInst->GetCOMPosition() + Gain * 0.01, FColor(0, 255, 255, 50), false, 0.02f, 100, 1);
+
+
+}
+
+//физическая ориентация пояса конечностей
+void UMyrPhyCreatureMesh::PhyGirdleOrient (FBodyInstance* BodyInst, FGirdle& Girdle, float Strength)
+{
+	if (StayStability <= 0) return;
+
+	//центры правой и левой ног
+	FVector RF = GetMachineBody(GetLimb(Girdle.RLimb))->GetCOMPosition();
+	FVector LF = GetMachineBody(GetLimb(Girdle.LLimb))->GetCOMPosition();
+
+	//центр тела пояса конечностей
+	FVector CF = Bodies[Girdle.CentralBody]->GetCOMPosition();
+
+	//вектора из крестца на каждую из ног
+	FVector RO = RF - CF;
+	FVector LO = LF - CF;
+
+	//расстояния от таза до ступней
+	float Rpow = RO.SizeSquared2D();
+	float Lpow = LO.SizeSquared2D();
+	float Dislength = Rpow - Lpow;
+	if (FMath::Abs(Dislength) < 1) return;
+	FVector Force;
+	if (Rpow > Lpow)	Force =  FVector(RO.X, RO.Y, 0) * Dislength;
+	else				Force = -FVector(LO.X, LO.Y, 0) * Dislength;
+	BodyInst->AddForce(Force * Strength, false, true);
+	DrawDebugLine(GetOwner()->GetWorld(), BodyInst->GetCOMPosition(), BodyInst->GetCOMPosition() + Force, FColor(20, 0, 0, 10), false, 0.02f, 100, 1);
+}
+
+
+	//////////////////////////////////////////////////////////////////////////////////////////////////////
+	//балансировка вытяжек ног, чтобы туловище было вертикально
+	//пока неясно, когда эту глыбу стоит отключать. Если пояса будут залочены на вертикаль, то это вообще не нужно
+	//if (RLimb.Stepped && LLimb.Stepped)
+	/*{
+
+		//вектора из крестца на каждую из ног
+		FVector RO = RF - CF;
+		FVector LO = LF - CF;
+
+		//проекция поперечной оси тела-пояса на землю - чуть меньше, чем единичный вектор, стоит ли нормировать?
+		FVector ShadowAxis = GetLimbAxisLeft(CentralLimb);
+		ShadowAxis.Z = 0;
+
+		//проекция на " поперечную тень на земле" - линейные параметры ног, которые следует уравнять
+		float RPow = FMath::Abs(FVector::DotProduct(RO, ShadowAxis));
+		float LPow = FMath::Abs(FVector::DotProduct(LO, ShadowAxis));
+
+		//разность в желаемых длинах ног
+		float Devia = (RPow - LPow) / (LPow + RPow);
+
+		//Эамплитуда длины ноги - принимается за данность, что первычиная выгнутость до здоровой прямизны - задана в редакторе
+		float FreeFeetLength = FMath::Abs(aRCons->ProfileInstance.LinearDrive.PositionTarget.Z);
+
+		//настройка жесткости ножных мышц, степень пригнутости ног и, наоборот, вытянутости вверх вопреки тяжести и другим силам
+		float LinearDriveToStand = (5000 + 10 * Girdle.SpeedAgaintFloor);		//от скорости - костыль, чтобы на бегу зад не проседал
+
+		//настройка пригнутости ног
+		float Dia = FMath::Lerp(FreeFeetLength, -FreeFeetLength, Girdle.Crouch - FMath::Min(1.0f, Devia));
+		LCons->SetLinearPositionTarget(FVector(0, 0, Dia));
+		LCons->SetLinearDriveParams(LinearDriveToStand * FMath::Max(0.0f, 1.0f - LLimb.Damage), 1000, 5000);
+
+		Dia = FMath::Lerp(FreeFeetLength, -FreeFeetLength, Girdle.Crouch - FMath::Min(1.0f, -Devia));
+		RCons->SetLinearPositionTarget(FVector(0, 0, Dia));
+		RCons->SetLinearDriveParams(LinearDriveToStand * FMath::Max(0.0f, 1.0f - RLimb.Damage), 1000, 5000);
+
+	}
+*/
+
+
+//обновление поворота головы и тела напрямую, без анимации
+	/*	//членоcпецифичные настройки
+		switch (Limb.WhatAmI)
+		{
+			//передняя часть туловища
+			//здесь пока только смена выгиба спины (но не силы удержания спины)
+			case ELimb::PECTUS:
+			{
+				//целевой изгиб спины по горизонтали (да, именно в такой последовательности!)
+				//как быть с выгибом спины вверх, пока неясно - заводить второй кватернион?
+				auto Q1 = FQuat::FindBetweenNormals(WholeDirection, gThorax.Forward);
+
+				//плавно подвести к новому изгибу, чтобы спина гнулась без толчков
+				SpineBend = FMath::Lerp(SpineBend, Q1, 0.1f);
+
+				//применить новую ориентацию для спинной пружины
+				//FPhysicsInterface::SetDriveOrientation(CI->ConstraintHandle, Q1);
+				CI->SetAngularOrientationTarget(SpineBend);
+				DrawDebugLine(GetOwner()->GetWorld(), CI->GetConstraintLocation(), CI->GetConstraintLocation() + GetLimbAxisForth(Limb) * 10, FColor(255, 0, 100), false, 0.02f, 100, 1);
+
+			}break;
+
+			//голова - постраивать направление взгляда
+			case ELimb::HEAD:
+			{
+				//тугота движения головы - чтобы не дергалась и не шаталась - отключается при движении, чтобы ее не "сдувало" вверх
+				SetLimbDamping(Limb,
+					ABI->LinearDamping * (1.0 - MyrOwner()->ExternalGain),
+					ABI->AngularDamping);
+
+				//текущая ось головы "вперед"
+				FVector Axis = GetLimbAxisForth(Pectus);
+
+				//если смотреть на голову спереди, она должна вывернуться назад, для борьбы с этим инвертируем вектор взгляда
+				float Hemi = FVector::DotProduct(Axis, MyrOwner()->AttackDirection);
+				//if (Hemi < 0)  Hemi = -Hemi;
+	
+				//настроить направление головы (возможно, стоит ввести кэш для плавности)
+				CI->SetAngularOrientationTarget ( FQuat::FindBetweenNormals (MyrOwner()->AttackDirection * FMath::Sign(Hemi), Axis) );
+
+				//ностроить силу поддержкания ориентации - пропорционально здоровью этой части тела
+				CI->SetAngularDriveParams (1000 * FMath::Max (0.0f, 1.0f - Head.Damage), 0, 7000);
+				DrawDebugLine(GetOwner()->GetWorld(), BI->GetCOMPosition(), BI->GetCOMPosition() + GetLimbAxisForth(Head) * 10, FColor(255, 0, 100), false, 0.02f, 100, 1);
+				DrawDebugLine(GetOwner()->GetWorld(), BI->GetCOMPosition(), BI->GetCOMPosition() + GetLimbAxisUp(Pectus) * 10, FColor(255, 0, 100), false, 0.02f, 100, 1);
+
+			}break;
+
+		}*/
+
+
+
+/*	//если требуется реориентировать туловище параллельно опоре
+	//а когда не требуется, пока непонятно
+	if (true)
+	{
+		//обратная трансформация  - это как выглядит мир из глаз объекта
+		//оси, выравненные по объекту, будут выглядеть с круглыми числами
+		//это заставит объект выровняться так, чтобы реальные Pri,Sec соответствовали вот этим ровным
+		//но выравниваться он будет резко, может убить равновесие
+		CI->PriAxis1 = MyrAxes[(int)Lorient.Up];
+		CI->SecAxis1 = MyrAxes[(int)Lorient.Forth];
+	}
+	//если менять ориентацию не требуется (например, для цепляния по не слишком крутым горкам)
+	else
+	{
+		//фиксируем, как с текущей колокльни туловища выглядят оси Pri,Sec
+		CI->PriAxis1 = TM1.InverseTransformVectorNoScale (CLimb.ImpactNormal);
+		CI->SecAxis1 = TM1.InverseTransformVectorNoScale (Sec);
+	}*/
+
+
+//==============================================================================================================
+//организовать вращательные моменты над телом так, чтобы она ориентировалось нужной осью по нужному направлению
+//==============================================================================================================
+void UMyrPhyCreatureMesh::PhySupportOrient(FVector ActualAxis, FVector DesiredAxis, FBodyInstance* BodyInst, float Strength)
+{
+	//степень отклонения от правильной позиции = сила воздействия, стремящегося исправить отклонение (но еще не знак)
+	const float RollCatastroph = FVector::DotProduct(ActualAxis, DesiredAxis);
+	if (RollCatastroph > 0.99) return;
+
+	//вектор коррекции, уже различающий право и лево, но ещё не способный отличить правильный верх от полного низа (переворота) 
+	const auto RollAxis = FVector::CrossProduct(ActualAxis, DesiredAxis);
+
+	//векторное произведение пропорционально углу на первом полукруге - берем его напрямую как степень силы контр-разворота
+	FVector RollFight = RollAxis;
+
+	//на дальнем полукруге векторное произведение снова убывает, и это нельзя допустить, поэтому нормализуем
+	if (RollCatastroph < 0)	RollFight.Normalize();
+
+	//момент сдерживающий качение в сторону
+	BodyInst->AddTorqueInRadians(RollFight * Strength, false, true);
+	//DrawDebugLine(GetOwner()->GetWorld(), BodyInst->GetCOMPosition(), BodyInst->GetCOMPosition() + ActualAxis*50, FColor(100, 0, 0, 10), false, 0.02f, 100, 1);
+	//DrawDebugLine(GetOwner()->GetWorld(), BodyInst->GetCOMPosition(), BodyInst->GetCOMPosition() + DesiredAxis*70, FColor(0, 100, 0, 10), false, 0.02f, 100, 1);
+	DrawDebugLine(GetOwner()->GetWorld(), BodyInst->GetCOMPosition(), BodyInst->GetCOMPosition() + RollFight*Strength*0.01, FColor(255, 0, 0, 255), false, 0.02f, 100, 1);
+
+}
+
+//==============================================================================================================
+//привязаться к опоре (при новом касании)
+//==============================================================================================================
+void UMyrPhyCreatureMesh::ClingGirdle (FGirdle& G, bool ChangeFloor)
+{
+	//если ведомый, крепить в движении опасно, однако при застывании можно
+	if (!G.Leading)
+	{
+		//если хотим двигаться (или если другой пояс уже отцепился и подал запрос на состояние "падаю") то отцепить ведомый
+		if(MyrOwner()->ExternalGain > 0 || MyrOwner()->UpcomingState == EBehaveState::fall) 
+		{	UnClingGirdle(G);
+			return;	
+		}
+	}
+
+	//узел пояса конечностей
+	auto& CLimb = GetGirdleLimb(G, EGirdleRay::Center);
+	auto  CBody = GetGirdleBody(G, EGirdleRay::Center);
+	auto& CI = CBody->DOFConstraint;
+	const auto TM1 = CBody->GetUnrealWorldTransform();
+
+	//функция вызывается почти всегда, но если нет подходящей опоры - досрочно выйти
+	if (!CLimb.Floor) return;
+	if (!CLimb.IsClimbable()) return;
+
+	//направление, которое считать опорным верхом при закреплении
+	FVector GirdleNormal = GetLimbAxisUp(CLimb);
+
+	//если вообще пусто - начать создавать констрайнт с чистого листа
+	if(!CBody->DOFConstraint)
+	{	CI = FConstraintInstance::Alloc();
+		CI->DisableProjection();
+		CI->ProfileInstance.ConeLimit.bSoftConstraint = false;
+		CI->ProfileInstance.TwistLimit.bSoftConstraint = false;
+		CI->ProfileInstance.LinearLimit.bSoftConstraint = false;
+		UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d Alloc"), *GetOwner()->GetName(), (int)(&G - &gPelvis));
+	}
+	//если ранее констрейнт был создан для вертикали, либо же опора в этот момент изменилась
+	else if(G.ConstraintConfiguredAsVertical || ChangeFloor)
+	{
+		//уничтожить старую привязь, удалить признак старой привязи
+		CI->TermConstraint();
+		G.ConstraintConfiguredAsVertical = false;
+		G.ConstraintConfiguredAsCling = false;
+		G.Vertical = false;
+		if (ChangeFloor)
+		{
+			UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d Change Floor"), *GetOwner()->GetName(), (int)(&G - &gPelvis));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d Destroy Previous"), *GetOwner()->GetName(), (int)(&G - &gPelvis));
+		}
+	}
+
+	/////////////////////////////////////////////////////////////////////////////////
+	// включение физических ограничений (если было отключено и надо включить)
+	/////////////////////////////////////////////////////////////////////////////////
+
+	//тело опоры
+	FBodyInstance* FBody = CLimb.Floor;
+	FTransform TM2 = FBody->GetUnrealWorldTransform();
+
+	//квант обновления
+	float Luft = MyrOwner()->GetGenePool()->ArmWheelRadius;
+
+	//точка посадки констрейнта - зависит от наличия ног
+	FVector NewAbsPos;
+	FVector NewPos2;
+
+	//если у пояса есть реальные ноги - центр между ног около уровня опоры
+	if (G.HasLegs) NewAbsPos = 0.5 * (GetGirdleBody(G, EGirdleRay::Right)->GetCOMPosition() + GetGirdleBody(G, EGirdleRay::Left)->GetCOMPosition());
+
+	//пояс ползёт на брюхе - центр (пока что) в центре туловища
+	else NewAbsPos = CBody->GetCOMPosition();
+
+	//позиция - служит маяком-определителем, насколько мы сдвинулись и нужно передвигать центр
+	NewPos2 = TM2.InverseTransformPosition(NewAbsPos);
+
+	//если нужно включить привязь, которая была выключена
+	//здесь же - первая настройка вновь созданной/переделанной привязи
+	if(G.Clung == false)
+	{
+		//угловые пределы - всё слишком неочевидно, возможно, запереть шарнир в самом теле и тогда сделать углы менее
+		SetAngles (CI, TWIST, 180);		// рысканье - свободно, чтоб поворачиваться и цепляться с разных углов
+		SetAngles (CI, SWING1, 0);		// остальные пока закрепить, чтобы спина держалась, хотя неправильно
+		SetAngles (CI, SWING2, 0);		// остальные пока закрепить, чтобы спина держалась, хотя неправильно
+		CI->UpdateAngularLimit();
+
+		//включить силу, жмущую книзу, и удерживающую от крена в бок
+		CI->SetLinearPositionDrive(true, true, false);
+		CI->SetLinearDriveParams(10000, 100, 70000);
+
+		//надо запросить смену состояния
+		//присвоить цель и ждать, когда тик самого существа эту цель одобрит
+		MyrOwner()->AdoptBehaveState(EBehaveState::climb);
+
+		//выключить анимацию вставания на дыбы, чтобы она своими силами не отрывала зацеп 
+		MyrOwner()->SelfActionCease();
+
+		//пометит флагом, что включено 
+		G.Clung = true;
+		UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d Turn On"), *GetOwner()->GetName(), (int)(&G - &gPelvis) );
+	}
+	//если зацеп уже до этого был включен
+	else
+	{
+		if (G.Leading)
+		{
+			//если путь, пройденный с передыдущей фиксации локальной точки подцепа, меньше кванта, то обновлять не нужно
+			auto path2 = FVector::DistSquared(CI->Pos2, NewPos2);
+			if (path2 < Luft * 0.2)	return;//◘◘>
+			else if (path2 > Luft * 10)
+				UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d WTF flyaway %g"), *GetOwner()->GetName(), (int)(&G - &gPelvis), path2);
+		}
+		//ведомому вообще нет нужды уточняться
+		else return;//◘◘>
+
+	}
+
+	//если тяга к движению нулевая, усилить привязь, чтобы вообще застыло на месте
+	if (MyrOwner()->ExternalGain <= 0)
+	{	if (CI->GetLinearYMotion() != ELinearConstraintMotion::LCM_Locked)
+		{	SetLinear(CI, Luft * CLimb.ImpactNormal.Z, 0, 0);
+			CI->SetLinearVelocityDrive(true, true, false);
+		}
+	}
+	//если пользователь включил тягу, ослабить привязь по оси намеренного движения
+	else
+	{	if (CI->GetLinearYMotion() != ELinearConstraintMotion::LCM_Free)
+		{	SetLinear(CI, Luft * CLimb.ImpactNormal.Z, -1, Luft * FMath::Max(0.0f, 1.0f - 3.0f*G.Curvature));
+			CI->SetLinearVelocityDrive(false, false, false);
+		}
+	}
+
+
+	/////////////////////////////////////////////////////////////////////////////////
+	// задание осей и относительных трансформаций
+	/////////////////////////////////////////////////////////////////////////////////
+
+	CI->Pos2 = NewPos2;
+	CI->Pos1 = TM1.InverseTransformPosition(NewAbsPos);
+
+	//базисные оси, первичная это вверх, вторичная это вперед
+	FVector Pri;
+	FVector Sec;
+
+	//попытка унять опрокидывание на пологой ветке - пусть тело смотрит спиной вверх
+	if(CLimb.OnBranch() && CLimb.ImpactNormal.Z>0.5)
+	{
+		FVector UnFallNormal = FVector::CrossProduct(CLimb.GetBranchDirection(), FVector::UpVector);
+		UnFallNormal = FVector::CrossProduct(CLimb.GetBranchDirection(), UnFallNormal);
+		Pri = FMath::Lerp(CLimb.ImpactNormal, FVector::UpVector, G.Curvature);
+		Pri.Normalize();
+	}
+	else Pri = CLimb.ImpactNormal;
+
+	//подстраиваем смещение тяги относительно положения тела, чтобы она приимала и немного тянула вперед
+	float ForceOffset = 2 * Luft * FMath::Max(0.0f, 0.5f - CLimb.ImpactNormal.Z);
+	CI->SetLinearPositionTarget(
+		FVector(	-ForceOffset,	// тяга по нормали с минусом, то есть вжимание в опору
+					ForceOffset,	// тяга вперед
+					0));
+
+
+	//вторичная ось - ранее посчитанная ось направления движения (с учётом узости веток)
+	Sec = FVector::VectorPlaneProject (G.AlignedDir, Pri );
+	Sec.Normalize();
+
+	//координаты новой точки в системе опоры, центр констрейнта - в центре туловища TM1.GetLocation()
+	CI->PriAxis2 = TM2.InverseTransformVectorNoScale(Pri);
+	CI->SecAxis2 = TM2.InverseTransformVectorNoScale(Sec);
+
+	//ведущий пояс - выкручивать в нужную позу
+	if (G.Leading)
+	{
+		//вращение, отражающее идельное положение тела по отношению к опоре
+		FQuat QDesired = FQuat::FindBetweenNormals(Pri, MyrAxes[(int)Lorient.Up]);
+
+		//текущий кватернион вращения - если пришипиливать в том виде, в каком оно есть
+		FQuat QNormal = TM1.GetRotation().Inverse();
+
+		//выработать новое приближение к идеальной ориентации
+		FQuat QNewStep = FMath::Lerp(QNormal, QDesired, 0.1f);
+
+		//новые оси для ориентации получить из вращения только что полученным кватернионом
+		CI->PriAxis1 = QNewStep.RotateVector(Pri);
+		CI->SecAxis1 = QNewStep.RotateVector(Sec);
+	}
+	//ведомый - просто фиксировать в той позе, в какой было
+	else
+	{	CI->PriAxis1 = TM1.InverseTransformVectorNoScale(Pri);
+		CI->SecAxis1 = TM1.InverseTransformVectorNoScale(Sec);
+	}
+
+
+
+	/////////////////////////////////////////////////////////////////////////////////
+	// Применение пересчитанного - залитие в физ-движок
+	/////////////////////////////////////////////////////////////////////////////////
+
+	//если пола нет или старый пол нерелевантен, то ранее констрейнт был стерт
+	if(CI->IsTerminated())
+	{
+		CI->InitConstraint (CBody, FBody, 1.0f, this);
+		G.ConstraintConfiguredAsCling = true;
+		G.ConstraintConfiguredAsVertical = false;
+		UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d Recreate 1p:%s 1s:%s / 2p:%s 2s:%s"), *GetOwner()->GetName(), (int)(&G - &gPelvis), 
+			*CI->PriAxis1.ToString(), *CI->SecAxis1.ToString(), *CI->PriAxis2.ToString(), *CI->SecAxis2.ToString());
+		auto V = NewAbsPos + FVector::UpVector * 0;
+		//DrawDebugLine(GetOwner()->GetWorld(), V, V + Sec * 10, FColor(255, 0, 0), false, 10.01f, 255, 2);
+		DrawDebugLine(GetOwner()->GetWorld(), V, V + Pri * 10, FColor(0, 0, 255), false, 10.01f, 255, 2);
+
+	}
+	else
+	{
+		//дальше выкорчёвывается из исходников способ обращения с нижележащим слоем абстракции и применяется в лоб
+		auto V = NewAbsPos + FVector::UpVector * 0;
+		FPhysicsInterface::ExecuteOnUnbrokenConstraintReadWrite(CI->ConstraintHandle, [&](const FPhysicsConstraintHandle& InUnbrokenConstraint)
+		{	FPhysicsInterface::SetLocalPose(InUnbrokenConstraint, FTransform(CI->PriAxis1, CI->SecAxis1, CI->PriAxis1 ^ CI->SecAxis1, CI->Pos1), EConstraintFrame::Frame1);
+			FPhysicsInterface::SetLocalPose(InUnbrokenConstraint, FTransform(CI->PriAxis2, CI->SecAxis2, CI->PriAxis2 ^ CI->SecAxis2, CI->Pos2), EConstraintFrame::Frame2);
+		});
+		//DrawDebugLine(GetOwner()->GetWorld(), V, V + Sec * 5, FColor(200, 0, 0), false, 10.01f, 255, 1);
+		DrawDebugLine(GetOwner()->GetWorld(), V, V + Pri * 5, FColor(0, 0, 200), false, 10.01f, 255, 1);
+		UE_LOG(LogTemp, Error, TEXT("%s: ClingGirdle %d Pass 1p:%s 1s:%s / 2p:%s 2s:%s"), *GetOwner()->GetName(), (int)(&G - &gPelvis),
+			*CI->PriAxis1.ToString(), *CI->Pos1.ToString(), *CI->PriAxis2.ToString(), *CI->Pos2.ToString());
+	}
+}
+
+//==============================================================================================================
+//отвязаться от опоры (расслабить ограничитель, но не удалять, чтобы не пересоздавать от дребезга)
+//==============================================================================================================
+void UMyrPhyCreatureMesh::UnClingGirdle(FGirdle& G)
+{
+	if (!G.Clung) return;
+
+	//отключаем, размыкаем туги ограничения, на саму инстанцию привязи не удаляем
+	auto CBody = GetGirdleBody(G, EGirdleRay::Center);
+	SetFreedom(CBody->DOFConstraint, -1, -1, -1, 180, 180, 180);
+	CBody->DOFConstraint->SetLinearPositionDrive(false, false, false);
+	CBody->DOFConstraint->SetAngularPositionDrive(false, false);
+
+	CBody->DOFConstraint->SetLinearVelocityDrive(false, false, false);
+	CBody->DOFConstraint->SetAngularVelocityDriveTwistAndSwing(false, false);
+	G.Clung = false;
+	UE_LOG(LogTemp, Error, TEXT("%s: UnClingGirdle %d"), *GetOwner()->GetName(), (int)(&G - &gPelvis));
+
+	//сигнализируем наверх, что возможно надо поменять состояние всего тела
+	MyrOwner()->QueryBehaveState(EBehaveState::fall);
+}
+
+//==============================================================================================================
+//получить букет трансформаций конечности в правильном формате из физ-модели существа
+//==============================================================================================================
+FVector UMyrPhyCreatureAnimInst::GetLimbTransform(const FLimb& Limb, const FVector& Older, const float WheelRadius, const float Offset, const float InvRange) const
+{
+	const auto M = Creature->GetMesh();
+	auto ParentLimb = M->GetLimbParent(Limb);
+	const auto& G = M->GetGirdle(Limb);	//здесь крайне важно использовать сссылку или указатель
+	auto SpineLimb = M->GetGirdleLimb(G, EGirdleRay::Spine);
+
+	//радиус-вектор от плеча до ноги
+	FVector Devia = 
+		M->GetMachineBody(Limb)->GetCOMPosition() -			// центр колеса
+		M->GetMachineBody(ParentLimb)->GetCOMPosition();	// центр жопы
+
+
+	if (M->PredictedLODLevel == 0)
+	{
+		//смещаем начало вектора из центра жопы к центру ягодицы
+		Devia = Devia.ProjectOnToNormal(M->GetLimbAxisDown(ParentLimb));
+
+		//минус радиус по нормали вниз к точке касания = точная позиция точки касания
+		Devia -= Limb.ImpactNormal * WheelRadius;
+
+		//здесь надо изменять кривые, регулирующие расставление ног - от кривизны. от параллельности хода
+
+		//длина 
+		FVector FootDir; float FootDist;
+		Devia.ToDirectionAndLength(FootDir, FootDist);
+
+		//елси нет движения, то важно мгновенно реагировать на шатание
+		float SmoothMo = 1.0f - 0.9*Creature->ExternalGain;
+
+		DrawDebugString(Creature->GetWorld(), Devia, FString::SanitizeFloat(Devia.X, 3), Creature, FColor(255, 0, 0, 100), 0.02, false, 1.0f);
+
+		//исключительно точная локализация точки постановки стопы - возможно, будет дёргаться
+		//DrawDebugLine(Creature->GetWorld(), M->GetMachineBody(Limb)->GetCOMPosition(), M->GetMachineBody(Limb)->GetCOMPosition() - Devia, FColor(255, 0, 0, 10), false, 0.02f, 100, 1);
+
+		return Devia;
+		/*return FMath::Lerp(Older, FVector
+		(
+			//угол маха вперед-назад (вокруг боковой оси) - учитывать, что тело липнет к центру, а ноги гнутся отонсительно спины
+			//довольно неочевидный выбор осей, возможно, лучше стандартизировать
+			FMath::FastAsin ( FootDir | M->GetLimbAxisForth(SpineLimb)),
+
+			// угол маха влево-вправо (вокруг оси вперед)
+			FMath::FastAsin ( FootDir | M->GetLimbAxisRight(ParentLimb)),
+
+			// просто длина вдоль оси вниз части тела - родителя
+			1 - (FootDist - Offset) * InvRange
+		),
+		SmoothMo);*/
+	}
+	else
+	{
+		return FVector
+		(
+			//угол маха вперед-назад (вокруг боковой оси) - арксинус угла между верхом подвижного таза и передом протяженного сегмента спины у этого пояса
+			FMath::FastAsin(FVector::DotProduct(M->GetLimbAxisUp(M->GetGirdleLimb(G, EGirdleRay::Center)), M->GetLimbAxisForth(M->GetGirdleLimb(G, EGirdleRay::Center)))),
+
+			// угол маха влево-вправо (вокруг оси вперед)
+			0,
+
+			// просто длина вдоль оси вниз части тела - родителя
+			// за одно утапливаем из центра вниз к точке касания шарика с опорой (+ WheelRadius)
+			1 - ((Devia | M->GetLimbAxisDown(ParentLimb)) + WheelRadius - Offset) * InvRange
+
+		);
+	}
+}
+
+//==============================================================================================================
+//переход от стояния к взлетанию = прыжок
+//==============================================================================================================
+bool AMyrPhyCreature::JumpFromWalk(float JumpHoldTime)
+{	
+	//предподготовка
+	PreJump();
+
+	//берем данные о состоянии в прыжке до прыжка, чтобы иметь также данные о текущем состоянии
+	auto SoarData = GetGenePool()->BehaveStates.Find(EBehaveState::soar);
+	if (!SoarData) return false;
+	float JumpImpulse = (*SoarData)->MaxVelocity	// скорость прыжка, из сборки
+		* FMath::Min(JumpHoldTime, 1.0f)			// учет времени прижатия кнопки/ног
+		* Mobility									// учет моторного здоровья
+		* Params.GetStrength();						// ролевая прокачиваемая сила
+	float HardToJumpBack = 0.7f + 0.3f * (Mesh->gThorax.Forward | AttackDirection);
+	Mesh->PhyJump( Mesh->gThorax.AlignedDir,
+		JumpImpulse * HardToJumpBack,
+		JumpImpulse);
+	return true;
+}
+
+//==============================================================================================================
+//переход от стояния к взлетанию = прыжок
+//==============================================================================================================
+bool AMyrPhyCreature::JumpFromRun()
+{	
+	//предподготовка
+	PreJump();
+
+	//берем данные до прыжка, чтобы иметь также данные о текущем состоянии
+	auto SoarData = GetGenePool()->BehaveStates.Find(EBehaveState::soar);
+	if (!SoarData) return false;
+	float JumpImpulse = (*SoarData)->MaxVelocity	// скорость прыжка, из сборки
+		* Mobility									// учет моторного здоровья
+		* Params.GetStrength();						// ролевая прокачиваемая сила
+	Mesh->PhyJump(
+		Mesh->gThorax.AlignedDir, JumpImpulse, JumpImpulse);
+	return true;
+}
+
+//==============================================================================================================
+//переход от стояния к взлетанию = прыжок
+//==============================================================================================================
+bool AMyrPhyCreature::JumpFromClimb(float JumpHoldTime)
+{	
+	//предподготовка
+	PreJump();
+
+	//берем данные о состоянии в прыжке до прыжка, чтобы иметь также данные о текущем состоянии
+	auto SoarData = GetGenePool()->BehaveStates.Find(EBehaveState::soar);
+	if (!SoarData) return false;
+	float JumpImpulse = (*SoarData)->MaxVelocity	// скорость прыжка, из сборки
+		* FMath::Min(JumpHoldTime, 1.0f)			// учет времени прижатия кнопки/ног
+		* Mobility									// учет моторного здоровья
+		* Params.GetStrength();						// ролевая прокачиваемая сила
+
+	//здесь нужно более сложным путем выбирать направление
+	Mesh->PhyJump ( Mesh->gThorax.AlignedDir, JumpImpulse, JumpImpulse);
+	return true;
+}
+
+//==============================================================================================================
+//прыжок из состояния лежания - неясно, стоит ли применять стандартные прыжковые импульсы, пока обходимся моделями самодействия
+//==============================================================================================================
+bool AMyrPhyCreature::JumpFromLie()
+{	PreJump();
+	
+	//если здоровье совсем слабо, то смочь только извиваться
+	if(Health < 0.2) SelfActionFindStart(ECreatureAction::SELF_WRIGGLE1);
+
+	//если здоровье есть, попытаться встать на дыбы
+	else SelfActionFindStart(ECreatureAction::SELF_PRANCE1);
+	return true;
+}
+

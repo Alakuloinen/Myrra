@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FGenericCrashContext>
+<RuntimeProperties>
+<CrashVersion>3</CrashVersion>
+<CrashGUID>UE4CC-Windows-12A3476C415C8B28A0C6B5A6686206BF_0000</CrashGUID>
+<ProcessId>10908</ProcessId>
+<IsInternalBuild>false</IsInternalBuild>
+<IsPerforceBuild>false</IsPerforceBuild>
+<IsSourceDistribution>false</IsSourceDistribution>
+<IsEnsure>false</IsEnsure>
+<IsAssert>false</IsAssert>
+<CrashType>Crash</CrashType>
+<SecondsSinceStart>0</SecondsSinceStart>
+<GameName>UE4-Myrra</GameName>
+<ExecutableName>Myrra</ExecutableName>
+<BuildConfiguration>Development</BuildConfiguration>
+<GameSessionID></GameSessionID>
+<Symbols>**UE4*Release-4.21-CL-4613538-Win64-Development</Symbols>
+<PlatformName>WindowsNoEditor</PlatformName>
+<PlatformNameIni>Windows</PlatformNameIni>
+<EngineMode>Game</EngineMode>
+<EngineModeEx>Unset</EngineModeEx>
+<DeploymentName></DeploymentName>
+<EngineVersion>4.21.1-4613538+++UE4+Release-4.21</EngineVersion>
+<CommandLine></CommandLine>
+<LanguageLCID>1049</LanguageLCID>
+<AppDefaultLocale>ru-RU</AppDefaultLocale>
+<BuildVersion>++UE4+Release-4.21-CL-4613538</BuildVersion>
+<IsUE4Release>false</IsUE4Release>
+<UserName></UserName>
+<BaseDir>E:/CEI/cir/unreal/Myrra 4.24/PackagedWin64/WindowsNoEditor/Myrra/Binaries/Win64/</BaseDir>
+<RootDir>E:/CEI/cir/unreal/Myrra 4.24/PackagedWin64/WindowsNoEditor/</RootDir>
+<MachineId>457AFB57412BB150D79A468A9BBF8C86</MachineId>
+<LoginId>457afb57412bb150d79a468a9bbf8c86</LoginId>
+<EpicAccountId></EpicAccountId>
+<CallStack></CallStack>
+<PCallStack>
+Myrra     0x000000003fa40000 + a59d59  
+Myrra     0x000000003fa40000 + a61824  
+Myrra     0x000000003fa40000 + 3398273 
+Myrra     0x000000003fa40000 + 3bff2f6 
+Myrra     0x000000003fa40000 + 3af7526 
+Myrra     0x000000003fa40000 + 3a92b5e 
+Myrra     0x000000003fa40000 + 324576a 
+Myrra     0x000000003fa40000 + 442328  
+Myrra     0x000000003fa40000 + 454c82  
+Myrra     0x000000003fa40000 + 454dea  
+Myrra     0x000000003fa40000 + 4633d5  
+Myrra     0x000000003fa40000 + 48dc736 
+kernel32  0x0000000077820000 + 1652d   
+ntdll     0x0000000077940000 + 2c521   
+</PCallStack>
+<SourceContext></SourceContext>
+<UserDescription></UserDescription>
+<UserActivityHint></UserActivityHint>
+<ErrorMessage></ErrorMessage>
+<CrashDumpMode>0</CrashDumpMode>
+<CrashReporterMessage></CrashReporterMessage>
+<Misc.NumberOfCores>2</Misc.NumberOfCores>
+<Misc.NumberOfCoresIncludingHyperthreads>4</Misc.NumberOfCoresIncludingHyperthreads>
+<Misc.Is64bitOperatingSystem>1</Misc.Is64bitOperatingSystem>
+<Misc.CPUVendor>GenuineIntel</Misc.CPUVendor>
+<Misc.CPUBrand>        Intel(R) Core(TM) i3-2120 CPU @ 3.30GHz</Misc.CPUBrand>
+<Misc.PrimaryGPUBrand>Intel(R) HD Graphics</Misc.PrimaryGPUBrand>
+<Misc.OSVersionMajor>Windows 7</Misc.OSVersionMajor>
+<Misc.OSVersionMinor>Service Pack 1</Misc.OSVersionMinor>
+<GameStateName></GameStateName>
+<MemoryStats.TotalPhysical>10612690944</MemoryStats.TotalPhysical>
+<MemoryStats.TotalVirtual>8796092891136</MemoryStats.TotalVirtual>
+<MemoryStats.PageSize>4096</MemoryStats.PageSize>
+<MemoryStats.TotalPhysicalGB>10</MemoryStats.TotalPhysicalGB>
+<MemoryStats.AvailablePhysical>0</MemoryStats.AvailablePhysical>
+<MemoryStats.AvailableVirtual>0</MemoryStats.AvailableVirtual>
+<MemoryStats.UsedPhysical>0</MemoryStats.UsedPhysical>
+<MemoryStats.PeakUsedPhysical>0</MemoryStats.PeakUsedPhysical>
+<MemoryStats.UsedVirtual>0</MemoryStats.UsedVirtual>
+<MemoryStats.PeakUsedVirtual>0</MemoryStats.PeakUsedVirtual>
+<MemoryStats.bIsOOM>0</MemoryStats.bIsOOM>
+<MemoryStats.OOMAllocationSize>0</MemoryStats.OOMAllocationSize>
+<MemoryStats.OOMAllocationAlignment>0</MemoryStats.OOMAllocationAlignment>
+</RuntimeProperties>
+<PlatformProperties>
+<PlatformIsRunningWindows>1</PlatformIsRunningWindows>
+<PlatformCallbackResult>0</PlatformCallbackResult>
+</PlatformProperties>
+</FGenericCrashContext>

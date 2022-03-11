@@ -1,0 +1,1150 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+// сам
+#include "MyrDaemon.h"									
+
+//компоненты
+#include "Camera/CameraComponent.h"						// камера
+#include "Components/InputComponent.h"					// ввод с клавы мыши
+#include "GameFramework/SpringArmComponent.h"			// пружинка камеры
+#include "Particles/ParticleSystemComponent.h"			// для частиц вокруг камеры
+#include "Components/AudioComponent.h"					// звук
+#include "Components/DecalComponent.h"					// декал
+#include "Components/SceneCaptureComponent2D.h"			// рендер в текстуру примятия травы
+#include "Components/ArrowComponent.h"					// херь для корня и индикации
+#include "Components/CapsuleComponent.h"					// херь для корня и индикации
+#include "Components/SphereComponent.h"					// херь для регистрации помех камеры
+#include "Materials/MaterialParameterCollectionInstance.h"	// для подводки материала неба
+#include "Engine/TextureRenderTarget2D.h"				//текстура для рендера в текстуру
+
+//системные дополнения
+#include "Engine/Classes/Kismet/GameplayStatics.h"		// замедление времени
+#include "Materials/MaterialInstanceDynamic.h"			// для управления материалами эффектов камеры
+#include "Engine/Public/EngineUtils.h"					// для ActorIterator
+#include "Kismet/KismetRenderingLibrary.h"				// чтоб рендерить в RT и копировать, не могли методами RT сделать, уроды
+#include "GameFramework/InputSettings.h"				// чтоб выдавать названия клавиш
+
+//свои
+#include "MyrPlayerController.h"						// специальный контроллер игрока
+#include "../MyrraGameInstance.h"						// самые общие на всю игру данные
+#include "../MyrraGameModeBase.h"						// общие для данного уровня данные
+#include "../Creature/MyrPhyCreature.h"					// ПОДОПЕЧНОЕ СУЩЕСТВО
+#include "../UI/MyrBioStatUserWidget.h"					// модифицированный виджет со вложенными указателями на игрока, ИИ, контроллер
+#include "AssetStructures/MyrCreatureGenePool.h"		// данные для всех существ этого вида
+#include "AssetStructures/MyrCreatureBehaveStateInfo.h"	// данные по текущему состоянию моторики
+
+//свой лог
+DEFINE_LOG_CATEGORY(LogMyrDaemon);
+
+//выполнить доморощенную тик-функцию
+void FDaemonOtherTickFunc::ExecuteTick(float DeltaTime, ELevelTick TickType, ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
+{	Target->LowPaceTick(DeltaTime);}
+FString FDaemonOtherTickFunc::DiagnosticMessage() { return Target->GetFullName() + TEXT("[TickAction]"); }
+
+
+
+
+AMyrraGameModeBase* AMyrDaemon::GetMyrGameMode()
+{ return GetWorld()->GetAuthGameMode<AMyrraGameModeBase>(); }
+
+//==============================================================================================================
+//найти идентификатор реального действия (специфичный для этого существа) привязанный к условной кнопке
+//==============================================================================================================
+ECreatureAction AMyrDaemon::FindActionForPlayerButton(uint8 Button)
+{
+	if (Button > PCK_MAXIMUM) return ECreatureAction::NONE;
+	auto BehaveSpecificActions = OwnedCreature->GetGenePool()->PlayerStateTriggeredActions.Find(OwnedCreature->GetBehaveCurrentState());
+	if (BehaveSpecificActions) return BehaveSpecificActions->ByIndex(Button);
+	else return OwnedCreature->GetGenePool()->PlayerDefaultTriggeredActions.ByIndex(Button);
+}
+
+
+//==============================================================================================================
+// выделить память на компоненты, данные по умолчанию
+//==============================================================================================================
+AMyrDaemon::AMyrDaemon()
+{
+	//этот тик используется для управления замедленным движением (чо уж, каждый кадр для плавности)
+	//также для движения камеры от первого к третьему лицу
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickInterval = 0;
+	PrimaryActorTick.bStartWithTickEnabled = true;
+	PrimaryActorTick.bTickEvenWhenPaused = true;
+
+	//дополнительная тик-функция  (здесь всё, кроме регистрации)
+	OtherTickFunc.bCanEverTick = true;
+	OtherTickFunc.bTickEvenWhenPaused = true;
+	OtherTickFunc.bStartWithTickEnabled = true;
+	OtherTickFunc.Target = this;
+	OtherTickFunc.SetTickFunctionEnable(true);
+	OtherTickFunc.TickInterval = 0.35f;
+
+	// set our turn rates for input
+	BaseTurnRate = 45.f;
+	BaseLookUpRate = 45.f;
+
+	// Don't rotate when the controller rotates. Let that just affect the camera.
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+
+	RootComp = CreateDefaultSubobject<UCapsuleComponent>(TEXT("Root"));
+	RootComponent = RootComp;
+	RootComp->SetCollisionObjectType(ECollisionChannel::ECC_Camera);
+	RootComp->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+	RootComp->SetUsingAbsoluteRotation(true);	// чтобы не поворачивалось пространства вместе с существом
+
+	// Create a follow camera
+	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+	//Camera->SetupAttachment(CameraRestrictor, USpringArmComponent::SocketName);
+	Camera->SetupAttachment(RootComponent);
+	MoveCamera3p();
+	Camera->bUsePawnControlRotation = false;
+
+	//источник эффекта частиц
+	ParticleSystem = CreateDefaultSubobject<UParticleSystemComponent>(TEXT("Particle System"));
+	ParticleSystem->SetupAttachment(RootComponent);
+	ParticleSystem->SetRelativeLocation(FVector(0, 0, 0));
+	ParticleSystem->SetUsingAbsoluteRotation(true);
+
+	//звуки природы, окружения
+	AmbientSounds = CreateDefaultSubobject<UAudioComponent>(TEXT("Ambient Sound"));
+	AmbientSounds->SetupAttachment(Camera);
+	AmbientSounds->SetRelativeLocation(FVector(0, 0, 0));
+
+	//декал для глянца мокрых поверхностей
+	RainWetArea = CreateDefaultSubobject<UDecalComponent>(TEXT("Wet Surface"));
+	RainWetArea->SetupAttachment(RootComponent);
+	RainWetArea->SetRelativeLocation(FVector(0, 0, 0));
+
+	//захват вида сцены
+	CaptureTrails = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("Scene Capture 2D"));
+	CaptureTrails->SetupAttachment(RootComponent);
+	CaptureTrails->ProjectionType = ECameraProjectionMode::Orthographic;
+	CaptureTrails->CaptureSource = ESceneCaptureSource::SCS_BaseColor;
+	CaptureTrails->CompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
+	CaptureTrails->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
+	CaptureTrails->bCaptureOnMovement = false;
+	CaptureTrails->bCaptureEveryFrame = false;	//будет вызываться тот же каждый кадр, но вручную
+	CaptureTrails->bAutoActivate = true;
+	CaptureTrails->DetailMode = EDetailMode::DM_High;
+	CaptureTrails->SetRelativeLocation(FVector(0, 0, -700));
+	CaptureTrails->SetRelativeRotation(FRotator(90, 0, 90));
+	CaptureTrails->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	//тут ещё надо ShowFlags устанавливать на одни Decals, но как-то мутно из кода это делается
+
+	//битовое поле зажатых клавиш, для асинхронной проверки и установки режимов
+	bMove = 0;
+	bParry = 0;
+	bClimb = 0;
+
+	//в режиме от игрока, использовать направление взгляда/атаки из ИИ (для автонацеливания и поворота головы)
+	UseActDirFromAI = 0;
+
+	AutoPossessPlayer = EAutoReceiveInput::Player0;
+
+}
+
+//==============================================================================================================
+//после инициализации компонентов - важно, чтобы до BeginPlay
+//==============================================================================================================
+void AMyrDaemon::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	//регистрация текущего на данный момент игрока во всей игре
+	if (GetWorld())
+		if (GetMyrGameMode())
+			if(!GetMyrGameMode()->Protagonist)
+				GetMyrGameMode()->Protagonist = this;
+
+	//создание динамического рычажка для материала, которым рекуррировать следы
+	if(GetMyrGameInst())
+		if(GetMyrGameInst()->MaterialToHistorifyTrails)
+			HistorifyTrailsMat = UMaterialInstanceDynamic::Create(GetMyrGameInst()->MaterialToHistorifyTrails, this);
+
+}
+
+
+//==============================================================================================================
+// реакция на изменения в редакторе - подцеп к существу со сдвигом осуществляется явным выбором актора из списка
+//==============================================================================================================
+#if WITH_EDITOR
+void AMyrDaemon::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	FName PropertyName = (PropertyChangedEvent.Property != nullptr) ? PropertyChangedEvent.Property->GetFName() : NAME_None;
+	if ((PropertyName == GET_MEMBER_NAME_CHECKED(AMyrDaemon, OwnedCreature)))
+	{
+		//привязать к правильному компоненту
+		if (OwnedCreature) ClingToCreature(OwnedCreature);
+	}
+}
+//==============================================================================================================
+// вызывается, когда параметр уже изменен, но имеется старое значение параметра - правильно с ним расстаться
+//==============================================================================================================
+void AMyrDaemon::PreEditChange(FProperty* PropertyThatWillChange)
+{
+	if (PropertyThatWillChange->GetFName() == TEXT("OwnedCreature")) ReleaseCreature();
+}
+#endif
+
+//==============================================================================================================
+//переопределение -  связать органы управления извне и функции-отклики 
+//в этой функции надо создать 2 ветви - с существом и свободное - соотвественно, привязывать разные функции
+//==============================================================================================================
+void AMyrDaemon::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	check(PlayerInputComponent);
+
+	//если нет существа, все эти функции пасны, так как в них не проверяется наличие существа
+	if (!OwnedCreature) return;
+
+	//обычное движение через ждойстик
+	PlayerInputComponent->BindAxis("MoveForward", this, &AMyrDaemon::MoveForward);
+	PlayerInputComponent->BindAxis("MoveRight", this, &AMyrDaemon::MoveRight);
+
+	// We have 2 versions of the rotation bindings to handle different kinds of devices differently
+	// "turn" handles devices that provide an absolute delta, such as a mouse.
+	// "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick
+	PlayerInputComponent->BindAxis("Turn", this, &APawn::AddControllerYawInput);
+	PlayerInputComponent->BindAxis("TurnRate", this, &AMyrDaemon::TurnAtRate);
+	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
+	PlayerInputComponent->BindAxis("LookUpRate", this, &AMyrDaemon::LookUpAtRate);
+
+	//колесо мыши - выбор варианта экспрессии, отдыха, расстояния камеры
+	PlayerInputComponent->BindAxis("MouseWheel", this, &AMyrDaemon::MouseWheel);
+
+	// handle touch devices
+	PlayerInputComponent->BindTouch(IE_Pressed, this, &AMyrDaemon::TouchStarted);
+	PlayerInputComponent->BindTouch(IE_Released, this, &AMyrDaemon::TouchStopped);
+
+
+	//прыжок вперед, атака в прыжке (Space)
+	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &AMyrDaemon::JumpPress);
+	PlayerInputComponent->BindAction("Jump", IE_Released, this, &AMyrDaemon::JumpRelease);
+
+	//прыжок назад, отскок, уход от удара (Alt - надо заменить на Z или X)
+	PlayerInputComponent->BindAction("Evade", IE_Pressed, this, &AMyrDaemon::AltPress);
+	PlayerInputComponent->BindAction("Evade", IE_Released, this, &AMyrDaemon::AltRelease);
+
+	//режим разворота боком и контратаки (Q)
+	PlayerInputComponent->BindAction("Counter", IE_Pressed, this, &AMyrDaemon::SidePoseBegin);
+	PlayerInputComponent->BindAction("Counter", IE_Released, this, &AMyrDaemon::SidePoseEnd);
+
+	//режим поднятия и общего использования объектов (E)
+	PlayerInputComponent->BindAction("Pick", IE_Pressed, this, &AMyrDaemon::PickStart);
+	PlayerInputComponent->BindAction("Pick", IE_Released, this, &AMyrDaemon::PickEnd);
+
+	//режим диалога и выражения эмоций (R)
+	PlayerInputComponent->BindAction("Express", IE_Pressed, this, &AMyrDaemon::ExpressPress);
+	PlayerInputComponent->BindAction("Express", IE_Released, this, &AMyrDaemon::ExpressRelease);
+
+	//переход к отдыху (T)
+	PlayerInputComponent->BindAction("Relax", IE_Pressed, this, &AMyrDaemon::RelaxPress);
+	PlayerInputComponent->BindAction("Relax", IE_Released, this, &AMyrDaemon::RelaxToggle);
+
+	// спринт (Shift)
+	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &AMyrDaemon::ShiftPress);
+	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &AMyrDaemon::ShiftRelease);
+
+	// стэлс и прочая пригнутость (Ctrl)
+	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &AMyrDaemon::CtrlPress);
+	PlayerInputComponent->BindAction("Crouch", IE_Released, this, &AMyrDaemon::CtrlRelease);
+
+	// включить и выключить полёт (Z,X,C - хз пока)
+	PlayerInputComponent->BindAction("Fly", IE_Pressed, this, &AMyrDaemon::FlyPress);
+	PlayerInputComponent->BindAction("Fly", IE_Released, this, &AMyrDaemon::FlyRelease);
+
+	//переключение альтернативной камеры, пока для теста 
+	PlayerInputComponent->BindAction("CineCamera", IE_Pressed, this, &AMyrDaemon::CineCameraToggle);
+
+	//переключение перового и третьего лица (Z, надо поменять опять на F, ибо редкая штука на важной клавише)
+	PlayerInputComponent->BindAction("PersonToggle", IE_Pressed, this, &AMyrDaemon::PersonToggle);
+
+	//обработка кнопок мыши - здесь надо переделать в местные функции,
+	PlayerInputComponent->BindAction("Attack_R", IE_Pressed, this, &AMyrDaemon::Mouse_R_Pressed);
+	PlayerInputComponent->BindAction("Attack_R", IE_Released, this, &AMyrDaemon::Mouse_R_Released);
+	PlayerInputComponent->BindAction("Attack_L", IE_Pressed, this, &AMyrDaemon::Mouse_L_Pressed);
+	PlayerInputComponent->BindAction("Attack_L", IE_Released, this, &AMyrDaemon::Mouse_L_Released);
+	PlayerInputComponent->BindAction("Attack_M", IE_Pressed, this, &AMyrDaemon::Mouse_M_Pressed);
+	PlayerInputComponent->BindAction("Attack_M", IE_Released, this, &AMyrDaemon::Mouse_M_Released);
+
+}
+
+
+//==============================================================================================================
+// Called when the game starts or when spawned
+//==============================================================================================================
+void AMyrDaemon::BeginPlay()
+{
+	//если нет контроллера, всё остальное не нужно
+	if (!Controller) return;
+
+	// из-за этой хни нельзя второй тик полностью в конструкторе
+	OtherTickFunc.RegisterTickFunction(GetLevel());
+
+	//подстпудное
+	Super::BeginPlay();
+
+	//если нет подвязанного существа, всё остальное не нужно
+	if (!OwnedCreature) return;
+
+	//расстояние камеры от цели, зависит от размера цели, хотя лучше завести переменную в генофонде
+	ThirdPersonDist = OwnedCreature->GetBodyLength()*2;
+	MoveCamera3p();
+
+	//закрепить камеру на правильной секции
+	PoseInsideCreature();
+
+	//здесь инициализируется экран боли
+	SetFirstPerson(false);
+
+	//очистить текстуры следов, а то в редакторе их сохраняет с предыдущего запуска
+	//почему нельзя сделать вместо этой длинючки просто  Target->Clear()? Тупые, блин
+	UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), CaptureTrails->TextureTarget, CaptureTrails->TextureTarget->ClearColor);
+	UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), GetMyrGameInst()->TrailsTargetPersistent, GetMyrGameInst()->TrailsTargetPersistent->ClearColor);
+
+	//создать рычаг для динамического изменения материала окружающей мокроты
+	RainDecalMatInst = RainWetArea->CreateDynamicMaterialInstance();
+	PreviousPosition = GetActorLocation();
+}
+
+//==============================================================================================================
+//такт покадровый - фактический самый главный тик в игре, в нём обновляется вся субъективная мировая визуальность
+//==============================================================================================================
+void AMyrDaemon::Tick(float DeltaTime)
+{
+	//совсем базовое
+	Super::Tick(DeltaTime);
+
+
+	//инстанция глобальных параметров материалов
+	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
+	if (!EnvMatParam) return;
+	auto MPC = GetWorld()->GetParameterCollectionInstance(EnvMatParam);
+
+	//собственно, подвижка массы воздуха, по предварительно вычисленной скорости
+	CurrentAirMassPosition += WindDir * DeltaTime;
+
+	//отправка нового значения в коллекцию параметров
+	MPC->SetVectorParameterValue(TEXT("AirMassPosition"), FLinearColor(CurrentAirMassPosition.X, CurrentAirMassPosition.Y, 0, 0));
+
+	if(!GetMyrGameMode()) return;
+	if(!OwnedCreature) return;
+
+	//направление действий/атак/головы - куда смотрим, туда и направляем
+	Drive.ActDir = Controller->GetControlRotation().Vector();
+
+	//усиление двоения в глазах при резкой боли - здесь нужно каждый кадр ибо боль скоротечна
+	Camera->PostProcessSettings.SceneFringeIntensity = OwnedCreature->Pain;
+
+	//инстанция глобальных параметров материалов
+	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
+	//каждый кадр записывать для всех материалов локацию игрока
+	//auto MPC = GetMyrGameInst()->MakeMPCInst();
+	MPC->SetVectorParameterValue(TEXT("PlayerLocation"), GetActorLocation());
+	MPC->SetVectorParameterValue(TEXT("PlayerOffsetFromPreviousLocation"), GetActorLocation() - PreviousPosition);
+	PreviousPosition = GetActorLocation();
+
+	//применение расчёта следов
+	UpdateTrailRender();
+
+	////////////////////////////////////////////////////////////////////////////////////
+	//если указан внешний источник позиции камеры - нас хотят видно в катстцену загнать
+	if (ExternalCameraPoser && AllowExtCameraPosing)
+	{
+		//разложение значений позиции внешнего оператора камеры в координаты, гомологичные внутреннему представлению
+		FVector TempDir;	float TempLngt;
+		(this->GetActorLocation() - ExternalCameraPoser->GetActorLocation()).ToDirectionAndLength(TempDir, TempLngt);
+
+		//порог малости микса = полностью внешний контроль за камерой, простые вычисления
+		if (CamExtIntMix < 0.01)
+		{	CamExtIntMix = 0.0f;
+			CamExtTargetVector = TempDir;
+			CamExtTargetDist = TempLngt;
+		}
+
+		//нахождение промежуточного значения между текущим внешним местом и текущим внутренним
+		//сам микс здесь стремится к нулю
+		else
+		{	CamExtTargetVector = FMath::Lerp(TempDir, GetControlRotation().Vector(), CamExtIntMix);
+			CamExtTargetDist = FMath::Lerp(TempLngt, ThirdPersonDist, CamExtIntMix);
+			CamExtIntMix *= 0.95;
+		}
+	}
+	//если внешнего позёра камеры нет или он недавно исчез = возврат к управляемой мышью камере
+	else
+	{
+		//в условиях пропажи внешнего конца микса - миксуем рекуррентно, с постоянной альфой
+		//сам же микс для простоты растим линейно
+		if (CamExtIntMix < 0.99)
+		{	CamExtTargetVector = FMath::Lerp(CamExtTargetVector, GetControlRotation().Vector(), 0.1f);
+			CamExtTargetDist = FMath::Lerp(CamExtTargetDist, ThirdPersonDist, 0.1f);
+			CamExtIntMix += DeltaTime*2;
+		}
+		//достижение стабильности - упростить вычисления, досшли в конечную точку
+		else
+		{	CamExtIntMix = 1.0f;
+			CamExtTargetVector = GetControlRotation().Vector();
+			CamExtTargetDist = ThirdPersonDist;
+		}
+	}
+
+	//если вошли в режим паузы связанной с меню
+	if (!MyrController()->GetCurrentUIMode()) return;
+	else if (MyrController()->GetCurrentUIMode()->UI_notHUD)
+	{
+		//плавно снести уровень цветности до нуля (ЧБ)
+		Camera->PostProcessSettings.ColorSaturation.W *= 0.8f;
+	}
+	
+	//в режиме активной игры
+	else 
+	////////////////////////////////////////////////////////////////////////////////////
+	//проверка подопечного существа на мертвость - переход на экран конца игры
+	if (OwnedCreature->GetBehaveCurrentState() == EBehaveState::dead)
+	{
+		//выдержка, показываем мертвое тело еще какое-то время
+		if (OwnedCreature->StateTime < 1.0f)
+		{
+			//включение замедления времени
+			Camera->PostProcessSettings.MotionBlurAmount = 20 * OwnedCreature->StateTime * OwnedCreature->StateTime;
+
+			//включить функцию обесцвечивания экрана
+			Camera->PostProcessSettings.bOverride_ColorSaturation = true;
+
+			//плавно снести уровень цветности до нуля (ЧБ)
+			Camera->PostProcessSettings.ColorSaturation.W *= 0.8f;
+
+			//усилить слепоту
+			PainScreen->SetScalarParameterValue(TEXT("PainAmount"), 1.0f + OwnedCreature->StateTime * 0.5);
+		}
+	}
+
+
+	
+	/////////////////////////////////////////////////////////////////////////////////
+	//постоянная подстройка расстояния камеры
+	//ещё здесь можно добавить смесь фиксированного угла и задаваемого мышкой
+	switch (MyrCameraMode)
+	{
+		//##############################
+		case EMyrCameraMode::FirstPerson:
+			MoveCamera1p();
+			break;
+
+		//##############################
+		case EMyrCameraMode::Transition31:
+
+			//плавно приближать текущее отдаление к целевому
+			CamDistNormFactor -= 0.05;
+
+			//если добрались до конца - включить собственно первое
+			if (CamDistNormFactor <= 0.05)
+				SetFirstPerson(true);
+
+			//самое главное, позиционирование камеры по выше расчитанным данным
+			MoveCamera3p();
+			break;
+
+		//##############################
+		case EMyrCameraMode::ThirdPerson:
+
+			//честный расчёт дистанции камеры через поиск препятствий
+			TraceForCamDist();
+
+			//плавный выкат множителя расстояния камеры на уровень 
+			CamDistOccluderAffect = FMath::Lerp(CamDistOccluderAffect, CamDistCurrentByTrace, CamDistRepulsion);
+
+			//комбинированная целевая растяжка камеры, учёт огиба препятствий и жесткого задания объёмами
+			float FinalCamDist = CamDistNewFactor * CamDistOccluderAffect;
+
+			//пока не устаканилось приближение
+			if (CamDistNormFactor != FinalCamDist)
+			{
+				//разность - мера дальности пути к целевому значению
+				float Raznice = FMath::Abs(FinalCamDist - CamDistNormFactor);
+
+				//плавно приближать текущее отдаление к целевому - если разность большая, то медленно
+				//чтобы скомпенсировать свойства лерпа сначала делать большой скачок а потом всё мельче и мельче
+				CamDistNormFactor = FMath::Lerp(CamDistNormFactor, FinalCamDist, FMath::Lerp(0.01, 0.5, (1 - Raznice) * (1 - Raznice)));
+				if (CamDistNormFactor > 1)
+				{
+					UE_LOG(LogTemp, Error, TEXT("Tick %s WTF CamDistNormFactor %g CamDistRepulsion %g"),
+						*OwnedCreature->GetName(),
+						CamDistNormFactor, CamDistRepulsion);
+					CamDistNormFactor = 1;
+				}
+
+			}
+
+			//самое главное, позиционирование камеры по выше расчитанным данным
+			MoveCamera3p();
+	}
+}
+
+
+//==============================================================================================================
+//медленный тик
+//==============================================================================================================
+void AMyrDaemon::LowPaceTick(float DeltaTime)
+{
+	//похоже, что этот тик может быть вызван до динамической привязку существа
+	if (!OwnedCreature) return;
+
+	//подстройка звука проблем со здоровьем под актуальное здоровье ведомого существа
+	//закоментарено, потому что пока непонятно, как будет выражен метаболизм в новом существе
+	GetMyrGameMode()->SetSoundLowHealth(1.0f - OwnedCreature->Health, 1.0f - OwnedCreature->GetMetabolism(), OwnedCreature->Pain);
+
+	//-------------------------------------------------------------------------------
+	//проверка подопечного существа на мертвость - переход на экран конца игры
+	if (OwnedCreature->GetBehaveCurrentState() == EBehaveState::dead)
+	{
+
+		//окончательная смерть спустя какое-то врея
+		if (OwnedCreature->StateTime > 1.0f)
+		{
+			//выход в меню через контроллер игрока, такая вот извращенная логика
+			//а вообщездесь надо сначала выйти на уровень GameMode, оттуда решить что делать - кончить игру или перейти на новый уровень
+			if (auto MyrPlayer = Cast<AMyrPlayerController>(Controller))
+				MyrPlayer->GameOverScreen();
+		}
+		return;
+	}
+
+	//спецэффект низкого здоровья - переименовать, ведь это не эффект боли, а эффект агонии
+	if (PainScreen)
+		PainScreen->SetScalarParameterValue(TEXT("PainAmount"), FMath::Clamp(1.2f - 1.1f * OwnedCreature->Health, 0.0f, 1.0f));
+
+	//применение эффекта размытия, специфичного для данного состояния
+	if (Camera->PostProcessSettings.bOverride_MotionBlurAmount)
+		Camera->PostProcessSettings.MotionBlurAmount = FMath::Lerp(
+			0.0f,
+			OwnedCreature->GetBehaveCurrentData()->MotionBlurAmount,
+			FMath::Clamp(OwnedCreature->StateTime, 0.0f, 1.0f));
+
+	//вывод имени объекта в фокусе камеры
+	auto R = OwnedCreature->FindObjectInFocus(0.1, 0.3, ObjectAtFocus, ObjectNameAtFocus);
+}
+
+
+//==============================================================================================================
+//проделура прикрепления к носителю с точки зрения демона (вызывается не сама, лишь отвечает на событие
+//прикрепления корневого компонента - при спавне этого актора AttachTo
+//==============================================================================================================
+void AMyrDaemon::ClingToCreature(AActor* a)
+{
+	//если на вход подается правильный объект
+	if (AMyrPhyCreature* Myr = Cast<AMyrPhyCreature>(a))
+	{
+		//сохранить указатель
+		OwnedCreature = Myr;
+
+		//обновить базис расстояния камеры согласно реальному размеру существа
+		ThirdPersonDist = OwnedCreature->GetBodyLength() * 2;
+
+		//привязаться и разместиться в иерархии подцепленного существа
+		PoseInsideCreature();
+
+		//привязать себя в управляемом объекте
+		OwnedCreature->MakePossessedByDaemon(this);
+		UE_LOG(LogTemp, Log, TEXT("ClingToCreature %s to %s"), *GetName(), *OwnedCreature->GetName());
+
+		//переопределить связки с клавишами
+		if (InputComponent)
+			SetupPlayerInputComponent(InputComponent);
+
+		//переинициализировать лицо - там внутри экран боли, визуальные эффекты и много чего
+		SetFirstPerson(false);
+
+	}
+}
+
+//==============================================================================================================
+//отделиться от существа
+//==============================================================================================================
+void AMyrDaemon::ReleaseCreature()
+{
+	//если мы владеем существом
+	if (OwnedCreature)
+	{
+		//сначала удалить себя из памяти существа
+		OwnedCreature->MakePossessedByDaemon(nullptr);
+
+		//потом удалить существо из памяти себя
+		OwnedCreature = nullptr;
+
+		//переопределить связки с клавишами (пока не сработает, так как нет свободных вариантов)
+		if (InputComponent)
+			SetupPlayerInputComponent(InputComponent);
+	}
+}
+
+//==============================================================================================================
+//привязаться и разместиться в иерархии подцепленного существа
+//==============================================================================================================
+void AMyrDaemon::PoseInsideCreature()
+{
+	//в скелете должен быть сокет, обычно в районе головы, иначе подвяжет к задним ногам
+	AttachToComponent((USceneComponent*)OwnedCreature->GetMesh(), FAttachmentTransformRules::KeepWorldTransform, TEXT("HeadLook"));
+
+	//соместить позицию с точнкой в голове
+	SetActorRelativeLocation(FVector(0));
+	Controller->SetControlRotation(FRotator());
+
+	//вектор движения сделать правильным до того, как само движение поимеет место
+	Drive.MoveDir = Controller->GetControlRotation().Vector();
+	Drive.MoveDir.Z = 0;
+	Drive.MoveDir.Normalize();
+}
+
+//==============================================================================================================
+//двигать камеру согласно контроллеру
+//==============================================================================================================
+void AMyrDaemon::MoveCamera3p()
+{
+	//FQuat CamQ = FQuat(CamExtTargetVector, 0.0f);
+	auto CamRot = FRotationMatrix::MakeFromXZ(CamExtTargetVector, FVector::UpVector).ToQuat();
+	Camera->SetRelativeLocationAndRotation(
+		CamRot.RotateVector(FVector(-CamDistNormFactor * CamExtTargetDist, 0, 0)),
+		CamRot);
+}
+void AMyrDaemon::MoveCamera1p()
+{
+	Camera->SetRelativeLocationAndRotation(FVector(0, 0, 0), GetControlRotation());
+}
+
+
+//==============================================================================================================
+// общая функция для захвата коэффициента движения (для WASD он дискретен, +1, -1)
+//==============================================================================================================
+void AMyrDaemon::ProcessMotionInput(float* NGain, float Value)
+{
+	//произошли изменения по какой-то из осей
+	if (*NGain != Value)
+	{
+		//присвоить
+		*NGain = Value;
+
+		//если эти изменения выливаются в обнуление коэффициентов - движение прервалось
+		if (XGain == 0.0f && YGain == 0.0f)
+		{	bMove = 0;
+			SendAction(PCK_MAXIMUM, false, ECreatureAction::TOGGLE_MOVE);
+		}
+
+		//иначе, если коэффициенты не нулевые, движение возобновилось или изменило силу/курс
+		else
+		{	SendAction(PCK_MAXIMUM, true, ECreatureAction::TOGGLE_MOVE);
+			bMove = 1;
+		}
+	}
+}
+
+
+
+//==============================================================================================================
+// сменить направление движения (из направляения взгляда камеры), получить все необходимые данные из рук игрока
+// на вход актора существа. Покадрово, вызывается не само, а из тика существа - ИЗВРАТ, но синхрон
+// надо максимально упростить здесь, чтобы само существо под себя преобразовывало вот это всё
+//и все же вызывать из себя, дабы можно было летать без подопечного существа
+//==============================================================================================================
+bool AMyrDaemon::MakeMoveDir(bool MoveIn3D)
+{
+	//упрощать ротатор в кватернион бессмысленно - он изначально в контроллере ротатор
+	//если нет резона летать в пространстве, одну из осей нужно сразу убрать, иначе сильные погрешности
+	//нормирования при взгляде сверху вниз. Это неплатно, т.к. контроллер и так хранит углы в ротаторе
+	FRotationMatrix RotationMatrix = FRotator(
+		MoveIn3D ? Controller->GetControlRotation().Pitch : 0.0f,
+		Controller->GetControlRotation().Yaw,
+		0.0f);
+
+	if (bMove)
+	{
+		//взвешенный вектор направления
+		//Nota bene: для матрицы GetUnitAxis тяжелее, чем GetScaledAxis, ибо требует нормализации
+		//а для трансформации, наоборот, GetUnitAxis проще, ибо не требует применения масштаба
+		FVector DirToGo =
+			RotationMatrix.GetScaledAxis(EAxis::X) * XGain +
+			RotationMatrix.GetScaledAxis(EAxis::Y) * YGain;
+
+		//вычисление единичного направления и коэффициента (затирание предыдущих)
+		DirToGo.ToDirectionAndLength(Drive.MoveDir, Drive.Gain);
+
+		//при ходе сразу вперед и вбок длина получается больше единицы, и это опасно
+		if(Drive.Gain>1.0f) Drive.Gain = 1.0f;
+	}
+	//ВНИМАНИЕ: если оси движения не задействованы, направление движения всё равно считается по оси Х
+	//это нужно, что не получить в этот вектор 0 и не обкакать ниже лежащие расчёты
+	//но это бред, лучше в самом начале инициализировать и сохранять последний
+	else
+	{	
+		//Drive.MoveDir = RotationMatrix.GetScaledAxis(EAxis::X);
+		Drive.Gain = 0;
+	}
+	return true;
+}
+
+
+//==============================================================================================================
+//новый способ определить расстояние до камеры -пока неясно, где лучше вызывать, посему отдельной функцией
+//==============================================================================================================
+void AMyrDaemon::TraceForCamDist()
+{
+#if WITH_EDITOR
+	if (!CameraCollision) return;
+#endif
+
+	//ориентировочное расстоянияе камеры с учётом ужатия, продиктованого триггерами
+	float RealCamDist = CamExtTargetDist * CamDistNewFactor;
+
+	//заряжаем пушку
+	FHitResult Hit;
+	FVector Start = RootComp->GetComponentLocation();
+	FVector End = RootComp->GetComponentLocation() - CamExtTargetVector * (CamSoftBallRadius + RealCamDist);
+
+	//здесь имя, фолс - трассировать по простым объектам, а не по полигонам, зыс - текущий актор (демон) игнорировать
+	FCollisionQueryParams RV_TraceParams = FCollisionQueryParams(FName(TEXT("Daemon_TraceForCamera")), true, this);
+
+	//помимо себя добавить еще подопечное существо
+	RV_TraceParams.AddIgnoredActor(OwnedCreature);
+
+	//трассируем из центра демона в позицию камеры и ещё дальше на радиус сферы сенсора препядствий
+	GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, RV_TraceParams);
+
+	//поскольку Hit.Distance почему-то всегда ноль, хотя ничего не задевает, высчитываем расстояние по-другому
+	float TrueDistance = Hit.Time * (RealCamDist + CamSoftBallRadius);
+
+	//реакция на канал камеры - для отсеения случая когда трассировка обнаружила препятствие, но его совсем не надо огибать
+	auto ObstacleToCam = ECollisionResponse::ECR_Ignore;
+	auto ObstacleMob = EComponentMobility::Movable;
+	if (Hit.Component.Get())
+	{	ObstacleMob = Hit.Component->Mobility;
+		ObstacleToCam = Hit.Component->GetCollisionResponseToChannel(ECollisionChannel::ECC_Camera);
+	}
+
+	//по оси камеры сфера всё же впячивается в стену - ставим целевую позицию на центр сферы минус ещё немного - чтобы не затмило плоскостю
+	if (Hit.Time < 1.0f && ObstacleToCam != ECollisionResponse::ECR_Ignore)
+		CamDistCurrentByTrace = (TrueDistance - CamSoftBallRadius - CamHardCoreRadius) / RealCamDist;
+	else CamDistCurrentByTrace = 1.0f;
+
+	//насколько глубоко шарик вошёл в стену по оси згляда (ProbeSize - чтобы отодвинуть мягкую зону от "орешка" вокруг камеры)
+	//0 - значит орешек ксается стены; 1 - значит расстояние полное; -Х - значит перекрывает орешек и скорее всего обзор
+	float UnPenetration = (TrueDistance - RealCamDist - CamHardCoreRadius) / (CamSoftBallRadius - CamHardCoreRadius);
+
+	//камера не загораживается и сзади ничего не мешает - надо побыстрее вернуть нормальную оттяжку от тела
+	if (UnPenetration >= 1)
+	{	UnPenetration = 1;
+		CamDistRepulsion = 0.2;
+	}
+
+	//камера все видит, но сзади уже давит какая-то стена - нужно упруго отодвигать
+	//чем ближе к нулю тем сильнее упругая реакция отжима от стены
+	else if (UnPenetration > 0)
+	{
+		//чем вертикальнее нормаль, тем быстрее отбрыкивать - способ борьбы с уходом под землю
+		CamDistRepulsion = (1.5 - UnPenetration) * (0.01 + FMath::Max(Hit.Normal.Z, 0.0f));
+		if (CamDistRepulsion > 1) CamDistRepulsion = 1.0f;
+	}
+
+	//UnPenetration<=0 орешек погружен в стену - надо срочно оттянуть камеру, чтоб не утопилась в толще
+	else
+	{
+		//резкая подтяжка камеры сквозь неподвижные объекты
+		if(ObstacleMob == EComponentMobility::Static)
+			CamDistRepulsion = 1.0f;
+
+		//плавная подтяжка камеры 
+		else CamDistRepulsion = 0.1 + 0.2 * FMath::Min(-UnPenetration, 1.0f);
+	}
+	//if (CamDistRepulsion>1)
+	//	UE_LOG(LogTemp, Error, TEXT("TraceForCamDist %s WTF CamDistRepulsion NaN"), *OwnedCreature->GetName());
+
+}
+
+//==============================================================================================================
+//переместить камеру в положение строго за спиной
+//==============================================================================================================
+void AMyrDaemon::ResetCamera()
+{
+	//с катстценной камерой пока неясно, как, нужно ли
+	if (ExternalCameraPoser) return;
+
+	//отстоять от центра так, чтобы попадало точно в место головы, но было развернуто по направлению носа
+	SetActorLocationAndRotation (OwnedCreature->GetHeadLocation(), OwnedCreature->GetActorRotation());
+	FRotator R = OwnedCreature->GetActorRotation();
+	R.Pitch = GetControlRotation().Pitch;
+	Controller->SetControlRotation(R);
+}
+
+
+//==============================================================================================================
+//установить величину размытия в движении, если надо, включить/выключить
+//==============================================================================================================
+void AMyrDaemon::SetMotionBlur(float Amount)
+{
+	if (Amount == 0.0f)
+		Camera->PostProcessSettings.bOverride_MotionBlurAmount = false;
+	else
+	{	Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
+		Camera->PostProcessSettings.MotionBlurAmount = 0.1;
+	}
+}
+
+//==============================================================================================================
+//установить величину глобального замедления времени, слоумо
+//==============================================================================================================
+void AMyrDaemon::SetTimeDilation(float Amount)
+{	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), Amount); }
+
+//==============================================================================================================
+//подготовить экран для менюшной паузы
+//==============================================================================================================
+void AMyrDaemon::SwitchToMenuPause(bool Set)
+{
+	//включить функцию обесцвечивания экрана
+	Camera->PostProcessSettings.bOverride_ColorSaturation = Set;
+	float& W = Camera->PostProcessSettings.ColorSaturation.W;
+	if (!Set) W = 0.0f;
+	else if (W > 0.4) W = 0.4;
+}
+
+//==============================================================================================================
+//дискретный переключатель первого и третьего лица - в ответ на какую-нибудь кнопку
+//==============================================================================================================
+void AMyrDaemon::PersonToggle()
+{
+	//транзиция к первому лицу происходит независимо от настроек расстояния при 3ем лице,
+	//чтобы не сбить установки, продиктованные окружением
+	if (IsFirstPerson())
+		SetFirstPerson(false);							
+	else MyrCameraMode = EMyrCameraMode::Transition31;
+}
+
+//==============================================================================================================
+//эксперимент - переключать камеру нормальную и типа киношную сбоку
+//==============================================================================================================
+void AMyrDaemon::CineCameraToggle()
+{
+	AllowExtCameraPosing = !AllowExtCameraPosing;
+}
+
+//==============================================================================================================
+//по нажатию кнопки либо ничего (если мы в релаксе) или выбор меню состояний релакса и сна
+//==============================================================================================================
+void AMyrDaemon::RelaxPress()
+{
+	//не позволять мешать с процессом выбора экспрессий)
+	if (!OwnedCreature) return;
+	if (bExpress) return;
+
+	//если деется релакс уже - даже не начинать
+	if (OwnedCreature->DoesRelaxAction()) return;
+	bRelaxChoose = true;
+
+	//получить список доступных самодействий по теме выражения эмоций
+	AvailableExpressActions.SetNum(0);
+	OwnedCreature->ActionFindList(true, AvailableExpressActions);
+
+	//если нашлось - сделать активной рандомную, чтобы если игрок ничего не выбирает, результат всё же различался
+	if (AvailableExpressActions.Num() > 0)
+		CurrentExpressAction = FMath::RandRange(0, AvailableExpressActions.Num() - 1);
+
+	//отобразить меню (это все плетется в блюпринте худа)
+	HUDOfThisPlayer()->OnExpressionStart(true);
+
+}
+
+//==============================================================================================================
+//включение и выключение состояния отдыха (сидя или лежа)
+//==============================================================================================================
+void AMyrDaemon::RelaxToggle()
+{
+	//снять режим
+	if (!OwnedCreature) return;
+	bRelaxChoose = false;
+
+	//если нашли применимые редакс-действия, и если пока ни одно релакс действие не выполняется - запустить
+	if (OwnedCreature->NoRelaxAction())
+	{	if (AvailableExpressActions.Num() > 0)
+			OwnedCreature->RelaxActionStart(AvailableExpressActions[CurrentExpressAction]);
+
+		//скрыть меню в независимости от результатов поиска действий
+		HUDOfThisPlayer()->OnExpressionRelease(true);
+	}
+	//если уже деется релакс - выводить из релакса
+	else OwnedCreature->RelaxActionStartGetOut();
+
+}
+
+
+
+
+//==============================================================================================================
+//команды выбора неатакового выражения эмоций
+//==============================================================================================================
+void AMyrDaemon::ExpressPress()
+{
+	//не позволять выбирать, если уже в процессе выбора релакса
+	if (bRelaxChoose) return;
+
+	//взвести режим
+	bExpress = true;
+	if (!OwnedCreature) return;
+
+
+	//получить список доступных самодействий по теме выражения эмоций, false - самодействия, не релакс-действия
+	AvailableExpressActions.SetNum(0);
+	OwnedCreature -> ActionFindList (false, AvailableExpressActions, ECreatureAction::SELF_EXPRESS1);
+
+	//если нашлось - сделать активной рандомную, чтобы если игрок ничего не выбирает, результат всё же различался
+	if(AvailableExpressActions.Num()>0)
+		CurrentExpressAction = FMath::RandRange(0, AvailableExpressActions.Num()-1);
+
+	//отобразить меню (это все плетется в блюпринте худа)
+	HUDOfThisPlayer()->OnExpressionStart(false);
+}
+
+void AMyrDaemon::ExpressRelease()
+{
+	//не позволять выбирать, если уже в процессе выбора релакса
+	if (bRelaxChoose) return;
+
+	//убрать режим
+	bExpress = false;
+	if (!OwnedCreature) return;
+
+	//если есть, что выражать
+	if(AvailableExpressActions.Num()>0)
+	{
+		//запустить (проверка наложения на уже проводимое действие - внутри)
+		OwnedCreature -> SelfActionStart(AvailableExpressActions[CurrentExpressAction]);
+	}
+	//скрыть меню
+	HUDOfThisPlayer()->OnExpressionRelease(false);
+}
+
+
+//==============================================================================================================
+// явно задать направление атаки по оси контроллера игрока
+//==============================================================================================================
+void AMyrDaemon::SetAttackDir()
+{
+	//направление атаки взять из направления взгляда камеры
+	OwnedCreature->AttackDirection = Controller->GetControlRotation().Vector();
+
+	//если направление атаки в зад (например смотрим камерой спереди)
+	if (FVector::DotProduct(-OwnedCreature->GetAxisForth(), OwnedCreature->AttackDirection) < 0)
+	{
+		//хитро развернуть
+		OwnedCreature->AttackDirection *= -1;
+	}
+}
+
+//==============================================================================================================
+//загнать в текущую камеру настройки эффектов - при смене вида 1/3 лица
+//==============================================================================================================
+void AMyrDaemon::AdoptCameraVisuals(const FEyeVisuals& EV)
+{
+	//переприсвоение структуры с эффектами камеры и глобальный расстояний отсечения
+	Camera->PostProcessSettings = EV.OphtalmoEffects;
+	Camera->FieldOfView = EV.FieldOfView;
+	GNearClippingPlane = EV.NearClipPlane;
+
+	//установка материала для постэффектов
+	//мы заранее не знаем, что это за материал, и для разных лиц и существ он может быть разный, 
+	//но ссылка на него хранится в структуре PostProcessSettings в массиве WeightedBlendables
+	if (Camera->PostProcessSettings.WeightedBlendables.Array.Num() > 0)
+	{
+		//ссылка на материал в структуре - статическая
+		//нужно сделать из нее динамическую. непонятно, будет ли удаляться старая 
+		auto* mat = Cast<UMaterialInterface>(Camera->PostProcessSettings.WeightedBlendables.Array[0].Object);
+		PainScreen = UMaterialInstanceDynamic::Create(mat, this);
+
+		//заменить в том же слоте статическую на динамическую
+		Camera->PostProcessSettings.WeightedBlendables.Array[0].Object = PainScreen;
+
+		//сразу же настроить параметр
+		PainScreen->SetScalarParameterValue(TEXT("PainAmount"), FMath::Min(1.0f - OwnedCreature->Health, 1.0f));
+	}
+}
+
+
+//==============================================================================================================
+//установить уровень дождя и мокроты
+//==============================================================================================================
+void AMyrDaemon::SetWeatherRainAmount(float Amount)
+{
+	//оптимизация - если сухо, то декал мокроты вообще не рендерится
+	if (Amount < 0.01 && Wetness < 0.01f)
+		RainWetArea->SetVisibility(false);
+	else
+	{
+		//показать декал мокроты
+		RainWetArea->SetVisibility(true);
+
+		//рассчёт мокроты поверхностей вблизи камеры, она запаздывает за силой дождя
+		Wetness += 0.01f * Amount;
+		Wetness -= 0.001f;
+		if (Wetness >= 1.0f) Wetness = 1.0f;
+		else if (Wetness <= 0) Wetness = 0.0f;
+		RainDecalMatInst->SetScalarParameterValue(TEXT("Wetness"), Wetness);
+
+		//поверх мокроты по тем же поверхностям барабанят капли с нужной отчётливостью
+		RainDecalMatInst->SetScalarParameterValue(TEXT("RainAmount"), Amount);
+	}
+
+	//регулирование плотности падающих капель дождя - без других условий
+	ParticleSystem->SetFloatParameter(TEXT("RainAmount"), Amount);
+
+}
+
+//==============================================================================================================
+//всё что связано с рендерингом текстуры шагов и следов на траве, воде и т.п.
+//==============================================================================================================
+void AMyrDaemon::UpdateTrailRender()
+{
+	//собственно, считать текущие следы
+	CaptureTrails->CaptureSceneDeferred();
+
+	//применить материал ко второму полотнищу, в материале уже будет задан источник копирования, то есть первый рендер таргет
+	UKismetRenderingLibrary::DrawMaterialToRenderTarget(GetWorld(), GetMyrGameInst()->TrailsTargetPersistent, GetMyrGameInst()->MaterialToHistorifyTrails);
+}
+
+//==============================================================================================================
+//переключение вида от первого и от третьего лица
+//==============================================================================================================
+void AMyrDaemon::SetFirstPerson(bool Set)
+{
+	//перейти к первому лицу
+	if (Set)
+	{
+		//коэффициент близости к первому лицу
+		CamDistNormFactor = 0.0;
+
+		//полностью сменить настройки камеры на специфичные для существа
+		AdoptCameraVisuals(OwnedCreature->GetGenePool()->FirstPersonVisuals);
+
+		//чтобы не поворачивался внутрь шеи
+		MyrController()->SetFirstPerson(true);
+
+		//флаг
+		MyrCameraMode = EMyrCameraMode::FirstPerson;
+
+		//поставить камеру в нужную точку
+		MoveCamera1p();
+
+		//включить запахи
+		SwitchToSmellChannel.Broadcast(AdvSenseChannel);
+
+	}
+	//перейти к третьему лицу
+	else
+	{
+		//полностью сменить настройки камеры - вернуть глобальные
+		auto GM = GetMyrGameMode();
+		AdoptCameraVisuals(GM->ThirdPersonVisuals);
+
+		//убрать ограничения на поворот - эти действия проще делаются внутри контроллера
+		MyrController()->SetFirstPerson(false);
+
+		//флаг
+		MyrCameraMode = EMyrCameraMode::ThirdPerson;
+
+		//поставить камеру в нужную точку
+		MoveCamera3p();
+
+		//выключить запахи
+		SwitchToSmellChannel.Broadcast(-1);
+	}
+
+	//дополнительно, если будут введены два сокета для разных лиц
+	PoseInsideCreature();
+
+	//перезапустить возможность вывода боли на экран в виде разкоряки цветов
+	Camera->PostProcessSettings.bOverride_SceneFringeIntensity = true;
+}
+
+
+//==============================================================================================================
+//найти подходящее действие для выбранных элементов управления
+//пока не перенесено
+//==============================================================================================================
+void AMyrDaemon::SendAction(int Button, bool StrikeOrRelease, ECreatureAction ExplicitAction)
+{
+	//если действие не указано явно, найти его как соответствие кнопке
+	if(ExplicitAction == ECreatureAction::NONE)
+		ExplicitAction = FindActionForPlayerButton(Button);
+
+	//вложить в движ, если место свободно
+	if (Drive.DoThis == ECreatureAction::NONE)
+	{	Drive.DoThis = ExplicitAction;
+		Drive.Release = StrikeOrRelease;
+	}
+}
+
+//==============================================================================================================
+//наэкранный интерфейс игрока, управляющего этим демоном, может выдать нуль 
+//==============================================================================================================
+UMyrBioStatUserWidget* AMyrDaemon::HUDOfThisPlayer()
+{
+	return MyrController()->CurrentWidget();
+}
+
+//==============================================================================================================
+//нужно для подсказки, на какую кнопку действие уровня существа повешено - может быть ни на какую - тогда -1
+//==============================================================================================================
+int AMyrDaemon::GetButtonUsedForThisAction(ECreatureAction Action)
+{
+	//распределение действий зависит от состояния поведения, так что сначала найти по текущему
+	auto CurBehave = OwnedCreature->GetBehaveCurrentState();
+	auto BehTrigAct = OwnedCreature->GetGenePool()->PlayerStateTriggeredActions.Find(CurBehave);
+
+	//если отдельной разнарядки для текущего не предсумотрено - взять поумолчанию
+	if (!BehTrigAct) BehTrigAct = &OwnedCreature->GetGenePool()->PlayerDefaultTriggeredActions;
+
+	//а дальше тупо перебором
+	for (int i = 0; i < PCK_MAXIMUM; i++)
+		if (BehTrigAct->ByIndex(i) == Action)
+			return i;
+	return -1;
+}
+
+
+//==============================================================================================================
+//зменение расстояния камеры третьего лица - как-то слишком сложно, вероятно ввести бинарное переключение
+//бинароне переключение введено, однако проблема плавного перехода между позициями камеры остаётся
+//==============================================================================================================
+void AMyrDaemon::MouseWheel(float value)
+{
+	//режим выбора варианта что сказать
+	if(bExpress || bRelaxChoose)
+	{
+		if (value > 0 && CurrentExpressAction < AvailableExpressActions.Num() - 1)
+		{	CurrentExpressAction++;
+			HUDOfThisPlayer()->OnExpressionSelect(bRelaxChoose, CurrentExpressAction);
+		}
+		if (value < 0 && CurrentExpressAction > 0)
+		{	CurrentExpressAction--;
+			HUDOfThisPlayer()->OnExpressionSelect(bRelaxChoose, CurrentExpressAction);
+		}
+		return;
+	}
+
+	//это двигать камеру для эксперимента и отладки
+	if (MyrCameraMode == EMyrCameraMode::ThirdPerson)
+	{
+		//просто присвоить опору, а дальше в тике само
+		if (value > 0 && CamDistNewFactor < 1)	CamDistNewFactor += 0.05;
+		if (value < 0 && CamDistNewFactor > 0)	CamDistNewFactor -= 0.05;
+	}
+	//от первого лица - менять каналы запаха
+	else
+	{	if (value > 0 && AdvSenseChannel < 16)	{ AdvSenseChannel++; SwitchToSmellChannel.Broadcast(AdvSenseChannel);	}
+		if (value < 0 && AdvSenseChannel > 0)	{ AdvSenseChannel--; SwitchToSmellChannel.Broadcast(AdvSenseChannel);	}
+	}
+}
+
+
+
+bool AMyrDaemon::IsFirstPerson() { return (MyrCameraMode == EMyrCameraMode::FirstPerson); }
