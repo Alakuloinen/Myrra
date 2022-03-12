@@ -635,7 +635,10 @@ void AMyrAI::PostPerceive(FGoal& Goal, EHowSensed HowSensed, float Strength, FGe
 		case EHowSensed::EXPRESSED:
 
 			//напрямую вписать в память событие впечатленности самодействием, напрямую взяв из самодействия данные для него
-			ME()->CatchMyrLogicEvent (EMyrLogicEvent::MePatient_AffectByExpression, 1.0, Goal.Object, &me()->GetSelfAction()->EmotionalInducing);
+			if (me()->DoesSelfAction())
+				ME()->CatchMyrLogicEvent(EMyrLogicEvent::MePatient_AffectByExpression, 1.0, Goal.Object, &me()->GetSelfAction()->EmotionalInducing);
+			else UE_LOG(LogTemp, Error, TEXT("%s WTF Expressed, but no self action"), *me()->GetName());
+
 
 			//так как это типа слух, пометить что мы услышали и увеличить / вернуть слышимость
 			RecalcGoalAudibility(Goal, Strength, Gestalt);

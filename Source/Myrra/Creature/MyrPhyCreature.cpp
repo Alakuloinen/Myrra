@@ -806,7 +806,7 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 		FRotationMatrix::MakeFromX(Limb->ImpactNormal).ToQuat(),
 		FRotationMatrix::MakeFromX(VelDir).ToQuat(),
 		FMath::Min(StepForce, 1.0f));
-	DrawDebugLine(GetWorld(), ExactStepLoc, ExactStepLoc + Vel*0.1,	FColor(Raise?255:0, StepForce*255, 0), false, 2, 100, 1);
+	//DrawDebugLine(GetWorld(), ExactStepLoc, ExactStepLoc + Vel*0.1,	FColor(Raise?255:0, StepForce*255, 0), false, 2, 100, 1);
 
 
 	//выдрать параметры поверхности из глобального контейнера (индекс хранится здесь, в компоненте)
