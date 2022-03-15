@@ -1813,7 +1813,7 @@ void AMyrPhyCreature::SelfActionStart(int SlotNum)
 		AdoptWholeBodyDynamicsModel(&GetSelfAction()->DynModelsPerPhase[SelfActionPhase], GetSelfAction()->UseDynModels);
 
 		//отправить символический звук выражения, чтобы очевидцы приняли во внимание и эмоционально пережили
-		MyrAI()->LetOthersNotice(EHowSensed::EXPRESSED);
+		MyrAI()->LetOthersNotice(EHowSensed::EXPRESSED); 
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s SelfActionStart OK %s"), *GetName(), *GetCurrentSelfActionName());
 	}
 }
@@ -2036,6 +2036,7 @@ bool  AMyrPhyCreature::Eat()
 	bool result = EatConsume(Food, dFood);
 	//№№№№№№№№№№№№№№
 
+
 	//поскольку хватание сопровождалось атакой, после съедания надо всякую атаку остановить
 	NewAttackEnd();
 
@@ -2046,6 +2047,7 @@ bool  AMyrPhyCreature::Eat()
 	AActor* Remains = nullptr;
 	if (dFood->WhatRemains)
 		Remains = GetWorld()->SpawnActor(*dFood->WhatRemains, &Food->GetComponentTransform());
+
 
 	//перед деструкцией будет отвязан ИИ
 	Food->GetOwner()->Destroy();
