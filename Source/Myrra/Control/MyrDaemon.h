@@ -27,12 +27,13 @@ template<> struct TStructOpsTypeTraits<FDaemonOtherTickFunc> : public TStructOps
 
 //###################################################################################################################
 // бестелесное метасущество, прослойка, чтоб смешивать PlayerController и ИИ,
-// также здесь камера и абсолютная точка зрения в игре, поэтому здесь ряд единичных экземпляров функций
+// также здесь камера и абсолютная точка зрения в игре, поэтому сюда перенесена куча уникальных задач
 // - - выбор пользователем, что "сказать"
-// - - протагонист обплёвывается эффектом дождя, другим дождь не нужен, поэтому дождь правится через этот класс
+// - - протагонист обплёвывается эффектом дождя, другим дождь не нужен видным, поэтому дождь правится через этот класс
 // - - здесь звучат звуки среды как целого, возможно, и музыку сюда перенести
 // - - здесь осуществляется конвейер фиксации следов на мягкой поверхности (снег, трава, грязь)
 // - - здесь теперь ещё и воздух движется (глобальная переменная в материале) вне игры
+// - - здесь гнездится маркер квестов, отсюда он переносится с предмета на предмет
 //###################################################################################################################
 UCLASS() class MYRRA_API AMyrDaemon : public APawn
 {
@@ -49,6 +50,11 @@ UCLASS() class MYRRA_API AMyrDaemon : public APawn
 	//источник эффектов частиц - для дождя, роя наскомых, может, и запаха
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 		class UParticleSystemComponent* ParticleSystem;
+
+	//маркер цели квеста, должен пришпиливаться к указанным компонентам, пока неясно, нужен ли вообще
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+		class UWidgetComponent* ObjectiveMarkerWidget;
+
 
 
 	//звуки природы, также, возможно, музыка
@@ -179,7 +185,7 @@ public:
 	//ориентир для выше описанного параметра, непосредственно получаемый трассировкой из камеры в конец
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistCurrentByTrace = 1.0f;
 
-	//насколько быстро надо выталкивать камеру из стены (0 - 1)
+	//насколько быстро надо выталкивать камеру из стены (0 - 1) зависит от статичности заградителя
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistRepulsion = 0.0f;
 
 public:
@@ -227,6 +233,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	TArray<uint8> AvailableExpressActions;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 CurrentExpressAction = 255;
 
+	//возможность отключать обплыв камерой препятсвтвий чтоб посмотреть под
 #if WITH_EDITOR
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool CameraCollision = false;
 #endif
@@ -302,6 +309,10 @@ public:
 
 	//нужно для подсказки, на какую кнопку действие уровня существа повешено - может быть ни на какую - тогда -1
 	int GetButtonUsedForThisAction(ECreatureAction Action);
+
+	//поместить или удалить маркер квеста - извне
+	UFUNCTION(BlueprintCallable) void PlaceMarker(USceneComponent* Dst);
+	UFUNCTION(BlueprintCallable) void RemoveMarker();
 
 //реакции на управление реальным существом
 public: 

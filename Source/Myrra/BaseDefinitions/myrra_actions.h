@@ -332,6 +332,7 @@ UENUM() enum class EAttackAttemptResult : uint8
 	FORBIDDEN_IN_RELAX,
 	OUT_OF_STAMINA,
 	OUT_OF_HEALTH,
+	OUT_OF_SLEEPINESS,
 	OUT_OF_REPEATS,
 	ALREADY_RUNNING,	// если мы пытаемся с нуля началь атаку, а существо уже какую-то атаку выполняет
 	ATE_INSTEAD_OF_RUNNING,	// опция съесть то что в зубах и не начинать атаку

@@ -17,6 +17,7 @@ USTRUCT(BlueprintType) struct FActionCondition
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Velocities;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Healthes;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Staminas;
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Sleepinesses;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange StateAges;
 
 	//список состояний тела, в которых можно или нельзя выполнять это действие

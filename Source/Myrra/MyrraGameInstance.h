@@ -5,6 +5,7 @@
 #include "Myrra.h"
 #include "Engine/GameInstance.h" 
 #include "Containers/Map.h"
+#include "MyrQuest.h"
 //#include "Camera/CameraShake.h"
 #include "MyrraGameInstance.generated.h"
 
@@ -12,6 +13,10 @@ class URoleParameter;
 //###################################################################################################################
 // самый главный класс в игре, больше ничего и не нужно. Стоит всю игру, виден из много откуда, содержит общие
 // для всей игры данные
+// - набор квество
+// - функции загрузки и сохранения
+// - ролевые параметры
+// - цвета дебаговых линий для разных каналов
 //###################################################################################################################
 UCLASS(BlueprintType, Config=Game) class UMyrraGameInstance : public UGameInstance
 {
@@ -50,9 +55,19 @@ public: // супер глобальные свойства
 	//эффект дрожи камеры - сюда надо в релакторе подцепить реальный блюпринт-ассет
 	//UPROPERTY(EditDefaultsOnly, Category = Effects)	TSubclassOf<UCameraShake> PainCameraShake;
 
+//--------------------------------------------------------------------------------
+public: // квесты
+//--------------------------------------------------------------------------------
+
 	//каждый акт нахождения в этой карте нужного события что-то запускает, и, возможно, меняет
-	//само содержимое этой карты
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TMap<EMyrLogicEvent, FMyrQuestsToStart> MyrQuestWaitingList;
+	//само содержимое этой карты. слишком сложно, проще указатели на сами квесты сохранять
+	TMultiMap<EMyrLogicEvent, FMyrQuestTrigger*> MyrQuestWaitingList;
+
+	//это нужно в редакторе заполнить вообще все
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TArray<UMyrQuest*> AllQuests;
+
+	//квесты, которые уже начались или закончились, быстрый доступ по имени
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TMap<FName, UMyrQuestProgress*> StartedQuests;
 
 //цвета для рисования линий отладки
 #if WITH_EDITOR
@@ -113,7 +128,7 @@ public: //свои методы
 	//взять актора, найти все компоненты с альтернативами и перемещать их
 	UFUNCTION(BlueprintCallable) void ShuffleSwitchableComponents(AActor* ForWhom);
 
-	//для всяких зданий, оплетать их кабелями
+	//для всяких зданий, оплетать их кабелями - пока не юзается ибо бажно
 	UFUNCTION(BlueprintCallable) void FillSplineWithMeshes(class AActor* Actor, class USplineComponent* Base, class UStaticMesh* MeshForSegment);
 
 
@@ -128,6 +143,13 @@ public: //свои методы
 	UFUNCTION(BlueprintCallable) virtual void BeginLoadingScreen (const FString& MapName);
 	UFUNCTION(BlueprintCallable) virtual void EndLoadingScreen (UWorld* InLoadedWorld);
 
+	//разобрать все квесты и внести их заманушные стадии в лист ожидания
+	UFUNCTION(BlueprintCallable) void InitializeQuests();
+
+	//большой обработчик различных реакций, в квестах и в триггер объёмах
+	UFUNCTION(BlueprintCallable) bool React(FTriggerReason Rtype, UObject* ContextObj, class AMyrPhyCreature* Owner, bool ReleaseStep = true);
+
+
 	//передать инфу о событии на головной уровень - это может стать причиной продвижения истории и квеста
 	//вызывается из существа
 	void MyrLogicEventCheckForStory(EMyrLogicEvent Event, class AMyrPhyCreature* Instigator, float Amount, UObject* Victim);
@@ -135,6 +157,12 @@ public: //свои методы
 //--------------------------------------------------------------------------------
 public: //возвращуны
 //--------------------------------------------------------------------------------
+
+	//данные по текущему загруженному уровню
+	class AMyrraGameModeBase* GetMyrGameMode() { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }
+
+	//выдать оперативную часть квеста
+	UFUNCTION(BlueprintCallable) UMyrQuestProgress* GetWorkingQuest(UMyrQuest* Source) const { auto R = StartedQuests.Find(Source->GetFName()); if (R) return *R; else return nullptr; }
 
 	//выдать список имен всех сохраненных игр
 	UFUNCTION(BlueprintCallable) TArray<UMyrraSaveGame*> GetAllSaveGameSlots();

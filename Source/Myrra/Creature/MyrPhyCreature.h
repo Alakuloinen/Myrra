@@ -86,6 +86,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Health = 1.0f;					// здоровье
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Stamina = 1.0f;				// запас сил
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Energy = 1.0f;					// глобальный запас сил, восстанавливается едой
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Sleepiness = 0.0f;				// сонность, накапливается при бодрствовании
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Pain = 0.0f;					// боль - резкое ухудшение характеристик при просадке здоровья
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float AttackStrength = 0.0f;			// сила атаки, пока используется как дальность прыжка в прыжковой атаке, надо повесить сюда задержку при нажатии кнопки
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Age = 0.0f;					// возраст, просто возраст в секундах, чтобы состаривать и убивать неписей (мож double или int64?)
@@ -182,8 +183,8 @@ public:
 	//применить пришедшую извне модель сил для всего тела
 	void AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel, bool Fully);
 
-	//перейти в новую фазу атаки
-	//void AdoptAttackPhase(EActionPhase NewPhase);
+	//кинематически телепортировать в новое место
+	void TeleportTo(FTransform Dst);
 
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
 	void SetWannaClimb(bool Set);
@@ -339,7 +340,7 @@ public:
 	
 	//отражение действия на более абстрактонм уровне - прокачка роли, эмоция, сюжет
 	//возможно, вместо AActor следует ввести UObject, чтобы адресовать и компоненты, и всё прочее
-	void CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UPrimitiveComponent* Goal, FMyrLogicEventData* ExplicitEmo = nullptr);
+	void CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObject* Patient, FMyrLogicEventData* ExplicitEmo = nullptr);
 
 	//передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)
 	void TransferIntegralEmotion(float& Rage, float& Fear, float& Power);

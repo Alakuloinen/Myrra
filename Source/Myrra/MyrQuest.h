@@ -7,33 +7,40 @@
 #include "UObject/NoExportTypes.h"
 #include "MyrQuest.generated.h"
 
+
 //###################################################################################################################
 //состояние конечного автомата квеста, стадия квеста, 
 //соединяется с другими стадиями с помощью FMyrQuestTransition
+//нулевая стадия квеста всегда загружена - чтобы его начать, последняя стадия не имеет переходов
 //###################################################################################################################
 USTRUCT(BlueprintType) struct FMyrQuestState
 {
 	GENERATED_USTRUCT_BODY()
 
-	//описание для отображения игроку
+	//имя чтобы ссылаться в редакторе при составлении
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText TextCaption;
+
+	//подробное описание для журнала
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText TextForJournal;
+
+	//реакции на достижение состояния
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FTriggerReason> Reactions;
+
+	//переходы между из этого состояния в другие состояния
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TMap<FName, FMyrQuestTrigger> QuestTransitions;
+
+	//поместить все условные переходы в централизованный лист цеплялок для быстрого доступа (список извне из инстанции)
+	void PutToWaitingList(TMultiMap<EMyrLogicEvent, FMyrQuestTrigger*>& MyrQuestWaitingList, class UMyrQuest* Owner, FName ThisInMap);
+
 };
 
-//###################################################################################################################
-//мгновенный переход, дуга конечного автомата квеста
-//###################################################################################################################
-USTRUCT(BlueprintType) struct FMyrQuestTransition
-{
-	GENERATED_USTRUCT_BODY()
 
-	//описание для отображения игроку
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText TextForJournal;
-};
 
 //###################################################################################################################
+//квест - чисто статическая структура данных безотносительно реального прогресса
 //###################################################################################################################
 UCLASS(Blueprintable, BlueprintType, hidecategories = (Object), meta = (BlueprintSpawnableComponent), Config = Game)
-class MYRRA_API UMyrQuest : public UObject
+class MYRRA_API UMyrQuest : public UDataAsset
 {
 	GENERATED_BODY()
 
@@ -43,24 +50,46 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText HumanReadableName;
 
 	//состояния квеста
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FMyrQuestState> QuestStates;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TMap<FName, FMyrQuestState> QuestStates;
 
-	//переходы между состояниями квеста
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FMyrQuestTransition> QuestTransitions;
+	//показывать ли в журнале - некоторые "обслуживающие" квесты лучше делать исподтишка 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool ShowInJournal = true;
 
-	//поместить новый триггер в лист ожидания
-	void PutToTheWaitingList();
+	//нужно ли сохранять при сохранении игры, или он казуально-бесконечный
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool Save = true;
 
-public:
 
-	//осуществить обработку очередной цеплялки
-	//указывается идентификатор внутреннего представления перехода между состояниями, из которого порождена цеплялка
-	//возвращается истина, если по итогам цеплялку надо удалить из списка ожидания
-	bool Process(int32 TransID) { return true; }
+};
 
-	UFUNCTION(BlueprintCallable) void MakeState1i1o(const FMyrQuestTransition& i1, FMyrQuestTransition& o1) {}
+//###################################################################################################################
+//динамическое воплощение квеста, ослеживание прохождения
+//###################################################################################################################
+UCLASS(Blueprintable, BlueprintType, hidecategories = (Object), meta = (BlueprintSpawnableComponent), Config = Game)
+class MYRRA_API UMyrQuestProgress : public UObject
+{
+	GENERATED_BODY()
 
-	//болванка для графического проектирования квеста в редакторе
-	UFUNCTION(BlueprintImplementableEvent)	void ConstructQuestLogic(AActor* Obj, bool Can);
+public: 
+
+	//нарративный источник
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TWeakObjectPtr<UMyrQuest> Quest;
+
+	//цепочка прогресса, имена стадий в соответствующем квесте
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FName> StatesPassed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName CurrentState;
+
+	//квест начат = пройдено хоть одно состояние
+	UFUNCTION(BlueprintCallable) bool IsStarted() const { return (StatesPassed.Num() > 0); }
+
+	//квест закончен = имеется пройденные состояния, текущее же сброшено в нуль (это делается явно при встече с состояние без переходов)
+	UFUNCTION(BlueprintCallable) bool IsFinished() const { return StatesPassed.Num() > 0 && CurrentState == NAME_None; }
+
+	//совершить переход на новую стадию, указывается протагонист (хотя как быть если квест подвигает непись?)
+	UFUNCTION(BlueprintCallable) bool DoTransition(FName NewState, class AMyrPhyCreature* Owner);
+
+	//загрузка и сохранение
+	UFUNCTION(BlueprintCallable) void Load(FQuestSaveData& Data) { StatesPassed = Data.PassedStates; CurrentState = Data.PassedStates.Last(0); StatesPassed.SetNum(StatesPassed.Num()-1); }
+	UFUNCTION(BlueprintCallable) void Save(FQuestSaveData& Data) { Data.Name = GetFName(); Data.PassedStates = StatesPassed; Data.PassedStates.Add(CurrentState); }
+
 
 };

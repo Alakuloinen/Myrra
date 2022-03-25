@@ -9,7 +9,9 @@
 
 //###################################################################################################################
 //здание, строение и прочая большая сборка разнородных компонентов (включая многоликие меши и триггеры)
-//в которой сузество может находиться и изменять, то есть его можно сохранять
+//- обладает объёмом, можно находиться внутри или вне, за объём отвечает PrimaryLocationVolume
+//- учитывает существ и артефакты, которые находятся в этом объёме, подаёт сигналы для квестов
+//- оказывает эмоциональное влияние на находящихся внутри существ
 //###################################################################################################################
 UCLASS() class MYRRA_API AMyrLocation : public AActor
 {
@@ -25,11 +27,20 @@ UCLASS() class MYRRA_API AMyrLocation : public AActor
 
 public:
 
-	//какой компонент сигналит своим ввсранным существам - чтобы они шли в его сторону
+	//какой компонент в составе этого актора сигналит своим высранным существам - чтобы они шли в его сторону
+	//их может быть несколько, но включен только один
 	class UMyrTriggerComponent* CurrentAISignalSource = nullptr;
+
+	//навязываемая этой локацией эмоция
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FMyrLogicEventData EmotionalInducing;
 
 	//настройки гашения шумов специально для этой локации
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class USoundAttenuation* SoundAttenuation;
+
+	//обнаруженные в этой локации предметы
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<class AMyrPhyCreature*> Inhabitants;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<class AMyrArtefact*> Content;
+
 	
 public:
 
@@ -48,6 +59,12 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 public:
+
+	//регистрация входящих существ и предметов
+	void AddCreature(AMyrPhyCreature* New);
+	void RemoveCreature(AMyrPhyCreature* New);
+	void AddArtefact(AMyrArtefact* New);
+	void RemoveArtefact(AMyrArtefact* New);
 
 	//выдать вовне, для ИИ, адрес конкретного источника сигнала
 	UMyrTriggerComponent* GetCurrentBeacon() {	return CurrentAISignalSource;	}

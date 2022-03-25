@@ -89,6 +89,7 @@ UENUM(BlueprintType) enum class EMyrLogicEvent : uint8
 	ObjExitLocation,							// мы вышли за триггер-объём, который символизирует локацию - больше не для эмоций, а для триггера глобальной логики
 	ObjEnterQuietPlace,							// мы пересекли триггер-объём тихого места - для успокоения эмоций
 	ObjExitQuietPlace,							// мы вышли за триггер-объём тихого места - для успокоения эмоций
+	ObjLocationAffect,							// периодическое нагнетание текущей локацией присущих ей эмоций
 
 	SelfJump,									// просто прыжок, сам факт
 
@@ -97,6 +98,9 @@ UENUM(BlueprintType) enum class EMyrLogicEvent : uint8
 	MeAgent_AffectByExpression,					// мы запустили самовыражение
 	MePatient_GuessDeceivedByExpression,		// когда мы понимаем, что экпрессия агента не соответствовала актуальной эмоции, а значит он мухлевал
 	MeAgent_GuessDeceivedByExpression,			// когда экспрессор понимает, что экпрессия его не соответствовала актуальной эмоции, а значит он мухлевал
+
+	SelfEnterRelax,
+	SelfExitRelax,
 
 	SelfStableAndBoring,							//когда ничего не происходит долгое время
 
@@ -161,7 +165,10 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 
 	EMyrLogicEvent Events[8];	// идентификаторы предыдущих событий в той же последовательности, пока впустую
 	uint8 Mults[8];				// коэффициенты внесенных событий (хз зачем весь стек)
-	FMyrLogicEventData* LastInfo = nullptr; // указатель на полную сборку последнего события
+
+	// указатель на полную сборку последнего события - они западают из разных мест игры
+	//сюда бы хорошо умный указатель, потому что влиятель может исчезнуть
+	FMyrLogicEventData* LastInfo = nullptr; 
 
 	//счётчик-декремент до нуля пройденных доп-тактов влияния последней эмоции (для афтершоков)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 LastEventTicks = 0;	
@@ -176,9 +183,13 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 	//конструктадор
 	FEmotionMemory() { for(int i=1;i<8;i++) Events[i] = EMyrLogicEvent::NO; }
 
-	//последний
+	//последний идентификатор воздействия
 	EMyrLogicEvent Last() const { return Events[0]; }
+
+	//последний коэффициент воздействия целым числом
 	uint8& LastMult() { return Mults[0]; }
+
+	//последний коэффициент дробным
 	float LastMultReal() const { return (float)Mults[0] / 255.0f; }
 
 	//содержит во всей памяти
@@ -210,8 +221,8 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 	//внимание, кода шлейф памяти о последнем потрясении кончился, она просто выдает фолс, а дальше надо вовне решать
 	bool Tick(bool ForGoal)
 	{	
-		if (!LastInfo) return false;
-		if (LastEventTicks > 0)						// последнее событие еще не исчерпала волнительность
+		if (!LastInfo) return false;				// нет последнего воздействия или...
+		if (LastEventTicks > 0)						// последнее событие еще не исчерпало волнительность
 		{	float Mult = LastMultReal()				// коэффициент актуальности посленего события
 				* LastInfo->Taper(LastEventTicks);	// из начальной актуальности и гаснущего шлейфа
 			Change(LastInfo, ForGoal, Mult);		// применить прилив реальной эмоции
@@ -266,7 +277,12 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 
 	Eat,						//съесть неживое - указывается компонент свитчабл, который с каждым кусем +1 индекс воплощения
 
-	Quiet,						//успокоитель
+	EnterLocation,				//передать актору-локации, что вошли или вышли
+	Teleport,					//переместить игрока в центр другого триггера, указанного в параметре
+	TravelToLevel,				//перейти на ваще другой уровень
+	PlaceMarker,				//поместить маркер цели на заданный компонент
+
+	Quiet,						//успокоитель (неясно, насколько теперь нужно, если локация умеет делать любую эмоцию)
 
 	NONE
 };
@@ -290,8 +306,9 @@ UENUM(BlueprintType) enum class ETriggerNotify : uint8
 USTRUCT(BlueprintType) struct FTriggerReason
 {
 	GENERATED_USTRUCT_BODY()
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) EWhyTrigger Why;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FString Value;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EWhyTrigger Why;			//команда
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ExactContextObj;		//где выполняется, обычно триггер-объём
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FString Value;				//аргумент зависящий от команды
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) ETriggerNotify Notify;
 };
 
@@ -305,49 +322,16 @@ USTRUCT(BlueprintType) struct FMyrQuestTrigger
 {
 	GENERATED_USTRUCT_BODY()
 
-	//человеко-понятное имя пославшего это событие, можно ввести в редакторе
-	//не указатель, так как объект может быть еще не высран на уровне
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName Instigator;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EMyrLogicEvent Event; // событие, которое активирует этот переход
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName WhoCausedEvent; // имя вызвавшего, компонента, актора или класса актора
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName WhatIsAffected; // имя жертвы также проверяется вся иерархия
 
-	//тип пославшего это событие - если конкретное имя не указано, сравнивается тип
-	//тип вводится напрямую, посольку все классы изначально загружены, можно выбрать в редакторе из списка
-	//тип стандартный (не существо) чтоб не тянуть сюда заголовки лишние
-	//а сохранять все равно как getName
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSubclassOf<APawn> InstigatorType;
-
-	//человеко-понятное имя объекта, с которым пославший сотворил это событие, можно ввести в редакторе
-	//это может быть и компонент, и актор
-	//не указатель, так как объект может быть еще не высран на уровне
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName Destination;
-
-	//тип объекта, с которым пославший сотворил это событие - если конкретное имя не указано, сравнивается тип
-	//тип вводится напрямую, посольку все классы изначально загружены, можно выбрать в редакторе из списка
-	//а сохранять все равно как getName
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) UClass* DestinationType;
-
-	//сюда еще кучу всякого можно внести, но нах, лучше полагаться на множество уже ранее определенных эвентов
-	//если эта сборка уже выставлена в лист ожидания, значит внктри квеста всё посчитано
-
-	//квест, который выставил эту цеплялку (он сам себя подвязывает, когда кладет в лист ожидания)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrQuest* OwningQuest;
-	
 	//пока неяснол, как адресовать части квеста, связанные с цеплялками, пусть пока будет так
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 QuestTransID;
+	class UMyrQuest* OwningQuest;	// это добавляется автоматически, когда переносится из объекта квеста в карту зацепок
+	FName QuestCurStateName;
+	FName QuestNextStateName;		// собственно - куда идти - это добавляется автоматически, когда переносится из объекта квеста в карту зацепок
 
 };
-
-//###################################################################################################################
-//элемент карты для проверки применимости квестов - под ключом из типа MyrLogicEvent
-//###################################################################################################################
-USTRUCT(BlueprintType) struct FMyrQuestsToStart
-{
-	GENERATED_USTRUCT_BODY()
-
-	//предполагается, что на каждое элементарное действие MyrLogicEvent не будет накапливаться много квестов
-	//поэтому отыскиваться они будут перебором простого массива внутри
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FMyrQuestTrigger> AvailableQuestTriggers;
-};
-
 
 
 

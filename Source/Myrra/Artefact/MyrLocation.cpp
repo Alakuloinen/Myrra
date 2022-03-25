@@ -3,6 +3,8 @@
 
 #include "Artefact/MyrLocation.h"
 #include "Artefact/MyrTriggerComponent.h"
+#include "Artefact/MyrArtefact.h"
+#include "Creature/MyrPhyCreature.h"
 
 //==============================================================================================================
 //охватить это строение при загрузке и сохранении игры
@@ -23,7 +25,8 @@ void AMyrLocation::Load(const FLocationSaveData& Src)
 //==============================================================================================================
 AMyrLocation::AMyrLocation()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickInterval = 10.0f;
 
 
 	//источник эффекта частиц запаха
@@ -37,6 +40,11 @@ AMyrLocation::AMyrLocation()
 	PrimaryLocationVolume->SetUsingAbsoluteScale(true);
 	PrimaryLocationVolume->SetMobility(EComponentMobility::Static);
 
+	//главный маркер объёма локации нуждается в специальной реакции
+	FTriggerReason Main;
+	Main.Why = EWhyTrigger::EnterLocation;
+	PrimaryLocationVolume->Reactions.Add(Main);
+
 }
 
 //==============================================================================================================
@@ -49,11 +57,43 @@ void AMyrLocation::BeginPlay()
 }
 
 //==============================================================================================================
-// Called every frame
+// в локации тик пока нужен только чтобы время от времени эмоционально воздействовать на обитателей
 //==============================================================================================================
 void AMyrLocation::Tick(float DeltaTime)
 {
+	//каждому существу внушить эмоцию с внешними данными из этой локации
+	for(auto Cre : Inhabitants)
+		Cre->CatchMyrLogicEvent(EMyrLogicEvent::ObjLocationAffect, 1.0f, PrimaryLocationVolume, &EmotionalInducing);
 	Super::Tick(DeltaTime);
-
 }
 
+void AMyrLocation::AddCreature(AMyrPhyCreature* New)
+{
+	//посигналить существу, что оно вошло
+	New->CatchMyrLogicEvent(EMyrLogicEvent::ObjEnterLocation, 1.0f, PrimaryLocationVolume);
+
+	//зарегистрировать
+	Inhabitants.Add(New);
+
+	//коль скоро хотя бы одно есть, для него запустить тик эмоционального влияния
+	PrimaryActorTick.SetTickFunctionEnable(true);
+
+}
+void AMyrLocation::RemoveCreature(AMyrPhyCreature* New)
+{
+	New->CatchMyrLogicEvent(EMyrLogicEvent::ObjExitLocation, 1.0f, PrimaryLocationVolume);
+	Inhabitants.Remove(New);
+
+	//если локация опустела, остановить нагнетание эмоций
+	if(Inhabitants.Num() == 0)
+		PrimaryActorTick.SetTickFunctionEnable(true);
+
+}
+void AMyrLocation::AddArtefact(AMyrArtefact* New)
+{
+	Content.Add(New);
+}
+void AMyrLocation::RemoveArtefact(AMyrArtefact* New)
+{
+	Content.Remove(New);
+}

@@ -16,6 +16,8 @@
 #include "Components/SphereComponent.h"					// херь для регистрации помех камеры
 #include "Materials/MaterialParameterCollectionInstance.h"	// для подводки материала неба
 #include "Engine/TextureRenderTarget2D.h"				//текстура для рендера в текстуру
+#include "../UI/MyrBioStatUserWidget.h"					// индикатор над головой
+#include "Components/WidgetComponent.h"					// ярлык с инфой
 
 //системные дополнения
 #include "Engine/Classes/Kismet/GameplayStatics.h"		// замедление времени
@@ -96,10 +98,16 @@ AMyrDaemon::AMyrDaemon()
 
 	// Create a follow camera
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
-	//Camera->SetupAttachment(CameraRestrictor, USpringArmComponent::SocketName);
 	Camera->SetupAttachment(RootComponent);
 	MoveCamera3p();
 	Camera->bUsePawnControlRotation = false;
+
+	//компонент персональных шкал здоровья и прочей хрени (висит над мешем)
+	ObjectiveMarkerWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("Objective Marker Widget"));
+	ObjectiveMarkerWidget->SetupAttachment(RootComponent);
+	ObjectiveMarkerWidget->SetGenerateOverlapEvents(false);
+	ObjectiveMarkerWidget->SetUsingAbsoluteRotation(true);	// чтоб маркер прилипал к реальному месту
+	ObjectiveMarkerWidget->SetVisibility(false);
 
 	//источник эффекта частиц
 	ParticleSystem = CreateDefaultSubobject<UParticleSystemComponent>(TEXT("Particle System"));
@@ -597,6 +605,7 @@ void AMyrDaemon::PoseInsideCreature()
 	Drive.MoveDir = Controller->GetControlRotation().Vector();
 	Drive.MoveDir.Z = 0;
 	Drive.MoveDir.Normalize();
+	MoveCamera3p();
 }
 
 //==============================================================================================================
@@ -851,6 +860,7 @@ void AMyrDaemon::RelaxPress()
 		CurrentExpressAction = FMath::RandRange(0, AvailableExpressActions.Num() - 1);
 
 	//отобразить меню (это все плетется в блюпринте худа)
+	UE_LOG(LogTemp, Log, TEXT("RelaxPress %s %d expressions"), *GetName(), AvailableExpressActions.Num());
 	HUDOfThisPlayer()->OnExpressionStart(true);
 
 }
@@ -1144,7 +1154,26 @@ void AMyrDaemon::MouseWheel(float value)
 		if (value < 0 && AdvSenseChannel > 0)	{ AdvSenseChannel--; SwitchToSmellChannel.Broadcast(AdvSenseChannel);	}
 	}
 }
-
-
-
 bool AMyrDaemon::IsFirstPerson() { return (MyrCameraMode == EMyrCameraMode::FirstPerson); }
+
+//==============================================================================================================
+//поместить или удалить маркер квеста - извне
+//==============================================================================================================
+void AMyrDaemon::PlaceMarker(USceneComponent* Dst)
+{
+	ObjectiveMarkerWidget->SetVisibility(true);
+	ObjectiveMarkerWidget->AttachToComponent(Dst, FAttachmentTransformRules::KeepWorldTransform);
+	ObjectiveMarkerWidget->SetRelativeLocation(FVector(0));
+
+}
+
+//==============================================================================================================
+//поместить или удалить маркер квеста - извне
+//==============================================================================================================
+void AMyrDaemon::RemoveMarker()
+{
+	ObjectiveMarkerWidget->SetVisibility(false);
+	ObjectiveMarkerWidget->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+	ObjectiveMarkerWidget->SetRelativeLocation(FVector(0));
+
+}

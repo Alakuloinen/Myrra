@@ -31,6 +31,7 @@ public:
 	//настройки для обычной камеры от третьего лица, отсюда протагонист берет настройки, когда переключается с 1-ого лица обратно
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEyeVisuals ThirdPersonVisuals;
 
+
 	//указатель на актора-управлятеля игроком
 	//заполняться по идее должен не в методах этого класса, а при загрузке игры
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class AMyrDaemon* Protagonist = nullptr;

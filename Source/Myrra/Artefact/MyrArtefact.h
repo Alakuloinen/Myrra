@@ -54,6 +54,10 @@ public:
 
 public:	
 
+	//охватить этот артефакт при загрузке и сохранении игры
+	UFUNCTION(BlueprintCallable) void Save(FArtefactSaveData& Dst);
+	UFUNCTION(BlueprintCallable) void Load(const FArtefactSaveData& Src);
+
 	//сгенерировать имя для высранного артефакта этого вида - реализуется прямо в блупринтах, так как у каждого всё по разному
 	UFUNCTION(BlueprintImplementableEvent) FText GenerateHumanReadableName();
 

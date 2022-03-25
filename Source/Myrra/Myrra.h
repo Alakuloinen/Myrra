@@ -83,19 +83,6 @@ UENUM(BlueprintType) enum class EMyrCameraMode : uint8
 	FirstPerson
 };
 
-//попытка зашифровать некоторые вкл/выкл режимы в виде битов
-//это нужно только в классе демона, но временно здесь, поскольку демонов пока два (и вообще в новом не нужно)
-/*enum DAEMON_CONTROLS
-{
-	DC_STAND = 0,
-	DC_MOVE = 1,	// зажата кнопка WSAD
-	DC_RUN = 2,		// зажат спринт
-	DC_CROUCH = 4,	// зажато скрадывание
-	DC_JUMP = 8,	// зажат прыжок
-	DC_CLING = 16,	// зажата попытка зацепиться за вертикаль 
-	DC_PARRY = 32	// зажата кнопка блока
-};*/
-
 //новая струкрура для непрерывного управления существом из демона или ИИ
 //здесь самодостаточная сборка с указанием куда двигаться, куда смотреть, с какой силой, какое желательно состояние
 USTRUCT(BlueprintType) struct FCreatureDrive
@@ -195,8 +182,6 @@ USTRUCT(BlueprintType) struct FCreatureSaveData
 USTRUCT(BlueprintType) struct FArtefactSaveData
 {
 	GENERATED_USTRUCT_BODY()
-
-	//самое главное - имя и положение в пространстве
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FName Name;				// хз, может, не нужно, может лучше ID
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FTransform Transform;	// самое главное, положение в пространстве
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FName Owner;			// владелец, что бы это не значило
@@ -208,10 +193,19 @@ USTRUCT(BlueprintType) struct FArtefactSaveData
 USTRUCT(BlueprintType) struct FLocationSaveData
 {
 	GENERATED_USTRUCT_BODY()
-
-	//самое главное - имя и положение в пространстве
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FName Name;				// хз, может, не нужно, может лучше ID
 	TArray<uint8> ComponentStates;											// пока неясно, как лучше кодировать
+	//пока неясно, стоит ли сохранять принадлежности или они сами при загрузке тронут триггер и зарегистрируются
+};
+
+//###################################################################################################################
+// сохранение квеста
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FQuestSaveData
+{
+	GENERATED_USTRUCT_BODY()
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FName Name;		// имя
+	TArray<FName> PassedStates;										// список пройденных этапов в правильной последовательности
 };
 
 

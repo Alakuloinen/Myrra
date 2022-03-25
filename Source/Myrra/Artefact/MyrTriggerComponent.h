@@ -86,6 +86,9 @@ public:
 	//список реакций, можно навесить несколько
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FTriggerReason> Reactions;
 
+	//используется как маяк для привлечения существ, тик включен даже когда никто не пересекает
+	bool Beacon;
+
 
 public:
 
@@ -111,13 +114,22 @@ public:
 	bool ReactSpawn(FTriggerReason& R, bool Release);
 
 	//реакция - убийство попавшего в объём существа
-	bool ReactDestroy(class AMyrPhyCreature* C, FTriggerReason& R);
+	bool ReactDestroy(class AMyrPhyCreature* C, class AMyrArtefact* A, FTriggerReason& R);
 
 	//залезть в коробку умиротворения
 	bool ReactQuiet(class AMyrPhyCreature* C, bool Release);
 
+	//мгновенно переместить себя или предмет в другое место
+	bool ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A);
+
+	//обработать случай входа и выхода из локации
+	bool ReactEnterLocation(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Enter); 
+
+	//прореагировать одну строку реакции
+	bool ReactSingle(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release);
+
 	//шлавное
-	void React(class AMyrPhyCreature* C, bool Release);
+	void React(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release);
 
 public:
 

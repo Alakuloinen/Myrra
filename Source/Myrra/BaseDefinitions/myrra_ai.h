@@ -208,6 +208,7 @@ USTRUCT(BlueprintType) struct FGoal
 	//контейнер для регистрации событий, влияющих на логику мира (и эмоции наши), относящиеся конкретно к этой цели
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FEmotionMemory EventMemory;
 
+	//хз нужно ли в таком виде или заводить отдельную переменную уверенности
 	float& Sure() { return EventMemory.Emotion.Sure(); }
 };
 

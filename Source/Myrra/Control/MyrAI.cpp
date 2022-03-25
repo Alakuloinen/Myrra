@@ -359,7 +359,20 @@ void AMyrAI::Tick(float DeltaTime)
 	//степень соосности желаемого курса и тела, насколько передом вперед
 	float KeepDir = FMath::Max(0.0f, Drive.MoveDir | me()->GetThorax()->Forward);
 	bool OnAir = me()->GotUntouched();
-	bool FlewHigh = OnAir && Drive.ActDir.Z < -0.5 || Goal_1().LookAtDist > me()->GetBodyLength()*10;
+
+	//определение высоты над землёй
+	if(OnAir)
+	{	FHitResult Hit;
+		FCollisionQueryParams RV_TraceParams = FCollisionQueryParams(FName(TEXT("AI_TraceForAltitude")), false, me());
+		RV_TraceParams.AddIgnoredActor(me());			// чтобы не застили части нас
+		GetWorld()->LineTraceSingleByChannel (Hit, me()->GetHeadLocation(), me()->GetHeadLocation() + FVector::DownVector*1000, ECC_WorldStatic, RV_TraceParams);
+		FlyHeight = Hit.Distance;
+	}
+
+	//поднялись достаточно высоко, можно опускаться
+	bool FlewHigh = OnAir && (FlyHeight+Goal_1().LookAtDist) > me()->GetBodyLength()*20;
+
+	//признак того, что хотим двигаться прочь от цели
 	bool Away = ((int)Goals[PrimaryGoal].RouteResult >= (int)ERouteResult::Away_Directly);
 
 	//очень высокая тяга
@@ -367,7 +380,7 @@ void AMyrAI::Tick(float DeltaTime)
 	{
 		//стартовая небольшая вариация скорости (вокруг единицы) - для большой тяги способ стабилизировать
 		float AltGain = 0.8f + 0.2f * Drive.Gain;
-		TRA ( 1, TOGGLE_FLY,		AltGain,		FlewHigh);									//пока неясно, как переходить с подъёма на нормальный полёт; возможно стоит трассировать вниз
+		TRA ( 1, TOGGLE_FLY,		AltGain,		FlewHigh);									// переходить с подъёма на нормальный полёт; 
 		TRA ( 2, TOGGLE_CROUCH,		AltGain,		StealthAmount > 0.7 + 0.6 * Paranoia);		// при высокой тяге паранойя сильно отвращает от скрадывания, и вообще хочется бежать а не ползти
 		TRA ( 3, TOGGLE_SOAR,		AltGain,		me()->CanFly());								// умение летать, выслкая тяга и ходьба - немедленно взлететь, ибо в воздухе быстрее
 		TRA ( 4, TOGGLE_WALK,		0.2 + KeepDir,	KeepDir < 0.6);								// в бегу перейти на шаг, если нажо резко развернуться
@@ -532,7 +545,7 @@ EGoalAcceptResult AMyrAI::Notice (UPrimitiveComponent* NewGoalObj, EHowSensed Ho
 			PraePerceive(CandidateGoal, HowSensed, Strength, NewGoalObj, Gestalt);
 			MeasureGoal(CandidateGoal, Gestalt, 0, true, HowSensed);
 
-			//если новая цель более весомая, чем вторичная (а вторичная априори ненужнее первичной)
+			//если новая цель более весомая, чем вторичная (а вторичная априори бессмысленней первичной)
 			if (RecalcGoalWeight(Goals[SecondaryGoal]) < CandidateGoal.Weight)
 			{
 				//заменить ячейку (не забыв выгрузить старую) и пометить адрес в гешатльте
@@ -1333,9 +1346,10 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 
 				//последняя надежда (когда не нашли атаку или не смогли запустить) резко развернуться и убежать
 				Drive.MoveDir = -SuspectAsMyGoal->LookAtDir;
-				Drive.DoThis = ECreatureAction::TOGGLE_HIGHSPEED;
 				Drive.Release = false;
 				Drive.Gain = 1.0f;
+				if(me()->CanFly()) Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
+				else Drive.DoThis = ECreatureAction::TOGGLE_HIGHSPEED;
 				return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
 
 			}

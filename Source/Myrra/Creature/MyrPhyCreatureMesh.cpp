@@ -839,6 +839,8 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 			float m2 = Hit.Component->GetMass();
 			if (m2 < 0.1 * m1)
 				Grab(Limb, DistFromLeaf, TheirBody, TheirLimb, Hit.ImpactPoint);
+			else Log(Limb, TEXT("UnableToGrab so heave, mass ="), m2);
+
 		}
 		//если не хватание
 		else
@@ -1186,6 +1188,12 @@ void UMyrPhyCreatureMesh::Grab(FLimb& Limb, uint8 ExactBody, FBodyInstance* Grab
 		//насильно инициализировать для нас, схваченных, состояние "схваченный"
 		CreaM->MyrOwner()->AdoptBehaveState(EBehaveState::held);
 		CreaM->SetPhyBodiesBumpable(false);
+	}
+	//не живое существо, а артефакт
+	else
+	{		
+		//аналог SetPhyBodiesBumpable, чтоб пересекалось с головой
+		GrabbedBody->SetCollisionProfileName(TEXT("PawnTransparent"));
 	}
 
 	//внимание, тут вывих мозга - как стандартный контейнер для привязи берётся только КАРКАСНЫЙ физчленик этой части тела

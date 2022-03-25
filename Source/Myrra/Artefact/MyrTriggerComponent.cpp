@@ -138,17 +138,39 @@ bool UMyrTriggerComponent::ReactSpawn(FTriggerReason& R, bool Release)
 
 //==============================================================================================================
 //реакция - убийство попавшего в объём существа, которое достаточно старо, чтобы подпадать под условия
+//или удаление со сцены предмета, пока неясно, по каким критериям
 //==============================================================================================================
-bool UMyrTriggerComponent::ReactDestroy(class AMyrPhyCreature* C, FTriggerReason& R)
+bool UMyrTriggerComponent::ReactDestroy(class AMyrPhyCreature* C, AMyrArtefact* A, FTriggerReason& R)
 {
-	if(C->HasAnyFlags(RF_Transient))
-		if (C->Age > FCString::Atof(*R.Value))
-		{
-			C->Destroy();
+	if(C)
+		if(C->HasAnyFlags(RF_Transient))
+			if (C->Age > FCString::Atof(*R.Value))
+			{	C->Destroy();
+				return true;
+			}
+	if(A)
+		if(A->HasAnyFlags(RF_Transient))
+		{	C->Destroy();
 			return true;
 		}
 	return false;
 }
+
+//==============================================================================================================
+//мгновенно переместить себя или предмет в другое место
+//==============================================================================================================
+bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A)
+{
+	//найти высиратель по имени в том же акторе и высрать из него то, что он умеет
+	auto S = Cast<UMyrTriggerComponent>(GetOwner()->GetDefaultSubobjectByName(FName(*R.Value)));
+	if(!S) S = this;
+	if (C)
+	{	C->TeleportTo(S->GetComponentTransform());
+		return true;
+	}
+	return false;
+}
+
 
 //==============================================================================================================
 //залезть в коробку умиротворения
@@ -165,11 +187,88 @@ bool UMyrTriggerComponent::ReactQuiet(AMyrPhyCreature* C, bool Release)
 	return true;
 }
 
+//==============================================================================================================
+//обработать случай входа и выхода из локации -это нужно явно, потому что в локации могут быть другие триггеры
+//которые не эквивалентны полному объёму локации
+//==============================================================================================================
+bool UMyrTriggerComponent::ReactEnterLocation(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Enter)
+{
+	if(auto L = Cast<AMyrLocation>(GetOwner()))
+	{
+		if(Enter)
+		{
+			if(C) L->AddCreature(C);
+			if(A) L->AddArtefact(A);
+		}
+		else
+		{
+			if(C) L->RemoveCreature(C);
+			if(A) L->RemoveArtefact(A);
+		}
+	}
+
+	return true;
+}
+
+//==============================================================================================================
+//прореагировать одну строку реакции - возвращает тру когда объект еще включается, для интерфейса написать
+//==============================================================================================================
+bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release)
+{
+	switch (Reaction.Why)
+	{
+		case EWhyTrigger::CameraDist:
+			if (C->Daemon) return ReactionCameraDist(C->Daemon, Reaction, Release);
+			break;
+
+		case EWhyTrigger::UnlockDoorLightButton:
+		case EWhyTrigger::UnlockDoorDimButton:
+		case EWhyTrigger::UnlockDoorFlashButton:
+			ReactionOpenDoor(C, Reaction, Release);
+			break;
+
+		case EWhyTrigger::Eat:
+			if(Release) ReactionEat(C);
+
+		case EWhyTrigger::SpawnAtComeIn:
+		case EWhyTrigger::SpawnAtComeOut:
+			ReactSpawn(Reaction, Release);
+			break;
+
+		case EWhyTrigger::SpawnAtInDestroyAtOut:
+			if(Release) ReactDestroy(C, A, Reaction);
+			else ReactSpawn(Reaction, Release);
+			break;
+
+		case EWhyTrigger::Destroy:
+			if(!Release) ReactDestroy(C, A, Reaction);
+			break;
+
+		case EWhyTrigger::Teleport:
+			if(!Release) ReactTeleport(Reaction, C, A);
+			break;
+
+		case EWhyTrigger::Quiet:
+			return ReactQuiet(C, Release);
+			break;
+
+		case EWhyTrigger::EnterLocation:
+			if(!Release) ReactEnterLocation(C, A, !Release);
+			break;
+
+		//внимание, эта реакция просто делегируется сюда квестом, 
+		//внутри триггера она не должна использоваться
+		case EWhyTrigger::PlaceMarker:
+			if (C->Daemon) C->Daemon->PlaceMarker(this);
+			break;
+	}
+	return false;
+}
 
 //==============================================================================================================
 //выбор реакции в ответ на вход в объём или выход из объёма
 //==============================================================================================================
-void UMyrTriggerComponent::React(class AMyrPhyCreature* C, bool Release)
+void UMyrTriggerComponent::React(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release)
 {
 	//не запускать (повторно), если показываеет что пересекатель уже окучен, но еще не вышел из объёма 
 	if (BurntOutAffectors.Contains(C)) return;
@@ -183,40 +282,8 @@ void UMyrTriggerComponent::React(class AMyrPhyCreature* C, bool Release)
 	bool ItemTurnedOn = false;
 	for(auto Reaction : Reactions)
 	{
-		switch (Reaction.Why)
-		{
-			case EWhyTrigger::CameraDist:
-				if (C->Daemon)
-					ItemTurnedOn = ReactionCameraDist(C->Daemon, Reaction, Release);
-				break;
-
-			case EWhyTrigger::UnlockDoorLightButton:
-			case EWhyTrigger::UnlockDoorDimButton:
-			case EWhyTrigger::UnlockDoorFlashButton:
-				ReactionOpenDoor(C, Reaction, Release);
-				break;
-
-			case EWhyTrigger::Eat:
-				if(Release) ReactionEat(C);
-
-			case EWhyTrigger::SpawnAtComeIn:
-			case EWhyTrigger::SpawnAtComeOut:
-				ReactSpawn(Reaction, Release);
-				break;
-
-			case EWhyTrigger::SpawnAtInDestroyAtOut:
-				if(Release) ReactDestroy(C, Reaction);
-				else ReactSpawn(Reaction, Release);
-				break;
-
-			case EWhyTrigger::Destroy:
-				if(!Release) ReactDestroy(C, Reaction);
-				break;
-
-			case EWhyTrigger::Quiet:
-				ItemTurnedOn = ReactQuiet(C, Release);
-				break;
-		}
+		//пропарсить отдельную реакцию
+		ItemTurnedOn = ReactSingle(Reaction, C, A, Release);
 
 		//запомнить, чтобы для этого пересекателя больше не применять
 		if(Release)	BurntOutAffectors.Add(C);
@@ -322,7 +389,7 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 {
 	//существо вызывает эту функцию само, когда внутри себя видит пересечение
 	//поэтому реагировать на него нужно только если предусмотрен активный досрочный спуск
-	if (PerformOnlyByApprovalFromCreature)	React(Sender, false);
+	if (PerformOnlyByApprovalFromCreature)	React(Sender, nullptr, false);
 }
 
 //==============================================================================================================
@@ -331,22 +398,21 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	//только если пересекло существо
-	if (auto C = Cast<AMyrPhyCreature>(OtherActor))
+	auto C = Cast<AMyrPhyCreature>(OtherActor);
+	auto A = Cast<AMyrArtefact>(OtherActor);
+	if (C || A)
 	{
 		//вызывать начяальную стадию реакции
-		React(C, false);
+		React(C, A, false);
 
 		//только пересеклись с существом, а оно уже заранее успело активировать атаку, по которой этот триггер должен срабатывать
 		if (PerformOnlyByApprovalFromCreature)
 			if (C->CouldSendApprovalToTrigger(this))
-				React(C, true);
+				React(C, A, true);
 
 		//возможно, этот триггер помимо всего прочего используется для влияния на целую игру
 		if (GenerateMyrLogicMsgOnIn)
 			C->CatchMyrLogicEvent(EMyrLogicEvent::ObjAffectTrigger, 1.0f, this);
-
-		if(auto L = Cast<AMyrLocation>(GetOwner()))
-			C->CatchMyrLogicEvent(EMyrLogicEvent::ObjEnterLocation, 1.0f, this);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("%s.%s: OverlapBegin %s.%s.%d"),
@@ -359,11 +425,13 @@ UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* Overlap
 UFUNCTION() void UMyrTriggerComponent::OverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
 	//только если пересекло существо
-	if (auto C = Cast<AMyrPhyCreature>(OtherActor))
+	auto C = Cast<AMyrPhyCreature>(OtherActor);
+	auto A = Cast<AMyrArtefact>(OtherActor);
+	if (C || A)
 	{
 		//автоматически по выходу из объёма применять функцию только в том случае, если не включено применение по действию
 		if (!PerformOnlyByApprovalFromCreature)
-			React(C, true);
+			React(C, A, true);
 
 		//исключить отработанный, чтобы в следующий раз можно было заново начать
 		BurntOutAffectors.Remove(C);
@@ -371,9 +439,6 @@ UFUNCTION() void UMyrTriggerComponent::OverlapEnd(UPrimitiveComponent* Overlappe
 		//возможно, этот триггер помимо всего прочего используется для влияния на целую игру
 		if (GenerateMyrLogicMsgOnOut)
 			C->CatchMyrLogicEvent(EMyrLogicEvent::ObjAffectTrigger, 1.0f, this);
-
-		if(auto L = Cast<AMyrLocation>(GetOwner()))
-			C->CatchMyrLogicEvent(EMyrLogicEvent::ObjExitLocation, 1.0f, this);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("%s.%s: OverlapEnd %s"),

@@ -15,6 +15,7 @@ USTRUCT(BlueprintType) struct FMeshVariant
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) UStaticMesh* Mesh;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 Chance = 255;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 ChanceToBeOn = 255;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TWeakObjectPtr<USoundBase> SoundWhenSwitched;
 };
 
 //№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№

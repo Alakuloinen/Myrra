@@ -59,6 +59,8 @@ public:	// функции
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnUnGrab"))	void OnUnGrab(AActor* Victim);// когда обладатель виджета отпустил кого-то
 	UFUNCTION(BlueprintImplementableEvent, meta = (DisplayName = "OnExpGain"))	void OnExpGain(EPhene OnWhat, ELevelShift Verdict);// когда выклюёвывается новое очко опыта
 
+	UFUNCTION(BlueprintImplementableEvent)	void OnQuestChanged(class UMyrQuestProgress* Quest);// когда берется, изменяется или кончается квест
+
 	//параметр задает откуда брать, из какого списка
 	UFUNCTION(BlueprintImplementableEvent)	void OnExpressionStart(bool Relax);// начало самовыражения - вывести меню
 	UFUNCTION(BlueprintImplementableEvent)	void OnExpressionRelease(bool Relax);// начало самовыражения - вывести меню

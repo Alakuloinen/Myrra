@@ -551,6 +551,21 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 }
 
 //==============================================================================================================
+//кинематически телепортировать в новое место
+//==============================================================================================================
+void AMyrPhyCreature::TeleportTo(FTransform Dst)
+{
+	//непосредственно поместить это существо в заданное место
+	FHitResult Hit;
+	Mesh->SetSimulatePhysics(false);
+	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
+	Mesh->SetSimulatePhysics(true);
+	if (Daemon)
+		Daemon->ClingToCreature(this);
+	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TeleportTo %s"), *GetName(),  *Dst.GetLocation().ToString());
+}
+
+//==============================================================================================================
 //включить или выключить желание при подходящей поверхности зацепиться за нее
 //==============================================================================================================
 void AMyrPhyCreature::SetWannaClimb(bool Set)
@@ -591,6 +606,23 @@ void AMyrPhyCreature::SetWannaClimb(bool Set)
 //==============================================================================================================
 void AMyrPhyCreature::StaminaChange(float delta)
 {
+	//если дельта больше нуля предполагается восстановление стамины
+	//однако этому восстановлению мешает эмоциональное напряжение
+	if (delta > 0)
+	{	
+		//сонность мягко ухудшает восстановление сил
+		delta *= (1 - Sleepiness);
+
+		//злоба и страх также отрубают восстановление сил
+		delta -= (MyrAI()->IntegralEmotionFear*0.4 + MyrAI()->IntegralEmotionRage*0.2) * Phenotype.StaminaCurseByEmotion();
+
+		//сырость также снижает
+		if(Daemon) delta -= Daemon->Wetness;
+
+		//но всё же не отнимают сверх меры
+		if (delta < 0) delta = 0;
+	}
+
 	//внимание! пищевая энергия расходуется только при восстановлении запаса сил и при попытке отнять силы, когда их уже нет
 	Stamina += delta;								// прирастить запас сил на дельту (или отнять), вычисленную извне
 
@@ -599,7 +631,8 @@ void AMyrPhyCreature::StaminaChange(float delta)
 		Energy -= delta * 0.02f;					// а вот расход пищевой энергии всё равно происходит, да ещё сильнее
 	}
 	else											// запас сил имеется (или нашёлся)
-	{	if (Stamina > 1.0f) Stamina = 1.0f;			// запас сил и так восстановлен, дальше некуда
+	{
+		if (Stamina > 1.0f) Stamina = 1.0f;			// запас сил и так восстановлен, дальше некуда
 		else if (delta > 0)							// если же есть куда восстанавливать запас сил (происходит именно восстановление, не расход)...
 			Energy -= delta * 0.01f;				// запас сил восстанавливается за счёт расхода пищевой энергии
 	}
@@ -622,6 +655,7 @@ void AMyrPhyCreature::HealthChange(float delta)
 	if(delta>0)
 	{
 		float dH = delta * FMath::Sqrt(Energy);			// низкая энергия = голод = слабая регенерация, за одно не даст энергии прогнуться ниже нуля
+		if(Sleepiness>0.5) dH -= Sleepiness - 0.5;		// сонность
 		Health += dH;									// приращение
 		if (Health >= 1.0f) Health = 1.0f;				// полностью восстановленное здоровье не надо дополнительно восстанавливать
 		else Energy -= dH * 0.01;						// отъем энергии для восстановления здоровья
@@ -646,7 +680,7 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 		Stomach.Time -= DeltaTime;
 	}
 
-	//учёт воздействия поверхности, к которой мы прикасаемся любой яастью тела, на здоровье
+	//учёт воздействия поверхности, к которой мы прикасаемся любой частью тела, на здоровье
 	EMyrSurface CurSu = EMyrSurface::Surface_0;
 	FSurfaceInfluence* SurfIn = nullptr;
 	float SurfaceHealthModifier = 0.0f;
@@ -665,7 +699,10 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	}
 
 	//восстановление здоровья (стамина перенесена в основной тик, чтоб реагировать на быструю смену фаз атаки)
-	HealthChange ((Mesh->DynModel->HealthAdd + SurfaceHealthModifier ) * DeltaTime	);										
+	HealthChange ((Mesh->DynModel->HealthAdd + SurfaceHealthModifier ) * DeltaTime	);	
+
+	//пока неясно, как нормально выставлять приращение сонности
+	Sleepiness += 0.001;
 
 	//пересчитать здоровье и мобильность тела
 	UpdateMobility();
@@ -1619,13 +1656,7 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 	SetCoatTexture(Src.Coat);
 
 	//непосредственно поместить это существо в заданное место
-	FHitResult Hit;
-	Mesh->SetSimulatePhysics(false);
-	Mesh->SetWorldTransform(Src.Transform, false, &Hit, ETeleportType::TeleportPhysics);
-	Mesh->SetSimulatePhysics(true);
-
-	if (Daemon)
-		Daemon->ClingToCreature(this);
+	TeleportTo(Src.Transform);
 
 	//auto MainMeshPart = GetMesh()->GetMaterialIndex(TEXT("Body"));
 	//if (MainMeshPart == INDEX_NONE) MainMeshPart = 0;
@@ -1636,9 +1667,9 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 //отражение действия на более абстрактонм уровне - прокачка роли, эмоция, сюжет
 //вызывается из разных классов, из ИИ, из триггеров...
 //==============================================================================================================
-void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UPrimitiveComponent* Goal, FMyrLogicEventData* ExplicitEmo)
+void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObject* Patiens, FMyrLogicEventData* ExplicitEmo)
 {
-	if (GenePool) return;						//нет генофонда вообще нонсенс
+	if (!GenePool) return;						//нет генофонда вообще нонсенс
 	if (!GenePool->MyrLogicReactions) return;	//забыли вставить в генофонд список реакций
 	
 
@@ -1647,6 +1678,9 @@ void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UPri
 	if (!EventInfo) EventInfo = ExplicitEmo;
 	if (EventInfo)
 	{
+		//большая часть аргументов - это компоненты с которыми взаимодействие, но может быть и нет
+		auto Goal = Cast<UPrimitiveComponent>(Patiens);
+
 		//ну уровне ИИ изменяем эмоции (внутри он найдёт цель и положит событие в память эмоциональных событий)
 		if (MyrAI()) MyrAI()->RecordMyrLogicEvent(Event, Param, Goal, EventInfo);
 
@@ -1658,12 +1692,11 @@ void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UPri
 					Wid->OnExpGain(i.Key, Phenotype.ByEnum(i.Key).GetStatus());
 		}
 	}
-	
+	UE_LOG(LogMyrPhyCreature, Warning, TEXT("ACTOR %s CatchMyrLogicEvent %s %g"), *GetName(), *TXTENUM(EMyrLogicEvent, Event), Param);
 
 	//подняться на уровень сюжета и посмотреть, мож тригернет продвижение истории
-	GetMyrGameInst()->MyrLogicEventCheckForStory(Event, this, Param, Goal);
+	GetMyrGameInst()->MyrLogicEventCheckForStory(Event, this, Param, Patiens);
 
-	UE_LOG(LogMyrPhyCreature, Warning, TEXT("ACTOR %s CatchMyrLogicEvent %s %g"), *GetName(), *TXTENUM(EMyrLogicEvent, Event), Param);
 }
 
 //◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘
@@ -1908,10 +1941,13 @@ void AMyrPhyCreature::RelaxActionReachPeace()
 		//если поймали первую закладку - собственно перейти в фазу "ок, легли, отдыхаем"
 		//если поймали вторую закладку, то фаза уже была установлена в момент нажатия кнопки
 		if(RelaxActionPhase==0) RelaxActionPhase = 1;
-		
+
 		//в обоих случаях применить новую фазу на уровне физики тела
 		AdoptWholeBodyDynamicsModel(&GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase], GetRelaxAction()->UseDynModels);
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s RelaxActionReachPeace %s"), *GetName(), *GetRelaxAction()->GetName());
+
+		//отметить событие
+		CatchMyrLogicEvent(EMyrLogicEvent::SelfRelaxStart, 1.0f, GetRelaxAction());
 	}
 }
 
@@ -1938,11 +1974,14 @@ void AMyrPhyCreature::RelaxActionReachEnd()
 {
 	//если реально делаем жест отдыха в фазе установившегося действия - перейти к следующей фазе, закруглению
 	if (CurrentRelaxAction != 255 && RelaxActionPhase == 2)
-	{	RelaxActionPhase = 0;
-		CurrentRelaxAction = 255;
-		
+	{		
 		//вернуть настройки динамики уровня выше - уровня состояния поведения
 		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
+
+		//отметить событие
+		CatchMyrLogicEvent(EMyrLogicEvent::SelfRelaxEnd, 1.0f, GetRelaxAction());
+		RelaxActionPhase = 0;
+		CurrentRelaxAction = 255;
 	}
 }
 
@@ -2051,7 +2090,7 @@ bool  AMyrPhyCreature::Eat()
 
 	//перед деструкцией будет отвязан ИИ
 	Food->GetOwner()->Destroy();
-	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s Eat %s"), *GetName(), *Food->GetOwner()->GetName());
+	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s Eat() %s"), *GetName(), *Food->GetOwner()->GetName());
 	return true;
 }
 

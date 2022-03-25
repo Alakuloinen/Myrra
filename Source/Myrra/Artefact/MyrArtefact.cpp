@@ -66,4 +66,12 @@ void AMyrArtefact::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 	//найти компоненты, добавленные в редакторе и подцепить их в указатели
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
+
+//охватить этот артефакт при загрузке и сохранении игры
+void AMyrArtefact::Save(FArtefactSaveData& Dst)
+{
+}
+void AMyrArtefact::Load(const FArtefactSaveData& Src)
+{
+}
 #endif

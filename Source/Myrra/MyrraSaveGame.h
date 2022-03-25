@@ -26,10 +26,14 @@ public:
 	//либо при загрузке главного по срабатыванию триггеров каких-то
 	UPROPERTY(VisibleAnywhere) FName PrimaryLevel;
 
+	//время дня, или нескольких дней, которое реально изменяется в игре, солнце отсчитывается от DateOfPrecalculatedDays + TimeOfDay
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FTimespan TimePassed;
+
 	//массив данных по героям (и вообще всем существам в игре) и предметам
 	UPROPERTY(VisibleAnywhere) TMap <FName, FCreatureSaveData> AllCreatures;
 	UPROPERTY(VisibleAnywhere) TMap <FName, FArtefactSaveData> AllArtefacts;
 	UPROPERTY(VisibleAnywhere) TMap <FName, FLocationSaveData> AllLocations;
+	UPROPERTY(VisibleAnywhere) TMap <FName, FQuestSaveData>    AllQuests;
 
 	//здесь должен быть ещё контейнер квестов, но он пока не придуман
 
@@ -38,6 +42,8 @@ public:
 	{
 		AllCreatures.Empty();
 		AllArtefacts.Empty();
+		AllLocations.Empty();
+		AllQuests.Empty();
 	}
 };
 

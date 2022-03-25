@@ -51,6 +51,10 @@ EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, 
 	if (!Healthes.Contains(Owner->Health))
 		return EAttackAttemptResult::OUT_OF_HEALTH;//◘◘>
 
+	// попадает в диапазоны здоровья
+	if (!Sleepinesses.Contains(Owner->Sleepiness))
+		return EAttackAttemptResult::OUT_OF_SLEEPINESS;//◘◘>
+
 	// попадает в диапазоны длительностей текущего состояния (хз зачем)
 	if (!StateAges.Contains(Owner->StateTime))
 		return EAttackAttemptResult::OUT_OF_HEALTH;//◘◘>

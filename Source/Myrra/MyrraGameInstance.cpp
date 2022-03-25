@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "MyrraGameInstance.h"
+#include "MyrraGameModeBase.h"
 #include "MyrraSaveGame.h"
 #include "HAL/PlatformFilemanager.h"
 #include "Engine/Classes/Kismet/GameplayStatics.h"
@@ -13,12 +14,16 @@
 
 #include "Artefact/SwitchableStaticMeshComponent.h"		//чтобы делать стартовые вариации
 #include "Artefact/MyrraDoor.h"							//чтобы делать стартовые вариации
+#include "Artefact/MyrLocation.h"						//для сохранения помещений
+#include "Artefact/MyrTriggerComponent.h"				//для звызова реакций на триггер-объёме
 #include "Components/SplineComponent.h"					//для замощения кабелями		
 #include "Components/SplineMeshComponent.h"				//для замощения кабелями
 
 #include "UI/MyrBioStatUserWidget.h"					// индикатор над головой
 
 #include "Control/MyrPlayerController.h"				// чтобы сменять вижеты на глазах у игрока
+
+#include "Sky/MyrKingdomOfHeaven.h"						// чтобы сохранять время дня и чило дней
 
 #include "Runtime/MoviePlayer/Public/MoviePlayer.h"		// для экранов загрузки, пока неясно, как
 
@@ -66,6 +71,9 @@ void UMyrraGameInstance::Init()
 	//подцеп событий начала загрузки уровня и результативного конца 
 	FCoreUObjectDelegates::PreLoadMap.AddUObject(this, &UMyrraGameInstance::BeginLoadingScreen);
 	FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UMyrraGameInstance::EndLoadingScreen);
+
+	//подцепить все квесты - точки срабатывания
+	InitializeQuests();
 }
 
 
@@ -274,6 +282,30 @@ bool UMyrraGameInstance::Load(UMyrraSaveGame * Slot)
 	//сохранить данные для EndLoadingScreen... если это сработает
 	JustLoadedSlot = Slot;
 
+	//загрузка времени
+	if(GetMyrGameMode()->Sky)
+	{	GetMyrGameMode()->Sky->TimeOfDay = Slot->TimePassed;
+		GetMyrGameMode()->Sky->ChangeTimeOfDay();
+	}
+
+	//а вот квесты загрузить сразу же
+	StartedQuests.Reset();
+	for(auto QSD : JustLoadedSlot->AllQuests)
+	{
+		//заново создаем объекты прогрессирующих квестов
+		UMyrQuestProgress* QWork = NewObject<UMyrQuestProgress>();
+
+		//зугружаем пройденные стадии, просто имена
+		QWork->Load(QSD.Value);
+
+		//теперь сложнее, надо подцепить реальные данные квеста, придётся искать по массиву
+		for(auto Q : AllQuests)
+			if(Q->GetFName() == QSD.Value.Name) { QWork->Quest = Q; break; }
+
+		//сборка готова, запилить пару в карту
+		StartedQuests.Add(QSD.Value.Name, QWork);
+	}
+
 	//здесь должны проводиться финальные штрихи по внедрению загруженных данных
 	return true;
 }
@@ -292,15 +324,45 @@ bool UMyrraGameInstance::Save(UMyrraSaveGame * Slot)
 
 	//сохранить имя уровня, в котором происходило действо
 	Slot->PrimaryLevel = FName(*GetWorld()->GetName());
-	TArray<AActor*> FoundCreatures;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyrPhyCreature::StaticClass(), FoundCreatures);
-	for (auto Actor : FoundCreatures)
-	{
-		auto Myr = Cast<AMyrPhyCreature>(Actor);
+
+	//сохранение всех существ
+	TArray<AActor*> Found;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyrPhyCreature::StaticClass(), Found);
+	for (auto Actor : Found)
+	{	auto Myr = Cast<AMyrPhyCreature>(Actor);
 		FCreatureSaveData CSD;
 		Myr->Save(CSD);
 		Slot->AllCreatures.Add(Myr->GetFName(), CSD);
 	}
+
+	//сохранение всех артефактов
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyrArtefact::StaticClass(), Found);
+	for (auto Actor : Found)
+	{	auto Ar = Cast<AMyrArtefact>(Actor);
+		FArtefactSaveData ASD;
+		Ar->Save(ASD);
+		Slot->AllArtefacts.Add(Ar->GetFName(), ASD);
+	}
+
+	//сохранение всех артефактов
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyrLocation::StaticClass(), Found);
+	for (auto Actor : Found)
+	{	auto Lo = Cast<AMyrLocation>(Actor);
+		FLocationSaveData LSD;
+		Lo->Save(LSD);
+		Slot->AllLocations.Add(Lo->GetFName(), LSD);
+	}
+
+	//сохранение состояний всех квестов
+	for(auto QuestP : StartedQuests)
+	{	FQuestSaveData QSD;
+		QuestP.Value->Save(QSD);
+		Slot->AllQuests.Add(QuestP.Value->Quest->GetFName(), QSD);
+	}
+
+	//сохранение прошедшего времени
+	if(GetMyrGameMode()->Sky)
+		Slot->TimePassed = GetMyrGameMode()->Sky->TimeOfDay;
 
 	//сохранение счётчиков статистики
 	//вообще непонятно, как это делать для мультиплеера
@@ -362,6 +424,52 @@ void UMyrraGameInstance::EndLoadingScreen (UWorld* InLoadedWorld)
 }
 
 //====================================================================================================
+//разобрать все квесты и внести их заманушные стадии в лист ожидания
+//====================================================================================================
+void UMyrraGameInstance::InitializeQuests()
+{	
+	for (auto& Q : AllQuests)
+	{
+		for (auto& QS : Q->QuestStates)
+			QS.Value.PutToWaitingList(MyrQuestWaitingList, Q, QS.Key);
+	}
+}
+
+//====================================================================================================
+//большой обработчик различных реакций, в квестах и в триггер объёмах
+//====================================================================================================
+UFUNCTION(BlueprintCallable) bool UMyrraGameInstance::React(FTriggerReason Rtype, UObject* ContextObj, AMyrPhyCreature* C, bool Release)
+{
+	bool ItemTurnedOn = false;
+
+	//если реакция завязана на триггер-объёме, проделать ее изнутри него
+	auto Trigger = Cast<UMyrTriggerComponent>(ContextObj);
+	if(Trigger) Trigger->ReactSingle(Rtype, C, nullptr, Release);
+	
+	//реакции более абстрактные, не завязанные на триггер объёме
+	else switch (Rtype.Why)
+	{
+		//начать загрузку уровня, в котором было это сохранение
+		case EWhyTrigger::TravelToLevel:
+			UGameplayStatics::OpenLevel(GetWorld(), FName(Rtype.Value), true, TEXT("listen"));
+			break;
+
+		//поставить маркер квеста (если место поставки не триггер-объём, то сработает здесь)
+		case EWhyTrigger::PlaceMarker:
+			if (C->Daemon)
+			{
+				if(auto A = Cast<AActor>(ContextObj))
+					C->Daemon->PlaceMarker(A->GetRootComponent());
+				else if(auto U = Cast<UPrimitiveComponent>(ContextObj))
+					C->Daemon->PlaceMarker(U);
+			}
+			break;
+
+	}
+	return true;
+}
+
+//====================================================================================================
 //создать для текущей функции локальную инстанцию коллекции параметров материала
 //====================================================================================================
 UMaterialParameterCollectionInstance* UMyrraGameInstance::MakeMPCInst()
@@ -375,34 +483,55 @@ UMaterialParameterCollectionInstance* UMyrraGameInstance::MakeMPCInst()
 void UMyrraGameInstance::MyrLogicEventCheckForStory(EMyrLogicEvent Event, class AMyrPhyCreature* Instigator, float Amount, UObject* Victim)
 {
 	//тут надо подергать список на предмет совпадения условий
-	auto PreResult = MyrQuestWaitingList.Find(Event);
-	if(PreResult)
+	TArray<FMyrQuestTrigger*> Found;
+	MyrQuestWaitingList.MultiFind(Event,Found);
+	if(Found.Num()==0)
+		UE_LOG(LogTemp, Log, TEXT("MyrLogicEventCheckForStory - No quests with such trigger %s"), *TXTENUM(EMyrLogicEvent, Event));
+	for (auto Transition : Found)
 	{
-		//перебор всех имеющихся возможностей
-		for(auto& Q : PreResult->AvailableQuestTriggers)
-		{
-			//если не указано имя, то сравниваем классы зачинщика, если не совпадают, ищем другой
-			if(Q.Instigator.IsNone() && Q.InstigatorType != Instigator->GetClass()) continue;
+		//если не указано имя, то сравниваем классы зачинщика, если не совпадают, ищем другой
+		if (!Transition->WhoCausedEvent.IsNone())
+			if (Transition->WhoCausedEvent != Instigator->GetFName())
+				if (Transition->WhoCausedEvent != Instigator->GetClass()->GetFName())
+				{
+					UE_LOG(LogTemp, Log, TEXT("MyrLogicEventCheckForStory quest %s unfound subj %s"),
+						*Transition->OwningQuest->GetName(), *Transition->WhoCausedEvent.ToString());
+					continue;
+				}
 
-			//если имя указано, ищем полное совпадение, если нет, переходим к дркгому
-			else if(Q.Instigator != Instigator->GetFName()) continue;
+		//объект, может быть имя самого, имя родителя, имя класса
+		if (!Transition->WhatIsAffected.IsNone())
+			if (Transition->WhatIsAffected != Victim->GetFName())
+				if (Transition->WhatIsAffected != Victim->GetOuter()->GetFName())
+					if (Transition->WhoCausedEvent != Victim->GetClass()->GetFName())
+					{
+						UE_LOG(LogTemp, Log, TEXT("MyrLogicEventCheckForStory quest %s unfound obj %s"),
+							*Transition->OwningQuest->GetName(), *Transition->WhatIsAffected.ToString());
+						continue;
+					}
 
-			//если не указано имя объекта но сам объект подан, то сравниваем классы, если не совпадают, ищем другой
-			if(Q.Destination.IsNone())
-			{	if(Victim) if(Victim->GetClass() != Q.DestinationType) continue;}
-			
-			//если имя указано, ищем полное совпадение, если нет, переходим к дркгому
-			else if(Q.Destination != Victim->GetFName()) continue;
+		//если квест, от которого поступила эта зацепка, находится в правильном состоянии
+		if (!Transition->OwningQuest) continue;
 
-			//теперь исполнение
-			auto Result = Q.OwningQuest->Process(Q.QuestTransID);
+		//найти, может этот квест уже стартовал, туда надо записать прогресс
+		UMyrQuestProgress* WorkingQuest = GetWorkingQuest(Transition->OwningQuest);
 
-			//если исполнение показало, что надо теперь убрать эту цеплялку
-			if(Result)
-			{
-				//помечаем как пустое, чтоб потом удалить
-				Q.OwningQuest = nullptr;
-			}
+		//если не нашли, значит, он еще не стартовал, и нужно его сконструировать
+		if(!WorkingQuest)
+		{	WorkingQuest = NewObject<UMyrQuestProgress>();
+			WorkingQuest->Quest = Transition->OwningQuest;
+			StartedQuests.Add(Transition->OwningQuest->GetFName(), WorkingQuest);
 		}
+
+		//проверка, что переход вызывается для правильного состояния
+		if (Transition->QuestCurStateName != WorkingQuest->CurrentState)
+		{	UE_LOG(LogTemp, Log, TEXT("MyrLogicEventCheckForStory quest %s wrong state %s, needed %s"),
+				*Transition->OwningQuest->GetName(), *WorkingQuest->CurrentState.ToString(), *Transition->QuestCurStateName.ToString());
+			continue;
+		}
+
+		//дальше надо выполнить переход к новой стадии квеста - там внутри всяческие внешние реакции
+		WorkingQuest->DoTransition(Transition->QuestNextStateName, Instigator);
 	}
+
 }

@@ -106,6 +106,7 @@ public:	//обработчики некоторых системных кома�
 	UFUNCTION(BlueprintCallable) void TogglePause();
 	UFUNCTION(BlueprintCallable) void ToggleSaves();
 	UFUNCTION(BlueprintCallable) void ToggleStats();
+	UFUNCTION(BlueprintCallable) void ToggleQuests();
 	UFUNCTION(BlueprintCallable) void QuickSave();
 
 	//экран при окончании игры

@@ -176,6 +176,7 @@ void AMyrPlayerController::SetupInputComponent()
 	InputComponent->BindAction ("Saves", IE_Pressed, this, &AMyrPlayerController::ToggleSaves);
 	InputComponent->BindAction("QuickSave", IE_Pressed, this, &AMyrPlayerController::QuickSave);
 	InputComponent->BindAction("Stats", IE_Pressed, this, &AMyrPlayerController::ToggleStats);
+	InputComponent->BindAction("Quests", IE_Pressed, this, &AMyrPlayerController::ToggleQuests);
 
 }
 
@@ -223,8 +224,13 @@ void AMyrPlayerController::ToggleSaves()
 }
 void AMyrPlayerController::ToggleStats()
 {
-	if (CurrentUIModeName == TEXT("Stats"))	{	ChangeUIMode(ToggleRecentUIModeName);	}
+	if (CurrentUIModeName == TEXT("Stats")) { ChangeUIMode(ToggleRecentUIModeName); }
 	else ChangeUIMode(TEXT("Stats"));
+}
+void AMyrPlayerController::ToggleQuests()
+{
+	if (CurrentUIModeName == TEXT("Quests")) { ChangeUIMode(ToggleRecentUIModeName); }
+	else ChangeUIMode(TEXT("Quests"));
 }
 
 //==============================================================================================================

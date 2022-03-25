@@ -56,6 +56,9 @@ public:
 	//уровень уверенности, что плохие нас видят
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	float Paranoia = 0.0;
 
+	//высота - для летающих и падающих, через трассировку, чтобы регулировать высоту полёта
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	float FlyHeight = 0.0;
+
 	//новая сборка со всеми параметрами для движения подопечного существа
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	FCreatureDrive Drive;
 

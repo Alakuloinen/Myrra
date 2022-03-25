@@ -105,6 +105,7 @@ USTRUCT(BlueprintType) struct FPhenotype
 	float JumpForceFactor()     { return  0.7 + 0.6 * ( 0.6 * Strength.R(pLIN) + 0.4 * Agility.R(pLIN)); }
 	float JumpBackForceFactor() { return  0.7 + 0.6 * ( 0.6 * Agility.R(pLIN)  + 0.4 * Strength.R(pLIN)); }
 	float MoveSpeedFactor()     { return  0.8 + 0.4 * ( 0.8 * Agility.R(pLIN)  + 0.2 * Strength.R(pLIN)); }
+	float StaminaCurseByEmotion(){ return 1.0 - 0.9 * (0.8 * Care.R(pLIN) + 0.2 * Strength.R(pLIN)); }
 
 	FPhene& ByEnum(EPhene P)	{ return ((FPhene*)this)[(int)P]; }
 	FPhene& ByInt(int I)		{ return ((FPhene*)this)[I]; }
