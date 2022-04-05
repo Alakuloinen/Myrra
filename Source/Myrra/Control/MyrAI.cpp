@@ -179,6 +179,18 @@ void AMyrAI::Tick(float DeltaTime)
 			MeasureGoal (Goals[PrimaryGoal],   nullptr, DeltaTime, false, EHowSensed::ROUTINE, &Trace1);
 			MeasureGoal (Goals[SecondaryGoal], nullptr, DeltaTime, false, EHowSensed::ROUTINE, &Trace2);
 
+			//если разность весов изменилась, и первичная цель уже выглядит как не первичная
+			if (Goals[PrimaryGoal].Weight < Goals[SecondaryGoal].Weight)
+			{
+				//поменять местами индексы цели (не меняя целей)
+				PrimaryGoal = SecondaryGoal;
+				SecondaryGoal = 1 - PrimaryGoal;
+
+				//если атака в разгаре - мягко прервать, обратив движение
+				if (me()->DoesAttackAction())
+					ME()->NewAttackGoBack();
+			}
+
 			//при экстремальном превышении веса исключить вторичную и просчитать тягу для одной первичной
 			if (Goals[PrimaryGoal].Weight > 10 * Goals[SecondaryGoal].Weight)
 			{	Goals[PrimaryGoal].Weight = 1.0f;
@@ -199,18 +211,6 @@ void AMyrAI::Tick(float DeltaTime)
 				Goals[PrimaryGoal].Weight *= Normalizer;
 				Goals[SecondaryGoal].Weight *= Normalizer;
 			
-				//если разность весов изменилась, и первичная цель уже выглядит как не первичная
-				if (Goals[PrimaryGoal].Weight < Goals[SecondaryGoal].Weight)
-				{
-					//поменять местами индексы цели (не меняя целей)
-					PrimaryGoal = SecondaryGoal;
-					SecondaryGoal = 1 - PrimaryGoal;
-
-					//если атака в разгаре - мягко прервать, обратив движение
-					if (me()->DoesAttackAction())
-						ME()->NewAttackGoBack();
-				}
-
 				//степень раскоряки между 2 целями, если близко к 1.0 - значит по пути, -1.0 = в разных сторонах
 				float MindSplit = FVector::DotProduct(Goals[PrimaryGoal].LookAtDir, Goals[SecondaryGoal].LookAtDir);
 
@@ -237,7 +237,7 @@ void AMyrAI::Tick(float DeltaTime)
 				else
 				{
 					//отдельно просчитать удобные пути к двум целям
-					Goals[PrimaryGoal].RouteResult =    Route (Goals[PrimaryGoal],   Remember(Goals[PrimaryGoal].Object),   &Trace1);
+					Goals[PrimaryGoal].  RouteResult =  Route (Goals[PrimaryGoal],   Remember(Goals[PrimaryGoal].Object),   &Trace1);
 					Goals[SecondaryGoal].RouteResult =  Route (Goals[SecondaryGoal], Remember(Goals[SecondaryGoal].Object), &Trace2);
 
 					//выбрать смешанный, средний путь
@@ -285,12 +285,13 @@ void AMyrAI::Tick(float DeltaTime)
 			{	PrimaryActorTick.TickInterval = 0.15;				// быстрое обновление 
 				Drive.ActDir = Goals[PrimaryGoal].LookAtDir;		// смотреть строго на цель атаки
 				R = me()->NewAttackStrike();						// попытаться запустить напрямую
+				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackStrike cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult, R));
 			}
 			//если атаку нельзя продолжить по материальным причинам, а не потому что уже фаза не та
 			else
-			{	PrimaryActorTick.TickInterval = 0.15;				// успокоить метаболизм
+			{	PrimaryActorTick.TickInterval = 0.25;				// успокоить метаболизм
 				me()->NewAttackEnd();
-				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackGoBack cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult,R));
+				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackEnd cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult,R));
 			}
 		}
 	}
@@ -303,6 +304,7 @@ void AMyrAI::Tick(float DeltaTime)
 		uint8 VictimType = 255;
 		auto A = me()->GetGenePool()->Actions[i];
 		auto R = A -> IsActionFitting (me(), Goal_1().Object, &Goal_1(), VictimType, true, true);
+		UE_LOG(LogMyrAI, Warning, TEXT("AI %s Trying %s cause %s"), *me()->GetName(), *A->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
 		if(ActOk(R))
 		{
 			//если нашли атаку
@@ -356,34 +358,56 @@ void AMyrAI::Tick(float DeltaTime)
 	// над BehaveState-конечным автоматом
 	////////////////////////////////////////////////////////////////////////////////////
 
+	//TArray<UPrimitiveComponent*> Overs;
+	//me()->GetMesh()->GetOverlappingComponents(Overs);
+	//for(Co : Overs)
+	//	if(auto)
+	if(me()->ModifyMoveDirByOverlap(Drive.MoveDir))
+		UE_LOG(LogMyrAI, Warning, TEXT("AI %s ModifyMoveDirByOverlap %s"), *me()->GetName(), *Drive.MoveDir.ToString());
+
+
 	//степень соосности желаемого курса и тела, насколько передом вперед
 	float KeepDir = FMath::Max(0.0f, Drive.MoveDir | me()->GetThorax()->Forward);
 	bool OnAir = me()->GotUntouched();
 
-	//определение высоты над землёй
+	//определение высоты над землёй - пока неясно, нужно ли это для нелетающих
 	if(OnAir)
 	{	FHitResult Hit;
 		FCollisionQueryParams RV_TraceParams = FCollisionQueryParams(FName(TEXT("AI_TraceForAltitude")), false, me());
 		RV_TraceParams.AddIgnoredActor(me());			// чтобы не застили части нас
-		GetWorld()->LineTraceSingleByChannel (Hit, me()->GetHeadLocation(), me()->GetHeadLocation() + FVector::DownVector*1000, ECC_WorldStatic, RV_TraceParams);
+		GetWorld()->LineTraceSingleByChannel (Hit, me()->GetHeadLocation(), me()->GetHeadLocation() + FVector::DownVector*10000, ECC_WorldStatic, RV_TraceParams);
 		FlyHeight = Hit.Distance;
 	}
 
-	//поднялись достаточно высоко, можно опускаться
-	bool FlewHigh = OnAir && (FlyHeight+Goal_1().LookAtDist) > me()->GetBodyLength()*20;
-
 	//признак того, что хотим двигаться прочь от цели
 	bool Away = ((int)Goals[PrimaryGoal].RouteResult >= (int)ERouteResult::Away_Directly);
+
+	//отдельный случай для летающего существа
+	if (me()->CanFly())
+	{
+		UE_LOG(LogMyrAI, Warning, TEXT("AI %s flyheight %g"), *me()->GetName(), FlyHeight);
+
+		//поднялись достаточно высоко, можно опускаться
+		float TerminalHeight = me()->GetBodyLength() * 10;
+		bool FlewHigh = (FlyHeight > TerminalHeight);
+
+		//достаточно далеко от цели
+		bool TooFar = (Goal_1().LookAtDist > me()->GetBodyLength() * 20);
+
+		//включение механик полета
+		TRA(3, TOGGLE_SOAR, Drive.Gain, (TooFar || Away) && (!FlewHigh));								// взлетать если надо улепетывать или птица достаточно далеко от цели (пока не надо пикировать в нее)
+		TRA(2, TOGGLE_FLY, Drive.Gain, FlewHigh);										// переходить с подъёма на нормальный полёт, когда очень высоко 
+		TRA(1, TOGGLE_WALK, Drive.Gain, OnAir && Drive.Gain > 1 && !Away && !TooFar);	// пикировать, когда цель близко, тяга к ней высока 
+
+	}
 
 	//очень высокая тяга
 	if(Drive.Gain > 1.0f)
 	{
 		//стартовая небольшая вариация скорости (вокруг единицы) - для большой тяги способ стабилизировать
 		float AltGain = 0.8f + 0.2f * Drive.Gain;
-		TRA ( 1, TOGGLE_FLY,		AltGain,		FlewHigh);									// переходить с подъёма на нормальный полёт; 
 		TRA ( 2, TOGGLE_CROUCH,		AltGain,		StealthAmount > 0.7 + 0.6 * Paranoia);		// при высокой тяге паранойя сильно отвращает от скрадывания, и вообще хочется бежать а не ползти
-		TRA ( 3, TOGGLE_SOAR,		AltGain,		me()->CanFly());								// умение летать, выслкая тяга и ходьба - немедленно взлететь, ибо в воздухе быстрее
-		TRA ( 4, TOGGLE_WALK,		0.2 + KeepDir,	KeepDir < 0.6);								// в бегу перейти на шаг, если нажо резко развернуться
+		TRA ( 4, TOGGLE_WALK,		0.5 + 0.3*KeepDir,	KeepDir < 0.5);								// в бегу перейти на шаг, если нажо резко развернуться
 		TRA ( 5, TOGGLE_HIGHSPEED,	AltGain,		true);										// перейти на бег - если всё прочее не сработало, то важна только тяга
 	}
 	//очень низкая тяга
@@ -391,7 +415,6 @@ void AMyrAI::Tick(float DeltaTime)
 	{
 		//стартовый базис скорости - периодичность
 		float AltGain = Period(0, 1, 2*Drive.Gain);
-		TRA ( 6, TOGGLE_FLY,		2*Drive.Gain,	FlewHigh);									// пока неясно, как переходить с подъёма на нормальный полёт; возможно стоит трассировать вниз
 		TRA ( 7, TOGGLE_CROUCH,		AltGain,		StealthAmount > 0.8);						// очень исльная тяга скрадывания - чередовать скрадывание и застывание
 		TRA ( 8, TOGGLE_CROUCH,		Drive.Gain,		StealthAmount > 0.4 + 0.2 * Paranoia);		// очень сильная тяга скрыться - чередовать стойку и скрадывание
 		TRA ( 9, TOGGLE_WALK,		AltGain,		true);										// по умолчанию прерывистый шаг, так как медленный шаг некрасив, если в полёте, то парение вниз
@@ -402,6 +425,7 @@ void AMyrAI::Tick(float DeltaTime)
 		TRA (11, TOGGLE_WALK,		Drive.Gain,		true);										// стандартное хождение по земле от или на
 		TRA ( 3, TOGGLE_SOAR,		Drive.Gain,		me()->CanFly() && Away);					// при средней тяге взлёт с места только если от цели улепетываем
 	}
+
 }
 
 //==============================================================================================================
@@ -712,22 +736,26 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 		//глядим на произвольно выбранную часть тела
 		//это пока предварительный вектор, ненормированный
 		VisHit.ImpactPoint = GoalMyr->GetVisEndPoint();
-		Goal.LookAtDir = VisHit.ImpactPoint - me()->GetHeadLocation();
 
-		//расположение цели по отношению к нашему полю зрения
-		//если цель за затылком, нет смысла вычислять точно
-		//ВНИМАНИЕ, это предвариетнльное ненормированное значение
-		Goal.LookAlign = FVector::DotProduct(Goal.LookAtDir, me()->GetLookingVector());
+		//предварительный полный радиус-вектор, чтоб прикинуть, нужны ли более сложные вычисления
+		FVector TempLookAtDir = VisHit.ImpactPoint - me()->GetHeadLocation();
 
-		//квадрат расстояния до точки соперника - предвариательное определение степени близости
-		d2 = Goal.LookAtDir.SizeSquared();
+		//также предварительно ракурс и расстояние
+		Goal.LookAlign = FVector::DotProduct(TempLookAtDir, me()->GetLookingVector());
+		d2 = TempLookAtDir.SizeSquared();
 
 		//если соперник перед лицом (а не за задом) и если соперник на расстоянии меньшем трёх наших длин тел
 		if (Goal.LookAlign > 0 && d2 < FMath::Square(2 * me()->GetBodyLength()))
 		{
 			//значит он предельно близко, и нужно вычислять расстояния до ближайшего членика его тела
 			VisHit.ImpactPoint = GoalMyr->GetClosestBodyLocation(me()->GetHeadLocation(), VisHit.ImpactPoint, d2);
-			Goal.LookAtDir = VisHit.ImpactPoint - me()->GetHeadLocation();
+
+			//на таком малом расстоянии перевычисление ближайших точек приводит к резкому дерганию головой
+			//чтобы его сгладить, берется предыдущий полный радиус вектор
+			Goal.LookAtDir = FMath::Lerp(
+				Goal.LookAtDir*Goal.LookAtDist,
+				VisHit.ImpactPoint - me()->GetHeadLocation(),
+				0.3);
 
 			//перерасчёт предвариительного суждение спереди/сзади
 			Goal.LookAlign = FVector::DotProduct(Goal.LookAtDir, me()->GetLookingVector());
@@ -736,6 +764,9 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 			if (me()->IsTouchingThisComponent(Goal.Object))
 				Goal.Relativity = EYouAndMe::Touching;
 		}
+
+		//далеко от цели, предудщее значение не нужно, можно его переписать
+		else Goal.LookAtDir = TempLookAtDir;
 	}
 	//цель - произвольный объект, 
 	else
@@ -786,12 +817,15 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 	//здесь мы брали скалярное произведение одного единичного и одного длинного, теперь также надо избавиться от нормы
 	Goal.LookAlign *= Goal.LookAtDistInv;
 
-#if DEBUG_LINE_AI
+	//отладочная информация
+	me()->Line(ELimbDebug::AILookDir, me()->GetHeadLocation(), Goal.LookAtDir * Goal.LookAtDist, FColor(Goal.Visibility * 255, Gestalt->NowSeen ? 255 : 0, 255, 255), 1, 0.5);
+
+/*#if DEBUG_LINE_AI
 	UE_LOG(LogMyrAI, Log, TEXT("AI %s MeasureGoal %s, dist %g %s"), *me()->GetName(), *Goal.Object->GetOwner()->GetName(), FMath::Sqrt(d2), *VisHit.Location.ToString());
 	if(!me()->IsUnderDaemon() && HowSensed == EHowSensed::ROUTINE)
 		DrawDebugLine(GetWorld(), me()->GetHeadLocation(), me()->GetHeadLocation() + Goal.LookAtDir * Goal.LookAtDist,
 			FColor(Goal.Visibility*255, Gestalt->NowSeen ? 255 : 0, 255, 255), false, 0.5, 100, 1);
-#endif
+#endif*/
 
 
 	/////////////////////////////////////////////////////////////////////////////////
@@ -987,9 +1021,8 @@ ERouteResult AMyrAI::DecideOnObstacle(FVector LookDir, FGoal& Goal, FGestaltRela
 			if(Myr->IsStandingOnThisActor(Hit->Actor.Get()))
 			{
 				//пока пробуем подойти к предмету, а вообще тут надо выбирать, каким боком объодить, как прыгнуть
-				LookDir.Z = 0;
-				LookDir.Normalize();
-				OutMoveDir = LookDir;
+				OutMoveDir = Hit->Actor->GetActorLocation() - me()->GetHeadLocation();
+				OutMoveDir.Normalize();
 				return ERouteResult::Towards_Base;//◘◘>
 			}
 			//если существо не касается препятствия
@@ -1332,7 +1365,17 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 									if(YouMadeStrike) return CounterStrike (RealDanger, You, SuspectAsMyGoal->LookAtDir);//◘◘>
 
 									//иначе время еще есть, выйти из функции и ждать на изводе, когда он вдарит
-									else return EAttackEscapeResult::WE_STARTED_PARRY;//◘◘>
+									else
+									{ 
+										if(me()->CanFly())
+										{
+											//для летающих вспархивать при первой замашке
+											Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
+											return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
+										}
+										//для нелетающих время еще есть
+										else return EAttackEscapeResult::WE_STARTED_PARRY;//◘◘>
+									}
 								}
 							}
 							//проверенное действие оказалось самодействием
@@ -1355,7 +1398,17 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 			}
 
 			//ложная тревога, ничего не делать
-			else return EAttackEscapeResult::NO_DANGER; //◘◘>
+			else
+			{
+				//летающие взлетают даже если им ничего не угрожает
+				//вообще-то здесь должен быть настраиваемый коэффициент превышенной дальности
+				if (me()->CanFly() && Attack.TactileDamage > 0.5 && SuspectAsMyGoal->LookAtDist < 10 * me()->GetBodyLength())
+				{	Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
+					Drive.Gain = 1.0f;
+					return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
+				}
+				else return EAttackEscapeResult::NO_DANGER; //◘◘>
+			}
 		}
 		//если атака априори приносит добро
 		else
@@ -1504,7 +1557,7 @@ void AMyrAI::RecalcIntegralEmotion()
 	IntegralEmotionFear = Compos.Fear();
 }
 
-FEmotion AMyrAI::GetIntegralEmotion()
+FLinearColor AMyrAI::GetIntegralEmotion() const
 {	return FEmotion(IntegralEmotionRage, FMath::Sqrt(IntegralEmotionPower*IntegralEmotionPower - IntegralEmotionFear*IntegralEmotionFear - IntegralEmotionRage*IntegralEmotionRage), IntegralEmotionFear);
 }
 

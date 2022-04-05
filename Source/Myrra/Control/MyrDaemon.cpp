@@ -32,6 +32,7 @@
 #include "../MyrraGameModeBase.h"						// общие для данного уровня данные
 #include "../Creature/MyrPhyCreature.h"					// ПОДОПЕЧНОЕ СУЩЕСТВО
 #include "../UI/MyrBioStatUserWidget.h"					// модифицированный виджет со вложенными указателями на игрока, ИИ, контроллер
+#include "../Artefact/MyrTriggerComponent.h"			// триггер объём
 #include "AssetStructures/MyrCreatureGenePool.h"		// данные для всех существ этого вида
 #include "AssetStructures/MyrCreatureBehaveStateInfo.h"	// данные по текущему состоянию моторики
 
@@ -102,6 +103,7 @@ AMyrDaemon::AMyrDaemon()
 	MoveCamera3p();
 	Camera->bUsePawnControlRotation = false;
 
+
 	//компонент персональных шкал здоровья и прочей хрени (висит над мешем)
 	ObjectiveMarkerWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("Objective Marker Widget"));
 	ObjectiveMarkerWidget->SetupAttachment(RootComponent);
@@ -150,7 +152,6 @@ AMyrDaemon::AMyrDaemon()
 	UseActDirFromAI = 0;
 
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
-
 }
 
 //==============================================================================================================
@@ -1153,6 +1154,12 @@ void AMyrDaemon::MouseWheel(float value)
 	{	if (value > 0 && AdvSenseChannel < 16)	{ AdvSenseChannel++; SwitchToSmellChannel.Broadcast(AdvSenseChannel);	}
 		if (value < 0 && AdvSenseChannel > 0)	{ AdvSenseChannel--; SwitchToSmellChannel.Broadcast(AdvSenseChannel);	}
 	}
+}
+float AMyrDaemon::ResetCameraPos()
+{	if (OwnedCreature->Overlap0)
+		CamDistNewFactor = OwnedCreature->Overlap0->GetCameraDistIfPresent();
+	else CamDistNewFactor = 1.0f;
+	return CamDistNewFactor;
 }
 bool AMyrDaemon::IsFirstPerson() { return (MyrCameraMode == EMyrCameraMode::FirstPerson); }
 

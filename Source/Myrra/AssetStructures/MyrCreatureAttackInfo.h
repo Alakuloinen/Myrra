@@ -17,8 +17,8 @@ USTRUCT(BlueprintType) struct FActionCondition
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Velocities;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Healthes;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Staminas;
-	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Sleepinesses;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange StateAges;
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Sleepinesses;
 
 	//список состояний тела, в которых можно или нельзя выполнять это действие
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool StatesForbidden = true;
@@ -43,7 +43,7 @@ USTRUCT(BlueprintType) struct FActionCondition
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool SkipDuringRelax = true;
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////
-	FActionCondition() : Velocities(0.0f, 150.0f), Healthes(0.0f, 1.1f), Staminas(0.0f, 1.1f), StateAges(0.0f, 1000.1f) { FeelToCause.EmotionRGBRadiusAlpha = FColor(127,127,127,255);  }
+	FActionCondition() : Velocities(0.0f, 150.0f), Healthes(0.0f, 1.1f), Staminas(0.0f, 1.1f), StateAges(0.0f, 1000.1f), Sleepinesses(-0.1f, 1.1f) { FeelToCause.EmotionRGBRadiusAlpha = FColor(127,127,127,255);  }
 
 	//подходит ли данное действие для выполнения данным существом
 	EAttackAttemptResult IsFitting(class AMyrPhyCreature* Owner, bool PlayerCommand = true);

@@ -68,11 +68,6 @@ public:
 	//количество секунд выдержки, если минус, то ваще одноразовый 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float SecondsToRest = 1;
 
-
-	//список пересекателей, к которым уже заранее применена завершающая стадия
-	//функции этого триггера, но они ещё не вышли из пересечения 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<AActor*> BurntOutAffectors;
-
 	//выполнять действие только если существо явно нажало какую-то кнопку
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool PerformOnlyByApprovalFromCreature = false;
 
@@ -103,12 +98,13 @@ public:
 
 	//действия по изменению расстояния камеры
 	bool ReactionCameraDist(class AMyrDaemon *D, FTriggerReason& R, bool Release);
+	float GetCameraDistIfPresent() { for(auto R : Reactions) if(R.Why == EWhyTrigger::CameraDist) return FCString::Atof(*R.Value); return 1.0f;  }
 
 	//действия по открытию двери кнопкой
 	void ReactionOpenDoor(class AMyrPhyCreature* C, FTriggerReason& R, bool Release);
 
 	//действия по съеданию
-	bool ReactionEat(class AMyrPhyCreature* C);
+	bool ReactionEat(class AMyrPhyCreature* C, bool *EndChain);
 
 	//реакция - высер нового объекта
 	bool ReactSpawn(FTriggerReason& R, bool Release);
@@ -120,13 +116,21 @@ public:
 	bool ReactQuiet(class AMyrPhyCreature* C, bool Release);
 
 	//мгновенно переместить себя или предмет в другое место
-	bool ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A);
+	bool ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Rotation);
 
 	//обработать случай входа и выхода из локации
 	bool ReactEnterLocation(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Enter); 
 
+	//сформировать вектор дрейфа по векторному полю, вызывается не отсюда, а из ИИ
+	FVector ReactVectorFieldMove(class AMyrPhyCreature* C);
+
+	//найти в этом триггере нужную реакцию
+	FTriggerReason* HasReaction(EWhyTrigger T) { for(auto& R:Reactions) if(R.Why==T) return &R; return nullptr; }
+
+	///////////////////////////////////////
+
 	//прореагировать одну строку реакции
-	bool ReactSingle(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release);
+	bool ReactSingle(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release, bool* EndChain = nullptr);
 
 	//шлавное
 	void React(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release);

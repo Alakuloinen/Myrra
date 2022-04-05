@@ -88,6 +88,7 @@ public: // квесты
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugCentralConstrForceAng;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLineTrace;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugFeetBrakeDamping;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugAILookDir;
 	FColor DebugLineChannel(ELimbDebug Ch) { return ((FColor*)(&DebugLimbAxisX))[(int)Ch]; }
 #endif
 

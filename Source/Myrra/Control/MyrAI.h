@@ -24,11 +24,11 @@ UCLASS() class MYRRA_API AMyrAI : public AAIController
 	UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true")) class UAIPerceptionComponent* AIPerception = nullptr;
 		
 	uint32 Counter = 0;		// последовательно увеличивается каждый такт, для генерации циклов
-	static uint32 RandVar;	// перетасывается каждый такт
 
 //свойства
 public:
 
+	static uint32 RandVar;	// перетасывается каждый такт
 
 	//ПАМЯТЬ - множество известных/знакомых объектов и "архетипические" отношения к ним, накапливается с первого обнаружения до полного удаления объекта //см. GetKnownObj(int i)
 	//недостаток - если объект на другом уровне, то он будет удаляться отсюда без следов с выгрузкой уровня
@@ -140,7 +140,7 @@ public:
 	float RecalcGoalAudibility(FGoal& Goal, const float NewStrength, const FGestaltRelation* Gestalt);	
 	float RecalcGoalWeight(const FGoal& Goal) const;
 	void RecalcIntegralEmotion();
-	FEmotion GetIntegralEmotion();
+	UFUNCTION(BlueprintCallable) FLinearColor GetIntegralEmotion() const;
 
 	//притушить или загасить предывдущеезначение параметров моторики, перед вводом новых
 	void CleanMotionParameters(float C) { Drive.ActDir*=C; Drive.MoveDir*=C; Drive.Gain*=C; }
@@ -228,7 +228,7 @@ public:
 	//служебные функции - вероятность/скважность
 	bool ChancePeriod(float Amount, uint8 digitbase = 31) { return (Counter & digitbase) <= (Amount * digitbase); }
 	bool ChanceRandom(float Amount, uint8 digitbase = 31) { return (RandVar & digitbase) <= (Amount * digitbase); }
-	bool ChanceRandom(uint8 Chance) { return (RandVar & 255) <= Chance; }
+	bool ChanceRandom(uint8 Chance) { return (uint8)(RandVar & 255) <= Chance; }
 	bool AITooWeak() { return !ChanceRandom(AIRuleWeight); }	//из веса в вероятность тру согласно весу (если вес 0 то и тру не будет)
 	float Rand0_1() { return (float)RandVar / (float)RAND_MAX; }
 

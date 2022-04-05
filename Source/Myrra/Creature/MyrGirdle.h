@@ -126,6 +126,9 @@ public:
 	//влить динамическую модель 
 	void AdoptDynModel(FGirdleDynModels& Models);
 
+	//непосредственно кинематически сдвинуть в нужное место
+	void KineMove(FVector Location, FVector CentralNormal, float DeltaTime);
+
 	//обработать одну конкретную конечность пояса
 	float ProcedeFoot(FLimb& Foot, FLimb& OppFoot, float FootDamping, float& Asideness, float &WeightAccum, float DeltaTime);
 

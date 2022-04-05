@@ -328,6 +328,7 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 					break;
 				}
 			}
+			//из всех реакций разворота нашли хоть одну или выбрали лучшую
 			if(BestTurnReaction)
 			{
 				//режимы выруливания на новый курс
@@ -429,6 +430,7 @@ void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 			ConsumeDrive(&Daemon->Drive);
 
 			//особая фигня от первого лица когда смотришь назад
+			//чтоб не глазеть внутрь шеи, всё тело активируется движением и поворачивается
 			if (Daemon->IsFirstPerson())
 			{
 				FVector RealForth = Mesh->GetLimbAxisForth(Mesh->Pectus);
@@ -553,15 +555,21 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 //==============================================================================================================
 //кинематически телепортировать в новое место
 //==============================================================================================================
-void AMyrPhyCreature::TeleportTo(FTransform Dst)
+void AMyrPhyCreature::TeleportToPlace(FTransform Dst, bool Rotation)
 {
 	//непосредственно поместить это существо в заданное место
 	FHitResult Hit;
 	Mesh->SetSimulatePhysics(false);
-	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
+	if(Rotation)
+	{	Dst.SetScale3D(FVector(1, 1, 1));
+		Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
+	}else
+		Mesh->SetWorldLocation(Dst.GetLocation(), false, &Hit, ETeleportType::TeleportPhysics);
+	//Thorax->Procede(0.0);
+	//Pelvis->Procede(0.0);
 	Mesh->SetSimulatePhysics(true);
 	if (Daemon)
-		Daemon->ClingToCreature(this);
+		Daemon->PoseInsideCreature();
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TeleportTo %s"), *GetName(),  *Dst.GetLocation().ToString());
 }
 
@@ -1096,7 +1104,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		case EBehaveState::mount:
 			if (BewareDying()) break;
 			BEWARE(GotUntouched(), fall);
-			BEWARE(Stuck < 0.5 && Thorax->GuidedMoveDir.Z<0.65, walk);	//порог выхода меньше, чтоб убрать дребезг
+			BEWARE(Stuck < 0.5 && Pelvis->GuidedMoveDir.Z<0.65, walk);	//порог выхода меньше, чтоб убрать дребезг
 			BEWAREELSE(bRun && Stamina > 0.1f, run, walk);
 			BEWARE(bClimb && !GotUnclung(), climb);
 			break;
@@ -1258,6 +1266,12 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStart(int SlotNum, int VictimType
 		//если эта фаза такаи подразумевает эффектное размытие резкого движения, то врубить его
 		Daemon->SetMotionBlur(Action->MotionBlurBeginToStrike);
 	}
+	//для непися, которого мы имеем в целях ИИ = значит боремся или просто стоим около, тогда спецеффекты его атак также должны влиять на нас
+	else if(GetMyrGameMode()->GetProtagonist()->MyrAI()->FindAmongGoals(GetMesh()))
+	{
+		//если атака требует размытия, то в любом случае находим протагониста и рамываем у него
+		GetMyrGameMode()->Protagonist->SetMotionBlur(Action->MotionBlurBeginToStrike);
+	}
 
 	//настроить физику членов в соответствии с фазой атаки (UpdateMobility внутри)
 	AdoptWholeBodyDynamicsModel(&Action->DynModelsPerPhase[(int)CurrentAttackPhase], true);
@@ -1340,6 +1354,13 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStrikePerform()
 			if(MyrAI()->AimBetter(AttackDirection, 0.5))
 				Daemon->UseActDirFromAI = true;
 	}
+	//для непися, которого мы имеем в целях ИИ = значит боремся или просто стоим около, тогда спецеффекты его атак также должны влиять на нас
+	else if (GetMyrGameMode()->GetProtagonist()->MyrAI()->FindAmongGoals(GetMesh()))
+	{
+		//если атака требует размытия, то в любом случае находим протагониста и рамываем у него
+		GetMyrGameMode()->Protagonist->SetMotionBlur(Action->MotionBlurBeginToStrike);
+	}
+
 
 	//обнаружить, что мы пересекаем умный объём и передать ему, что мы совершаем, возможно, судьбоносное действие
 	if (OnVictim.SendApprovalToTriggerOverlapperOnStrike)	SendApprovalToOverlapper();
@@ -1656,7 +1677,7 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 	SetCoatTexture(Src.Coat);
 
 	//непосредственно поместить это существо в заданное место
-	TeleportTo(Src.Transform);
+	TeleportToPlace(Src.Transform, true);
 
 	//auto MainMeshPart = GetMesh()->GetMaterialIndex(TEXT("Body"));
 	//if (MainMeshPart == INDEX_NONE) MainMeshPart = 0;
@@ -2099,12 +2120,9 @@ bool  AMyrPhyCreature::Eat()
 //==============================================================================================================
 void AMyrPhyCreature::SendApprovalToOverlapper()
 {
-	TSet<UPrimitiveComponent*> OC;
-	GetOverlappingComponents(OC);
-	if (OC.Num())
-		for (auto C : OC)
-			if (auto TV = Cast<UMyrTriggerComponent>(C))
-				TV->ReceiveActiveApproval(this);
+	if(Overlap0) Overlap0->ReceiveActiveApproval(this);
+	if(Overlap1) Overlap1->ReceiveActiveApproval(this);
+	if(Overlap2) Overlap2->ReceiveActiveApproval(this);
 }
 
 //==============================================================================================================
@@ -2166,13 +2184,85 @@ void AMyrPhyCreature::TransferIntegralEmotion(float& Rage, float& Fear, float& P
 }
 
 //==============================================================================================================
+//зарегистрировать пересекаемый объём с функционалом
+//==============================================================================================================
+void AMyrPhyCreature::AddOverlap(UMyrTriggerComponent* Ov)
+{
+	//простейший стек
+	if (Overlap0)
+	{	if (Overlap1)
+			Overlap2 = Overlap1;
+		Overlap1 = Overlap0;
+	}
+	Overlap0 = Ov;
+}
+
+//==============================================================================================================
+//исключить пересекаемый объём при выходе из него
+//==============================================================================================================
+bool AMyrPhyCreature::DelOverlap(UMyrTriggerComponent* Ov)
+{
+	//удаляем только те, еоторые ранее были зарегистрированы
+	if(Ov == Overlap0)
+	{	Overlap0 = Overlap1;
+		Overlap1 = Overlap2;
+		Overlap2 = nullptr;
+		return true;
+	}
+	else if(Ov == Overlap1)
+	{	Overlap1 = Overlap2;
+		Overlap2 = nullptr;
+		return true;
+	}
+	else if(Ov == Overlap2)
+	{	Overlap2 = nullptr;
+		return true;
+	}
+	return false;
+}
+
+bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir)
+{
+	auto UsedOv = Overlap0;
+	FTriggerReason *TR = nullptr;
+	if (!UsedOv) UsedOv = Overlap1; else
+	{	TR = UsedOv->HasReaction(EWhyTrigger::VectorFieldMover);
+		if(!TR) UsedOv = Overlap1;
+	}
+	if(!UsedOv) UsedOv = Overlap2; else
+	{	TR = UsedOv->HasReaction(EWhyTrigger::VectorFieldMover);
+		if (!TR) UsedOv = Overlap2;
+	}
+	if(!UsedOv) return false; else
+	{	TR = UsedOv->HasReaction(EWhyTrigger::VectorFieldMover);
+		if (!TR) return false;
+	}
+
+	FVector Force = UsedOv->ReactVectorFieldMove(this);
+	float Coef = FCString::Atof(*TR->Value);
+	if (Coef > 0) Force *= Coef;
+	InMoveDir += Force;
+	InMoveDir.Normalize();
+	return true;
+}
+
+
+
+//==============================================================================================================
 //отладочная линия
 //==============================================================================================================
 #if WITH_EDITOR
 void AMyrPhyCreature::Line(ELimbDebug Ch, FVector A, FVector AB, float W, float Time)
-{	if (IsDebugged(Ch))
+{
+	if (IsDebugged(Ch))
 		DrawDebugLine(GetOwner()->GetWorld(), A, A + AB,
 			GetMyrGameInst()->DebugLineChannel(Ch), false, Time, 100, W);
+}
+void AMyrPhyCreature::Line(ELimbDebug Ch, FVector A, FVector AB, FColor Color, float W, float Time)
+{
+	if (IsDebugged(Ch))
+		DrawDebugLine(GetOwner()->GetWorld(), A, A + AB,
+			Color, false, Time, 100, W);
 }
 #endif
 

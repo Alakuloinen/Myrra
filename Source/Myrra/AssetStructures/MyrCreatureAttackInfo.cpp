@@ -21,7 +21,10 @@ EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, 
 			WhatToTakeAsChance = FMath::Lerp(ChanceForPlayer, Chance, Owner->MyrAI()->AIRuleWeight);
 		else WhatToTakeAsChance = Chance;
 		if (!Owner->MyrAI()->ChanceRandom(WhatToTakeAsChance))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("%s chance %d > %d"), *Owner->GetName(), Owner->MyrAI()->RandVar&255, WhatToTakeAsChance);
 			return EAttackAttemptResult::OUT_OF_CHANCE;//◘◘>
+		}
 
 		//если общее, интегральное эмоциональное настроение не вписывается в заданный круг
 		//эмоции - та же вероятность не хотеть, если приказывают строго выполнить, то они не рассматриваются
@@ -130,7 +133,10 @@ EAttackAttemptResult UMyrActionInfo::IsActionFitting(
 		for (int i=0;i<VictimTypes.Num();i++)
 		{
 			//проверить применимость этой сборки к этой жертве (шанс не проверяем, потому что только для субъекта)
-			R = VictimTypes[i].IsVictimFitting (Owner, ExactVictim, CheckByChance, Goal, ByAI);
+			//внимание, CheckByChance для жертвы не осуществляется, потому что если жертва = игрок, то функция будет думать, что 
+			//совершает проверку для игрока, а для игрока почти все самопроизвольные действия запрещены
+			//и вообще второй раз зачем вероятность считать
+			R = VictimTypes[i].IsVictimFitting (Owner, ExactVictim, false, Goal, ByAI);
 			if (ActOk(R))
 			{
 				//если жертва подходит - проверить себя и сразу выдать вердикт

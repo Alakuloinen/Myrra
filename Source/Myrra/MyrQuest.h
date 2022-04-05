@@ -84,6 +84,9 @@ public:
 	//квест закончен = имеется пройденные состояния, текущее же сброшено в нуль (это делается явно при встече с состояние без переходов)
 	UFUNCTION(BlueprintCallable) bool IsFinished() const { return StatesPassed.Num() > 0 && CurrentState == NAME_None; }
 
+	//квест активен
+	UFUNCTION(BlueprintCallable) bool IsActive() const { return IsStarted() && !IsFinished(); }
+
 	//совершить переход на новую стадию, указывается протагонист (хотя как быть если квест подвигает непись?)
 	UFUNCTION(BlueprintCallable) bool DoTransition(FName NewState, class AMyrPhyCreature* Owner);
 

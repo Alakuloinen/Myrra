@@ -46,25 +46,122 @@ bool UMyrTriggerComponent::CheckTimeInterval(float& MyParam, FString Msg)
 	LastOverlapEndTime = FDateTime::Now();
 	return true;
 }
+//==============================================================================================================
+//свершить генерацию объекта согласно внутренним правилам
+//==============================================================================================================
+bool UMyrTriggerComponent::DoSpawn(int ind)
+{
+	//сгенерировать случайный
+	if (ind == -1)
+	{
+		//если заведен только один тип объекта, его и генерировать
+		if (Spawnables.Num() == 1)
+			return SpawnIt(Spawnables[0]);
 
+		//вариантов существ много
+		else
+		{	//взвешенное случайное - геморная хня через новый массив 
+			TArray<uint16> WeightLadder;
+			WeightLadder.SetNum(Spawnables.Num());
+			int Sum = 0;
+			for (int i = 0; i < Spawnables.Num(); i++)
+			{
+				Sum += Spawnables[i].Chance;
+				WeightLadder[i] = Sum;
+			}
+			int R = FMath::RandRange(0, Sum);
+			for (int i = 0; i < WeightLadder.Num(); i++)
+			{
+				if (R < WeightLadder[i])
+					return SpawnIt(Spawnables[i]);
+			}
+		}
+	}
+	//сгенерировать определенный
+	else
+	{
+		if (ind < Spawnables.Num())
+			return SpawnIt(Spawnables[ind]);
+	}
+	return false;
+}
+
+//==============================================================================================================
+//высрать вполне определенный объект
+//==============================================================================================================
+bool UMyrTriggerComponent::SpawnIt(FSpawnableData& SpawnTypeInfo)
+{
+	//не создавать, если превысится количество живых
+	if (SpawnTypeInfo.MaxNumberOfPresent <= SpawnTypeInfo.Spawned.Num())
+		return false;
+	if (SpawnTypeInfo.MaxNumberOfEverSpawned <= SpawnTypeInfo.NumberOfEverSpawned)
+		return false;
+
+	//не создавать, если слишком мало времени с момента последнего создания
+	FTimespan Di = FDateTime::Now() - SpawnTypeInfo.LastlySpawned;
+	if (Di.GetTotalSeconds() < SpawnTypeInfo.MinSecondsBetween)
+		return false;
+
+	//хз, надо посмотреть, что здесь еще
+	FActorSpawnParameters Asp;
+	Asp.Owner = GetOwner();
+	const FActorSpawnParameters& cAsp = Asp;
+
+	//место, где высирать
+	FVector Place = GetComponentLocation();
+	Place = FMath::RandPointInBox(Bounds.GetBox());
+	const FVector* cP = &Place;
+	const auto cR = GetComponentRotation();
+
+	//высрать
+	AActor* Novus = GetWorld()->SpawnActor(SpawnTypeInfo.WhatToSpawn.Get(), &Place, &cR, cAsp);
+	if (Novus)
+	{
+		//если это существо, вместе с ним создать его ИИ, сам по себе он почему-то не создаётся
+		if (auto nP = Cast<AMyrPhyCreature>(Novus))
+			nP->RegisterAsSpawned(GetOwner());
+
+		//занести в список
+		SpawnTypeInfo.Spawned.Add(Novus);
+		SpawnTypeInfo.NumberOfEverSpawned++;
+
+		//зафиксировать время последнего высера
+		SpawnTypeInfo.LastlySpawned = FDateTime::Now();
+
+		//привязать сигнал, когда он сдохнет, чтоб мы сразу об этом узнали
+		Novus->OnEndPlay.AddDynamic(this, &UMyrTriggerComponent::OnSpawnedEndPlay);
+		UE_LOG(LogTemp, Log, TEXT(" UMyrTriggerComponent %s spawned %s"), *GetName(), *Novus->GetName());
+		return true;
+	}
+	return false;
+}
 //==============================================================================================================
 //действия по изменению расстояния камеры
 //==============================================================================================================
 bool UMyrTriggerComponent::ReactionCameraDist(class AMyrDaemon *D, FTriggerReason& R, bool Release)
 {
-	//если этот триггер-объём завязан на меш, который сейчас отключён - то и функция триггера отключается
-	bool Available = true;
-	if (auto SC = Cast<USwitchableStaticMeshComponent>(GetAttachParent()))
-		if (!SC->IsOn())
-			Available = false;
-
-	//выдрать из текста парамтера значение, на которое приближать камеру
-	float CamDist = Available ? FCString::Atof(*R.Value) : 1.0f;
-
 	//в конце вернуть прежнюю дистанцию
-	if(Release)	D->ResetCameraPos();
-	else D->ChangeCameraPos(CamDist);
-	return Available;
+	if (Release)
+	{
+		//заранее вызываем удаление объёма, чтобы при восстановлении расстояния камеры прочесть предыдущую запись
+		D->GetOwnedCreature()->DelOverlap(this);
+		float WhatRemains = D->ResetCameraPos();
+		UE_LOG(LogTemp, Log, TEXT("%s: ReactionCameraDist End %g"), *GetName(), WhatRemains);
+	}
+	//в начале считать новую дистанцию
+	else
+	{
+		//если этот триггер-объём завязан на меш, который сейчас отключён - то и функция триггера отключается
+		if (auto SC = Cast<USwitchableStaticMeshComponent>(GetAttachParent()))
+			if (!SC->IsOn())
+				 return false;
+
+		//выдрать из текста парамтера значение, на которое приближать камеру
+		float CamDist = FCString::Atof(*R.Value);
+		D->ChangeCameraPos(CamDist);
+		UE_LOG(LogTemp, Log, TEXT("%s: ReactionCameraDist Begin %g"), *GetName(), CamDist);
+	}
+	return true;
 }
 
 //==============================================================================================================
@@ -94,7 +191,7 @@ void UMyrTriggerComponent::ReactionOpenDoor(class AMyrPhyCreature* C, FTriggerRe
 //==============================================================================================================
 //действия по съеданию
 //==============================================================================================================
-bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C)
+bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C, bool* EndChain)
 {
 	//кушать можно только акторы-артефакты
 	if (auto A = Cast<AMyrArtefact>(GetOwner()))
@@ -102,7 +199,7 @@ bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C)
 		//если данный триггер объем прикреплен к вариативному мешу, который и отображает предмет еды
 		if (auto M = Cast<USwitchableStaticMeshComponent>(GetAttachParent()))
 		{
-			//текущее воплощение предмета еды не содержит пищевой ценности - возможно, его уже съели
+			//текущее воплощение предмета еды изначально не содержит пищевой ценности - возможно, его уже съели
 			if (M->GetCurrent() > A->WhatItDoesIfEaten.Num() - 1)
 			{	UE_LOG(LogTemp, Log, TEXT("%s: No Edible Object"), *GetName());
 				return false;
@@ -111,8 +208,12 @@ bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C)
 			//съесть и протолкнуть меш на новый образ (пустая тарелка, например)
 			if (C->EatConsume(this, &(A->WhatItDoesIfEaten[M->GetCurrent()])))
 			{	M->SetMesh(M->GetCurrent() + 1);
+
+				//по итогам съедения стоит ли прервать цепочку кусей и считать триггер пересеченным, или пока держаться в нем
+				if (EndChain) *EndChain = (M->GetCurrent() >= A->WhatItDoesIfEaten.Num() - 1);
 				return true;
 			}
+
 		}
 	}
 	return false;
@@ -159,13 +260,15 @@ bool UMyrTriggerComponent::ReactDestroy(class AMyrPhyCreature* C, AMyrArtefact* 
 //==============================================================================================================
 //мгновенно переместить себя или предмет в другое место
 //==============================================================================================================
-bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A)
+bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Rotation)
 {
 	//найти высиратель по имени в том же акторе и высрать из него то, что он умеет
 	auto S = Cast<UMyrTriggerComponent>(GetOwner()->GetDefaultSubobjectByName(FName(*R.Value)));
 	if(!S) S = this;
 	if (C)
-	{	C->TeleportTo(S->GetComponentTransform());
+	{	
+		//C->TeleportTo(S->GetComponentTransform());
+		C->TeleportToPlace(S->GetComponentTransform(), Rotation);
 		return true;
 	}
 	return false;
@@ -177,7 +280,6 @@ bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreatur
 //==============================================================================================================
 bool UMyrTriggerComponent::ReactQuiet(AMyrPhyCreature* C, bool Release)
 {
-
 	//дополнительно отключить, если этот триггер приделан к многоликому мешу, который в состоянии "выкл"
 	//например закрытый ящик
 	if (auto V = Cast<USwitchableStaticMeshComponent>(GetAttachParent()))
@@ -194,26 +296,54 @@ bool UMyrTriggerComponent::ReactQuiet(AMyrPhyCreature* C, bool Release)
 bool UMyrTriggerComponent::ReactEnterLocation(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Enter)
 {
 	if(auto L = Cast<AMyrLocation>(GetOwner()))
-	{
-		if(Enter)
-		{
-			if(C) L->AddCreature(C);
+	{	if(Enter)
+		{	if(C) L->AddCreature(C);
 			if(A) L->AddArtefact(A);
 		}
 		else
-		{
-			if(C) L->RemoveCreature(C);
+		{	if(C) L->RemoveCreature(C);
 			if(A) L->RemoveArtefact(A);
 		}
 	}
-
 	return true;
 }
 
 //==============================================================================================================
+//сформировать вектор дрейфа по векторному полю, вызывается не отсюда, а из ИИ
+//==============================================================================================================
+FVector UMyrTriggerComponent::ReactVectorFieldMove(class AMyrPhyCreature* C)
+{
+	//накопитль вектора
+	FVector Accu(0,0,0);
+	if(!C) return Accu;
+
+	//вектора задаются дочерними компонентами (для наглядности стрелками), откуда берется ось Х
+	TArray<USceneComponent*> Children = GetAttachChildren();
+
+	//если вектор только один, взвешенной суммы не требуется, просто вернуть его
+	if(Children.Num()==1)
+		return Children[0]->GetComponentTransform().GetUnitAxis(EAxis::X);
+
+	//нормировочный коэффициент = максимальный размер всего объёма, чтобы расстояния до стрелок были весами меньше единицы
+	float Normer = 0.5 / (Bounds.SphereRadius);
+	float Denominator = 0;
+	for(auto Ch : Children)
+	{
+		//весовой вклад вектора максимален при близости и ноль при дальности на другом конце поля
+		float Weight = 1.0f - FVector::DistSquared(C->GetActorLocation(), Ch->GetComponentLocation()) * Normer * Normer;
+		if(Weight < 0) Weight = 0;
+		Accu += Ch->GetComponentTransform().GetUnitAxis(EAxis::X) * Weight;
+		Denominator += Weight;
+	}
+	if(Denominator > 1) Accu /= Denominator;
+	return Accu;
+}
+
+
+//==============================================================================================================
 //прореагировать одну строку реакции - возвращает тру когда объект еще включается, для интерфейса написать
 //==============================================================================================================
-bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release)
+bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release, bool* EndChain)
 {
 	switch (Reaction.Why)
 	{
@@ -228,7 +358,8 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 			break;
 
 		case EWhyTrigger::Eat:
-			if(Release) ReactionEat(C);
+			if (Release) return ReactionEat(C, EndChain);
+			break;
 
 		case EWhyTrigger::SpawnAtComeIn:
 		case EWhyTrigger::SpawnAtComeOut:
@@ -245,11 +376,15 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 			break;
 
 		case EWhyTrigger::Teleport:
-			if(!Release) ReactTeleport(Reaction, C, A);
+			if(!Release) ReactTeleport(Reaction, C, A, true);
+			break;
+
+		case EWhyTrigger::TeleportOnlyLocation:
+			if(!Release) ReactTeleport(Reaction, C, A, false);
 			break;
 
 		case EWhyTrigger::Quiet:
-			return ReactQuiet(C, Release);
+			ReactQuiet(C, Release);
 			break;
 
 		case EWhyTrigger::EnterLocation:
@@ -262,7 +397,7 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 			if (C->Daemon) C->Daemon->PlaceMarker(this);
 			break;
 	}
-	return false;
+	return true;
 }
 
 //==============================================================================================================
@@ -270,116 +405,41 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 //==============================================================================================================
 void UMyrTriggerComponent::React(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release)
 {
-	//не запускать (повторно), если показываеет что пересекатель уже окучен, но еще не вышел из объёма 
-	if (BurntOutAffectors.Contains(C)) return;
 
 	//не запускать, если не отработана выдержка до завершения или между концом и новым началом
 	if(Release)
 	{ if (!CheckTimeInterval(SecondsToHold, TEXT("SecondsToHold"))) return;	}
 	else if(!CheckTimeInterval(SecondsToRest, TEXT("SecondsToRest"))) return;
 
-	//перебор всяческих реакций
+	//зарегистрировать, если на входе
+	if (!Release) C->AddOverlap(this);
+
+	//на выходе, проверить, не вышли ли заранее, если вышли, то ничего не делать
+	else if(!C->HasOverlap(this))
+		return;
+
+	//включенность объекта проверяется внутри и влияет на выдачу уведомлений, для каждой реакции в отдельности
 	bool ItemTurnedOn = false;
-	for(auto Reaction : Reactions)
+
+	//если тру, то этой функцией считать завершенным пересечение,
+	bool EndChain = true;
+
+	//перебор всяческих реакций
+	for(auto& Reaction : Reactions)
 	{
 		//пропарсить отдельную реакцию
-		ItemTurnedOn = ReactSingle(Reaction, C, A, Release);
-
-		//запомнить, чтобы для этого пересекателя больше не применять
-		if(Release)	BurntOutAffectors.Add(C);
+		ItemTurnedOn = ReactSingle(Reaction, C, A, Release, &EndChain);
 
 		//раздача нотификаций на экран
-		else C->WigdetOnTriggerNotify(Reaction.Notify, GetOwner(), GetAttachParent(), ItemTurnedOn);
+		if (!Release) C->WigdetOnTriggerNotify(Reaction.Notify, GetOwner(), GetAttachParent(), ItemTurnedOn);
 	}
+
+	//если по итогам исполнения больше от этого объёма ничего не нужно, удалить его из стека
+	if (Release && EndChain) C->DelOverlap(this);
 }
 
 
-//==============================================================================================================
-//свершить генерацию объекта согласно внутренним правилам
-//==============================================================================================================
-bool UMyrTriggerComponent::DoSpawn(int ind)
-{
-	//сгенерировать случайный
-	if(ind == -1)
-	{
-		//если заведен только один тип объекта, его и генерировать
-		if(Spawnables.Num() == 1)
-			return SpawnIt(Spawnables[0]);
 
-		//вариантов существ много
-		else
-		{	//взвешенное случайное - геморная хня через новый массив 
-			TArray<uint16> WeightLadder;
-			WeightLadder.SetNum(Spawnables.Num());
-			int Sum = 0;
-			for (int i = 0; i < Spawnables.Num(); i++)
-			{	Sum += Spawnables[i].Chance;
-				WeightLadder[i] = Sum;
-			}
-			int R = FMath::RandRange(0, Sum);
-			for (int i = 0; i < WeightLadder.Num(); i++)
-			{	if (R < WeightLadder[i])
-					return SpawnIt(Spawnables[i]);
-			}
-		}
-	}
-	//сгенерировать определенный
-	else
-	{	if(ind < Spawnables.Num())
-			return SpawnIt(Spawnables[ind]);
-	}
-	return false;
-}
-
-//==============================================================================================================
-//высрать вполне определенный объект
-//==============================================================================================================
-bool UMyrTriggerComponent::SpawnIt(FSpawnableData& SpawnTypeInfo)
-{
-	//не создавать, если превысится количество живых
-	if(SpawnTypeInfo.MaxNumberOfPresent <= SpawnTypeInfo.Spawned.Num())
-		return false;
-	if(SpawnTypeInfo.MaxNumberOfEverSpawned <= SpawnTypeInfo.NumberOfEverSpawned)
-		return false;
-
-	//не создавать, если слишком мало времени с момента последнего создания
-	FTimespan Di = FDateTime::Now() - SpawnTypeInfo.LastlySpawned;
-	if (Di.GetTotalSeconds() < SpawnTypeInfo.MinSecondsBetween)
-		return false;
-
-	//хз, надо посмотреть, что здесь еще
-	FActorSpawnParameters Asp;
-	Asp.Owner = GetOwner();
-	const FActorSpawnParameters& cAsp = Asp;
-
-	//место, где высирать
-	FVector Place = GetComponentLocation();
-	Place = FMath::RandPointInBox(Bounds.GetBox());
-	const FVector* cP = &Place;
-	const auto cR = GetComponentRotation();
-
-	//высрать
-	AActor* Novus = GetWorld()->SpawnActor ( SpawnTypeInfo.WhatToSpawn.Get(), &Place, &cR, cAsp);
-	if(Novus)
-	{
-		//если это существо, вместе с ним создать его ИИ, сам по себе он почему-то не создаётся
-		if(auto nP = Cast<AMyrPhyCreature>(Novus))
-			nP->RegisterAsSpawned(GetOwner());
-
-		//занести в список
-		SpawnTypeInfo.Spawned.Add (Novus);
-		SpawnTypeInfo.NumberOfEverSpawned++;
-
-		//зафиксировать время последнего высера
-		SpawnTypeInfo.LastlySpawned = FDateTime::Now();
-
-		//привязать сигнал, когда он сдохнет, чтоб мы сразу об этом узнали
-		Novus->OnEndPlay.AddDynamic(this, &UMyrTriggerComponent::OnSpawnedEndPlay);
-		UE_LOG(LogTemp, Log, TEXT(" UMyrTriggerComponent %s spawned %s"), *GetName(), *Novus->GetName());
-		return true;
-	}
-	return false;
-}
 
 
 //==============================================================================================================
@@ -389,7 +449,8 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 {
 	//существо вызывает эту функцию само, когда внутри себя видит пересечение
 	//поэтому реагировать на него нужно только если предусмотрен активный досрочный спуск
-	if (PerformOnlyByApprovalFromCreature)	React(Sender, nullptr, false);
+	//почему false?
+	if (PerformOnlyByApprovalFromCreature)	React(Sender, nullptr, true);
 }
 
 //==============================================================================================================
@@ -397,6 +458,9 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 //==============================================================================================================
 UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
+	//пересечение поясов не должно срабатывать, чтоб не получать множественные
+	if (OtherComp->IsA<UMyrGirdle>()) return;
+
 	//только если пересекло существо
 	auto C = Cast<AMyrPhyCreature>(OtherActor);
 	auto A = Cast<AMyrArtefact>(OtherActor);
@@ -424,17 +488,20 @@ UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* Overlap
 //==============================================================================================================
 UFUNCTION() void UMyrTriggerComponent::OverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
+	//пересечение поясов не должно срабатывать, чтоб не получать множественные
+	if (OtherComp->IsA<UMyrGirdle>()) return;
+
 	//только если пересекло существо
 	auto C = Cast<AMyrPhyCreature>(OtherActor);
 	auto A = Cast<AMyrArtefact>(OtherActor);
 	if (C || A)
 	{
 		//автоматически по выходу из объёма применять функцию только в том случае, если не включено применение по действию
-		if (!PerformOnlyByApprovalFromCreature)
-			React(C, A, true);
+		//if (!PerformOnlyByApprovalFromCreature)
+		React(C, A, true);
 
-		//исключить отработанный, чтобы в следующий раз можно было заново начать
-		BurntOutAffectors.Remove(C);
+		//повторно вызывается если в реакте так и не вызвалось
+		C->DelOverlap(this);
 
 		//возможно, этот триггер помимо всего прочего используется для влияния на целую игру
 		if (GenerateMyrLogicMsgOnOut)
@@ -500,6 +567,7 @@ void UMyrTriggerComponent::TickComponent(float DeltaTime, enum ELevelTick TickTy
 		0,	//здесь можно дальность распространения, но пока неясно, насколько нужно							
 		TEXT("HeardSpecial"));
 
+	//ещё бы как-то сделать направитель по вектору
 
 	//под капотом
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);

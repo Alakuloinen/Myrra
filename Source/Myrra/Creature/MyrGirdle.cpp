@@ -249,6 +249,108 @@ void UMyrGirdle::AdoptDynModel(FGirdleDynModels& Models)
 
 }
 
+//==============================================================================================================
+//непосредственно кинематически сдвинуть в нужное место
+//==============================================================================================================
+void UMyrGirdle::KineMove(FVector Location, FVector CentralNormal, float DeltaTime)
+{
+	//////////////////////////////////////////////////////////////////////////////
+	//кинематическое перемещение якоря пояса в нужную позицию
+	FVector L = Location;
+	FVector F, U;
+
+	//в режиме пришпиленности к опоре
+	if (FixedOnFloor)
+	{
+		//если тело хочет и может двигаться (нажата кнопка)
+		if (MyrOwner()->MoveGain > 0)
+		{
+			//движение за этот кадр
+			FVector Offset = GuidedMoveDir * MyrOwner()->GetDesiredVelocity() * DeltaTime;
+
+			//только для поясов с реальными ногами
+			if (HasLegs)
+			{
+				//текущаяя вытяжка ног (минимальная: пусть 1 нога будет свободна)
+				float CurH = FMath::Min(GetFeetLengthSq(false), GetFeetLengthSq(false));
+
+				//отклонение от номинальной длины (берется чуть меньше, чтобы детектировать вытяжку)
+				float errorH = CurH - FMath::Square(LimbLength * 0.8);
+
+				//обнаружено значительное отклонение = скомпнесировать
+				if (errorH > FMath::Square(LimbLength * 0.05))
+				{
+					Offset -= CentralNormal * LimbLength * 0.02;
+					UE_LOG(LogTemp, Log, TEXT("%s: Procede %s push into, length = %g, base = %g"),
+						*GetOwner()->GetName(), *GetName(), FMath::Sqrt(CurH), LimbLength * 0.8);
+
+				}
+				else if (errorH < -FMath::Square(LimbLength * 0.05))
+				{
+					Offset += CentralNormal * LimbLength * 0.02;
+					UE_LOG(LogTemp, Log, TEXT("%s: Procede %s pull out, length = %g, base = %g"),
+						*GetOwner()->GetName(), *GetName(), FMath::Sqrt(CurH), LimbLength * 0.8);
+				}
+			}
+
+			//для ведомого пояса
+			if (!CurrentDynModel->Leading)
+			{
+				//противоположный пояс
+				auto AG = MyrOwner()->GetAntiGirdle(this);
+
+				//радиус вектор прямой спины от этого до противоположного
+				auto ToAG = AG->GetComponentLocation() - GetComponentLocation();
+
+				//текущее отклонение растяжки спины
+				float errorL = ToAG.SizeSquared() - FMath::Square(LimbLength);
+
+				//отклонение растяжки спины если бы мы пошли по ранее расчитанному курсу для этого пояса
+				float errorLplus = (ToAG + Offset).SizeSquared() - FMath::Square(LimbLength);
+
+				//наверстывание отклонения
+				if (errorLplus > FMath::Square(MyrOwner()->SpineLength * 0.05))
+				{
+					Offset -= ToAG.GetSafeNormal() * LimbLength * 0.01;
+				}
+				else if (errorLplus < -FMath::Square(MyrOwner()->SpineLength * 0.05))
+				{
+					Offset += ToAG.GetSafeNormal() * LimbLength * 0.01;
+				}
+
+			}
+
+			if ((FrameCounter & 3) == 0) LINEWT(ELimbDebug::MainDirs, L, Offset, 1, 0.5);
+			L += Offset;
+		}
+
+		//оси вращения = посчитанным предпочтительным для пояса (уже ортонормированы)
+		F = GuidedMoveDir;
+		U = CentralNormal;
+	}
+	//в режиме свободного перемещения в пространстве
+	else
+	{
+		//оси вращения - по абсолютному азимуту
+		F = MyrOwner()->MoveDirection;
+		U = FVector::UpVector;
+
+		// если не ортогонален - ортонормировать его
+		if (MyrOwner()->BehaveCurrentData->bOrientIn3D)
+		{
+			F.Z = 0;
+			F.Normalize();
+		}
+	}
+
+	//отобразить базис курса в центре якоря пояса
+	LINE(ELimbDebug::GirdleGuideDir, L, GuidedMoveDir * 50);
+
+	//кинематически переместить якорь в нужное место с нужным углом повотора
+	SetWorldTransform(FTransform(F, F ^ U, U, L));
+
+}
+
 
 //==============================================================================================================
 //обработать одну конкретную конечность пояса
@@ -710,7 +812,9 @@ void UMyrGirdle::Procede(float DeltaTime)
 	}
 
 	//////////////////////////////////////////////////////////////////////////////
-	//кинематическое перемещение якоря пояса в нужную позицию
+	KineMove(CentralBody->GetUnrealWorldTransform().GetLocation(), CentralLimb.ImpactNormal, DeltaTime);
+
+/*	//кинематическое перемещение якоря пояса в нужную позицию
 	FVector L = CentralBody->GetUnrealWorldTransform().GetLocation();
 	FVector F, U;
 
@@ -800,7 +904,7 @@ void UMyrGirdle::Procede(float DeltaTime)
 
 	//кинематически переместить якорь в нужное место с нужным углом повотора
 	SetWorldTransform(FTransform(F, F ^ U, U, L));
-
+	*/
 	//////////////////////////////////////////////////////////////////////////////
 	//сверху от туловище рисуем тестовые индикаторы
 	if (LDBG(ELimbDebug::ConstrPri))

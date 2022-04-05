@@ -520,6 +520,7 @@ void UMyrraGameInstance::MyrLogicEventCheckForStory(EMyrLogicEvent Event, class 
 		if(!WorkingQuest)
 		{	WorkingQuest = NewObject<UMyrQuestProgress>();
 			WorkingQuest->Quest = Transition->OwningQuest;
+			WorkingQuest->CurrentState = TEXT("Waiting");
 			StartedQuests.Add(Transition->OwningQuest->GetFName(), WorkingQuest);
 		}
 

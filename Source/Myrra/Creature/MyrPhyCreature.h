@@ -106,6 +106,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELimbDebug)) int32 DebugLinesToShow = 0;
 	bool IsDebugged(ELimbDebug Ch) { return ((DebugLinesToShow & (1 << (uint32)Ch)) != 0);  }
 	void Line(ELimbDebug Ch, FVector A, FVector AB, float W = 1, float Time = 0.02);
+	void Line(ELimbDebug Ch, FVector A, FVector AB, FColor Color, float W = 1, float Time = 0.02);
 #endif
 
 	//счетчик тактов
@@ -122,6 +123,11 @@ public:
 	//указатель на данные текущего режима поведения, кэш для быстроты, при смене режима перекэшируется
 	//отсюда берется базис для ориентира скорости при шаге, беге и т.п.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrCreatureBehaveStateInfo* BehaveCurrentData;
+
+	//текущий пересеченный триггер объём, может быть нуль (пока неясно, заводить ли полный стек
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrTriggerComponent* Overlap0 = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrTriggerComponent* Overlap1 = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrTriggerComponent* Overlap2 = nullptr;
 
 public:
 	//здесь создаются компоненты и значения по умолчанию
@@ -184,7 +190,7 @@ public:
 	void AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel, bool Fully);
 
 	//кинематически телепортировать в новое место
-	void TeleportTo(FTransform Dst);
+	void TeleportToPlace(FTransform Dst, bool Rotation);
 
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
 	void SetWannaClimb(bool Set);
@@ -345,8 +351,15 @@ public:
 	//передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)
 	void TransferIntegralEmotion(float& Rage, float& Fear, float& Power);
 
+	//зарегистрировать пересекаемый объём с функционалом
+	void AddOverlap(class UMyrTriggerComponent* Ov);
+	bool DelOverlap(class UMyrTriggerComponent* Ov);
+	bool ModifyMoveDirByOverlap(FVector& INMoveDir);
+
 //свои возвращуны
 public:	
+
+	bool HasOverlap(class UMyrTriggerComponent* Ov) const { return (Overlap0 == Ov || Overlap1 == Ov || Overlap2 == Ov); }
 
 	//доступ к глобальным вещам
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrGameInst() const { return (UMyrraGameInstance*)GetGameInstance(); }

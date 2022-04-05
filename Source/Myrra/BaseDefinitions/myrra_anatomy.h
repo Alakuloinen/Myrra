@@ -548,4 +548,5 @@ UENUM() enum class ELimbDebug : uint8
 	CentralConstrForceAng,
 	LineTrace,
 	FeetBrakeDamping,
+	AILookDir
 };

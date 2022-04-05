@@ -390,21 +390,11 @@ public:
 
 	//явная установка расстояния камеры извне (через триггер-объёмы)
 	UFUNCTION(BlueprintCallable) void ChangeCameraPos(float ExactValue)
-	{	if (CamDistAffectingVolumes > 3) return;
-		CamDistStack[CamDistAffectingVolumes] = CamDistNewFactor;
-		CamDistAffectingVolumes++;
+	{	
 		CamDistNewFactor = ExactValue;
 	}
 	//восстановление прежнего расстояния камеры (если до этого оно изменилось другим объёмом, восстановить его)
-	UFUNCTION(BlueprintCallable) void ResetCameraPos()
-	{	CamDistAffectingVolumes--;
-		if (CamDistAffectingVolumes < 0)
-		{	UE_LOG(LogTemp, Error, TEXT("%s: WTF! Wrong cam dist volume exit"), *GetName());
-			return;		}
-		CamDistNewFactor = CamDistStack[CamDistAffectingVolumes];
-		if(CamDistAffectingVolumes<0)
-			CamDistNewFactor = 1.0f;
-	}
+	UFUNCTION(BlueprintCallable) float ResetCameraPos();
 	UFUNCTION(BlueprintCallable) float GetCameraPos() const { return CamDistNewFactor; }
 
 };
