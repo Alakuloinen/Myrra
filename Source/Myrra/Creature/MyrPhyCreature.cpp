@@ -1554,21 +1554,21 @@ bool AMyrPhyCreature::JumpAsAttack()
 		Phenotype.JumpBackForceFactor() : Phenotype.JumpForceFactor();
 
 	//базис скорости прыжка пока что в генофонде общий для всех существ данного класса
-	float JumpImpulse = GetAttackActionVictim().JumpVelocity	// скорость прыжка, из сборки
-		* FMath::Min(AttackForceAccum, 1.0f)		// учет времени прижатия кнопки/ног
+	float JumpImpulse =
+		  FMath::Min(AttackForceAccum, 1.0f)		// учет времени прижатия кнопки/ног
 		* MoveGain									// учет моторного здоровья
 		* JumExperience;							// ролевая прокачиваемая сила
 
 	//как правильно и универсально добывать направление прыжка, пока неясно
 	FVector JumpDir = GetAttackAction()->ReverseJumpDir ? -AttackDirection : AttackDirection;
-	JumpDir = FVector::VectorPlaneProject(JumpDir, Mesh->Thorax.ImpactNormal);
+	JumpDir = FVector::VectorPlaneProject(JumpDir, Mesh->Pelvis.ImpactNormal);
 
 	//прыжок - важное сильновое упражнение, регистрируется 
 	CatchMyrLogicEvent(EMyrLogicEvent::SelfJump, AttackForceAccum, nullptr);
 
 	//техническая часть прыжка - одновременное гарцевание обоими поясами
-	Thorax->PhyPrance(JumpDir, JumpImpulse, JumpImpulse);
-	Pelvis->PhyPrance(JumpDir, JumpImpulse, JumpImpulse);
+	Thorax->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
+	Pelvis->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
 
 	//переход в состояние вознесения нужен для фиксации анимации, а не для новой дин-модели, которая всё равно затрётся дальше по ходу атакой
 	AdoptBehaveState(EBehaveState::fall);

@@ -84,6 +84,7 @@ USTRUCT(BlueprintType) struct FVictimType
 
 	//если здесь прыжок, то это импульс
 	UPROPERTY(EditAnywhere, Category = "Damage", BlueprintReadWrite) float JumpVelocity = 600;
+	UPROPERTY(EditAnywhere, Category = "Damage", BlueprintReadWrite) float JumpUpVelocity = 0;
 
 	//какие части тела используются при касании противника
 	UPROPERTY(EditAnywhere, Category = "Damage", BlueprintReadWrite) TMap<ELimb, FActionPhaseSet> WhatLimbsUsed;

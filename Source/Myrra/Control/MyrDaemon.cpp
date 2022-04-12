@@ -344,6 +344,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 	//направление действий/атак/головы - куда смотрим, туда и направляем
 	Drive.ActDir = Controller->GetControlRotation().Vector();
+	if (IsCameraOnExternalPoser()) Drive.ActDir = OwnedCreature->GetPelvis()->Forward;
 
 	//усиление двоения в глазах при резкой боли - здесь нужно каждый кадр ибо боль скоротечна
 	Camera->PostProcessSettings.SceneFringeIntensity = OwnedCreature->Pain;
@@ -365,7 +366,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 	{
 		//разложение значений позиции внешнего оператора камеры в координаты, гомологичные внутреннему представлению
 		FVector TempDir;	float TempLngt;
-		(this->GetActorLocation() - ExternalCameraPoser->GetActorLocation()).ToDirectionAndLength(TempDir, TempLngt);
+		(this->GetActorLocation() - ExternalCameraPoser->GetComponentLocation()).ToDirectionAndLength(TempDir, TempLngt);
 
 		//порог малости микса = полностью внешний контроль за камерой, простые вычисления
 		if (CamExtIntMix < 0.01)
@@ -474,6 +475,9 @@ void AMyrDaemon::Tick(float DeltaTime)
 			{
 				//разность - мера дальности пути к целевому значению
 				float Raznice = FMath::Abs(FinalCamDist - CamDistNormFactor);
+
+				//если отбрык максимальный, важно недопустить погружения камеры в стену, поэтому сразу перейти к новой дистанции
+				if (CamDistRepulsion >= 1) CamDistNormFactor = FinalCamDist; else
 
 				//плавно приближать текущее отдаление к целевому - если разность большая, то медленно
 				//чтобы скомпенсировать свойства лерпа сначала делать большой скачок а потом всё мельче и мельче
@@ -600,10 +604,17 @@ void AMyrDaemon::PoseInsideCreature()
 
 	//соместить позицию с точнкой в голове
 	SetActorRelativeLocation(FVector(0));
-	Controller->SetControlRotation(FRotator());
 
-	//вектор движения сделать правильным до того, как само движение поимеет место
-	Drive.MoveDir = Controller->GetControlRotation().Vector();
+	//если вызывать из редактора, то контролер будет отсутствовать
+	if (Controller)
+	{
+		//типа обнулить
+		Controller->SetControlRotation(FRotator());
+
+		//вектор движения сделать правильным до того, как само движение поимеет место
+		Drive.MoveDir = Controller->GetControlRotation().Vector();
+	}
+
 	Drive.MoveDir.Z = 0;
 	Drive.MoveDir.Normalize();
 	MoveCamera3p();
@@ -761,8 +772,10 @@ void AMyrDaemon::TraceForCamDist()
 	else
 	{
 		//резкая подтяжка камеры сквозь неподвижные объекты
-		if(ObstacleMob == EComponentMobility::Static)
+		if (ObstacleMob == EComponentMobility::Static)
+		{
 			CamDistRepulsion = 1.0f;
+		}
 
 		//плавная подтяжка камеры 
 		else CamDistRepulsion = 0.1 + 0.2 * FMath::Min(-UnPenetration, 1.0f);
@@ -1054,10 +1067,10 @@ void AMyrDaemon::SetFirstPerson(bool Set)
 	{
 		//полностью сменить настройки камеры - вернуть глобальные
 		auto GM = GetMyrGameMode();
-		AdoptCameraVisuals(GM->ThirdPersonVisuals);
+		if(GM) AdoptCameraVisuals(GM->ThirdPersonVisuals);
 
 		//убрать ограничения на поворот - эти действия проще делаются внутри контроллера
-		MyrController()->SetFirstPerson(false);
+		if(MyrController())	MyrController()->SetFirstPerson(false);
 
 		//флаг
 		MyrCameraMode = EMyrCameraMode::ThirdPerson;

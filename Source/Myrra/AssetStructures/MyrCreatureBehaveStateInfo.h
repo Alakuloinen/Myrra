@@ -105,6 +105,10 @@ public:
 	//делать урон при очень сильных ударах - отключение помогает пережить заскоки физического движка
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") bool HurtAtImpacts = true;
 
+	//поддерживать жесткую вертикаль даже когда ноги оторвались от земли - например в полете
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") bool KeepVerticalEvenInAir = false;
+
+
 	//список условий и реакций на разные по силе и безнадеге затыки в движении
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") TArray<FBumpReaction> BumpReactions;
 

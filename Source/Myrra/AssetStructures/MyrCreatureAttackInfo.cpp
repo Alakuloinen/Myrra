@@ -160,7 +160,9 @@ EAttackAttemptResult UMyrActionInfo::RetestForStrikeForAI(class AMyrPhyCreature*
 {
 	//проверяем применимость к той жертве, которая была изначально вбита при начале атаки
 	auto R = VictimTypes[Owner->CurrentAttackVictimType].IsVictimFitting (Owner, ExactVictim, true, Goal, true);
-	if (ActOk(R)) R = Condition.IsFitting(Owner, true);
+
+	//здесь шанс нехрена проверять, если начали, так уж и заканчивать
+	if (ActOk(R)) R = Condition.IsFitting(Owner, false);
 	return R; //◘◘>
 }
 

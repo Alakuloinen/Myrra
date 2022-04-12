@@ -77,7 +77,7 @@ public:
 
 	//объект, к точке которого прилипает камера, будет он указан - для катсцен и плавного перехода к ним и от них
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		class AActor* ExternalCameraPoser = nullptr;
+		class USceneComponent* ExternalCameraPoser = nullptr;
 
 
 protected:
@@ -281,6 +281,11 @@ public:
 
 	//для запроса извне - от первого лица или от третьего лица
 	bool IsFirstPerson();
+
+	//привзяать камеру к внешнему актору
+	void AdoptExtCameraPoser(USceneComponent* A) { ExternalCameraPoser = A; AllowExtCameraPosing = true; }
+	void DeleteExtCameraPoser() {AllowExtCameraPosing = false; }
+	bool IsCameraOnExternalPoser() const {	return AllowExtCameraPosing; }
 
 	//переместить камеру в положение строго за спиной
 	void ResetCamera();

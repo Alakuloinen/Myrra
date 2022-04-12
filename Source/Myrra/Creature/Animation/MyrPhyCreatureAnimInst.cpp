@@ -125,18 +125,23 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	}
 	else CurrentAttack = 255;
 
-	//глобальный уклон тела
-	WholeBodyUpDown = Ma->GetLimbAxisForth(ELimb::PECTUS).Z;
 
 	//проекции скоростей на оси поясов конечностей - для анимации шагов
 	//если шаги будут процедурные, то это нахрен не нужно
 	auto gT = Creature->GetGirdle(ELimb::THORAX);
 	auto gP = Creature->GetGirdle(ELimb::PELVIS);
 
+
 #if WITH_EDITOR
 	if (!gT->CurrentDynModel) return;
 	if (!gP->CurrentDynModel) return;
 #endif
+
+	//глобальный уклон тела
+	float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->SpeedAlongFront();
+	if(WaveOrSoar<0)
+		WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
+	else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
 
 	//поворот физической спины влево-вправо (змейка) - регулируется направлением хода
 	//включается только когда имеется один ведущий, один ведомый пояс

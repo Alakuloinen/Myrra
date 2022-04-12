@@ -165,6 +165,24 @@ bool UMyrTriggerComponent::ReactionCameraDist(class AMyrDaemon *D, FTriggerReaso
 }
 
 //==============================================================================================================
+//реакция на установку векшней позиции камеры
+//==============================================================================================================
+bool UMyrTriggerComponent::ReactCameraExtPoser(AMyrDaemon* D, bool Release)
+{
+	if (D)
+	{	
+		USceneComponent* CamPos = nullptr;
+		if (GetAttachChildren().Num())
+			CamPos = GetAttachChildren()[0];
+		else return false;
+
+		if (Release) { D->DeleteExtCameraPoser(); }
+		else D->AdoptExtCameraPoser(CamPos);
+	}
+	return true;
+}
+
+//==============================================================================================================
 //действия по открытию двери кнопкой
 //==============================================================================================================
 void UMyrTriggerComponent::ReactionOpenDoor(class AMyrPhyCreature* C, FTriggerReason& R, bool Release)
@@ -269,6 +287,7 @@ bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreatur
 	{	
 		//C->TeleportTo(S->GetComponentTransform());
 		C->TeleportToPlace(S->GetComponentTransform(), Rotation);
+		C->GetMesh()->SetPhysicsLinearVelocity(FVector(0));
 		return true;
 	}
 	return false;
@@ -349,6 +368,10 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 	{
 		case EWhyTrigger::CameraDist:
 			if (C->Daemon) return ReactionCameraDist(C->Daemon, Reaction, Release);
+			break;
+
+		case EWhyTrigger::CameraExternalPos:
+			if (C->Daemon) ReactCameraExtPoser(C->Daemon, Release);
 			break;
 
 		case EWhyTrigger::UnlockDoorLightButton:

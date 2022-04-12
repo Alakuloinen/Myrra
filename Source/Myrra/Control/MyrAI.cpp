@@ -385,8 +385,6 @@ void AMyrAI::Tick(float DeltaTime)
 	//отдельный случай для летающего существа
 	if (me()->CanFly())
 	{
-		UE_LOG(LogMyrAI, Warning, TEXT("AI %s flyheight %g"), *me()->GetName(), FlyHeight);
-
 		//поднялись достаточно высоко, можно опускаться
 		float TerminalHeight = me()->GetBodyLength() * 10;
 		bool FlewHigh = (FlyHeight > TerminalHeight);
@@ -1402,12 +1400,21 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 			{
 				//летающие взлетают даже если им ничего не угрожает
 				//вообще-то здесь должен быть настраиваемый коэффициент превышенной дальности
-				if (me()->CanFly() && Attack.TactileDamage > 0.5 && SuspectAsMyGoal->LookAtDist < 10 * me()->GetBodyLength())
-				{	Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
-					Drive.Gain = 1.0f;
-					return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
-				}
-				else return EAttackEscapeResult::NO_DANGER; //◘◘>
+				if (SuspectAsMyGoal->LookAtDist < 10 * me()->GetBodyLength())
+				{
+					if (me()->CanFly())
+					{	Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
+						Drive.Gain = 1.0f;
+						return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
+					}
+					//для сильного страха также по ложной тревоге срываться на бег
+					else if (Goal_1().EventMemory.Emotion.Fear() > 0.7)
+					{	Drive.DoThis = ECreatureAction::TOGGLE_HIGHSPEED;
+						Drive.Gain = 1.0f;
+						return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
+					}
+					else return EAttackEscapeResult::NO_DANGER; //◘◘>
+				}else return EAttackEscapeResult::NO_DANGER; //◘◘>
 			}
 		}
 		//если атака априори приносит добро

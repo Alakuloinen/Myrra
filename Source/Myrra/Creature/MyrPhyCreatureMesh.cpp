@@ -1305,8 +1305,6 @@ void UMyrPhyCreatureMesh::AdoptDynModelForLimb(FLimb& Limb, uint32 Model, float 
 	//присвоение флагов - они оживают динамически каждый кадр
 	Limb.DynModel = Model;
 
-	//гравитация изменяется только в момент переключения модели
-	Body->SetEnableGravity((Model & LDY_GRAVITY) == LDY_GRAVITY);
 
 	//вязкость изменяется при переключении моделей
 	if (!(Model & LDY_DAMPING))
@@ -1318,6 +1316,12 @@ void UMyrPhyCreatureMesh::AdoptDynModelForLimb(FLimb& Limb, uint32 Model, float 
 		+ 0.5 *  (bool)(Model & LDY_DAMPING_2_1);
 		SetLimbDamping(Limb, DampMult * DampingBase);
 	}
+
+	if(Limb.WhatAmI == ELimb::TAIL && HasFlesh(Limb.WhatAmI))
+		Body = GetFleshBody(Limb, 0);
+
+	//гравитация изменяется только в момент переключения модели
+	Body->SetEnableGravity((Model & LDY_GRAVITY) == LDY_GRAVITY);
 
 }
 

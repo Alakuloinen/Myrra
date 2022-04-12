@@ -762,6 +762,9 @@ void UMyrGirdle::Procede(float DeltaTime)
 		}
 	}
 
+	//даже если по условиям вертикаль хочется убрать, но в поведенческом состоянии стоИт держать
+	if(CurrentDynModel->HardVertical && MyrOwner()->BehaveCurrentData->KeepVerticalEvenInAir)
+		NeedVertical = true;
 
 	//если хоть одно ограничение было включено в предыдущий такт
 	if (Vertical | NoTurnAround | FixedOnFloor)

@@ -263,6 +263,7 @@ USTRUCT(BlueprintType) struct FDigestivity
 UENUM(BlueprintType) enum class EWhyTrigger : uint8
 {
 	CameraDist,					//изменить расстояние камеры, обычно приблизить, строку надо целиком превести в число
+	CameraExternalPos,			//перевести камеру на внешнюю позицию, затем вернуть обратно
 
 	UnlockDoorLightButton,		//открыть дверь, если привязана кнопка, то она из несветящейся становится светящейся
 	UnlockDoorDimButton,		//открыть дверь, в строке указывается имя компонента двери в том же акторе

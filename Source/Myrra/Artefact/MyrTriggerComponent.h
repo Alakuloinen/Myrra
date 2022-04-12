@@ -100,6 +100,9 @@ public:
 	bool ReactionCameraDist(class AMyrDaemon *D, FTriggerReason& R, bool Release);
 	float GetCameraDistIfPresent() { for(auto R : Reactions) if(R.Why == EWhyTrigger::CameraDist) return FCString::Atof(*R.Value); return 1.0f;  }
 
+	//реакция на установку векшней позиции камеры
+	bool ReactCameraExtPoser(class AMyrDaemon* D, bool Release);
+
 	//действия по открытию двери кнопкой
 	void ReactionOpenDoor(class AMyrPhyCreature* C, FTriggerReason& R, bool Release);
 
