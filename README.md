@@ -11,5 +11,5 @@ Planned as an ambitious Action/RPG, the game is still at early stages of develop
 This repository does not include much of the "Content" folder with Unreal Engine assets, as well as rough resources. Anyway there is no free space for all content made to date.
 Eventually will be added as a reference
 
-[![IMAGE ALT TEXT HERE](https://github.com/Alakuloinen/Myrra/blob/main/myrra1.JPG)](https://youtu.be/jIkf9gntkgU)
+[![IMAGE ALT TEXT HERE](https://github.com/Alakuloinen/Myrra/blob/main/myrra2.JPG)](https://youtu.be/jIkf9gntkgU)
 
