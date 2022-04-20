@@ -304,7 +304,7 @@ void AMyrAI::Tick(float DeltaTime)
 		uint8 VictimType = 255;
 		auto A = me()->GetGenePool()->Actions[i];
 		auto R = A -> IsActionFitting (me(), Goal_1().Object, &Goal_1(), VictimType, true, true);
-		UE_LOG(LogMyrAI, Warning, TEXT("AI %s Trying %s cause %s"), *me()->GetName(), *A->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
+		//UE_LOG(LogMyrAI, Warning, TEXT("AI %s Trying %s cause %s"), *me()->GetName(), *A->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
 		if(ActOk(R))
 		{
 			//если нашли атаку
@@ -358,12 +358,11 @@ void AMyrAI::Tick(float DeltaTime)
 	// над BehaveState-конечным автоматом
 	////////////////////////////////////////////////////////////////////////////////////
 
-	//TArray<UPrimitiveComponent*> Overs;
-	//me()->GetMesh()->GetOverlappingComponents(Overs);
-	//for(Co : Overs)
-	//	if(auto)
-	if(me()->ModifyMoveDirByOverlap(Drive.MoveDir))
+	//если вошли в триггер-объём с установленными векторами движения - отклонить ранее посчитанный вектор в соответствии
+	if(me()->ModifyMoveDirByOverlap(Drive.MoveDir, true))
+	{	Drive.MoveDir.Normalize();
 		UE_LOG(LogMyrAI, Warning, TEXT("AI %s ModifyMoveDirByOverlap %s"), *me()->GetName(), *Drive.MoveDir.ToString());
+	}
 
 
 	//степень соосности желаемого курса и тела, насколько передом вперед

@@ -6,6 +6,7 @@
 #include "MyrPhyCreature.h"								// само существо
 #include "MyrPhyCreatureMesh.h"							// тушка
 #include "DrawDebugHelpers.h"							// рисовать отладочные линии
+#include "PhysicalMaterials/PhysicalMaterial.h"			// для выкорчевывания материала поверхности пола
 
 //рисовалки отладжочных линий
 #if WITH_EDITOR
@@ -351,6 +352,55 @@ void UMyrGirdle::KineMove(FVector Location, FVector CentralNormal, float DeltaTi
 
 }
 
+//==============================================================================================================
+//явным образом получить для ноги опору через трассировку, вне зависимости от столкновений
+//==============================================================================================================
+bool UMyrGirdle::ExplicitTraceFoot(FLimb& FootLimb, float HowDeep)
+{
+	//сюда скидывать результаты
+	FHitResult Hit(ForceInit);
+
+	//физическое тело ноги
+	FBodyInstance* FootBody = me()->GetMachineBody(FootLimb);
+
+	//направление и глубина трэйса - от нормали на 0.2 диаметра ножного колеса в опору
+	FVector StepDst = -FootLimb.ImpactNormal * (1.0f + HowDeep) * GetLegRadius();
+	const FVector Start = FootBody->GetCOMPosition();
+
+	//параметры: фолс - не трассировать по полигонам, последний параметр - игнрорить себя
+	FCollisionQueryParams RV_TraceParams = FCollisionQueryParams(FName(TEXT("Daemon_TraceForSteppedness")), false, MyrOwner());
+	RV_TraceParams.bReturnPhysicalMaterial = true;
+
+	//проверить из центра колеса
+	FCollisionObjectQueryParams COQ;
+	COQ.AddObjectTypesToQuery(ECC_WorldStatic);
+	COQ.AddObjectTypesToQuery(ECC_PhysicsBody);
+	GetWorld()->LineTraceSingleByObjectType(Hit, Start, Start + StepDst, COQ, RV_TraceParams);
+
+	//обнаружена опора (это не совсем правильно, нужно проверять та же опора или нет)
+	if (Hit.bBlockingHit)
+	{
+		auto FM = Hit.PhysMaterial.Get();
+		if (FM) FootLimb.Surface = (EMyrSurface)FM->SurfaceType.GetValue();
+		FootLimb.Stepped = STEPPED_MAX;
+		FootLimb.Floor = Hit.Component.Get()->GetBodyInstance(Hit.BoneName);
+		FootLimb.ImpactNormal = Hit.Normal;
+		UE_LOG(LogTemp, Log, TEXT("%s: ExplicitTraceFoot %s stepped restore for %s"),
+			*GetOwner()->GetName(), *TXTENUM(ELimb, FootLimb.WhatAmI), *FootLimb.Floor->OwnerComponent->GetName());
+	}
+	//опоры не обнаружено, стереть инфу об опоре
+	else
+	{
+		FootLimb.EraseFloor();
+		UE_LOG(LogTemp, Log, TEXT("%s: ExplicitTraceFoot %s trace not found floor, untouch"),
+			*GetOwner()->GetName(), *TXTENUM(ELimb, FootLimb.WhatAmI));
+	}
+
+	LINELIMBWT(ELimbDebug::LineTrace, FootLimb, StepDst, Hit.bBlockingHit ? 2 : 1, 1.5);
+
+	return Hit.bBlockingHit;
+}
+
 
 //==============================================================================================================
 //обработать одну конкретную конечность пояса
@@ -371,37 +421,8 @@ float UMyrGirdle::ProcedeFoot (FLimb &FootLimb, FLimb& OppositeLimb, float FootD
 	float ClampedDamage = FMath::Min(FootLimb.Damage, 1.0f);
 
 	//уточнение актуальности флага приземленности на опору - трассировка
-	//возможно, проще переделать трассировкой линией
 	if (FootLimb.Stepped == 1)
-	{
-		//сюда скидывать результаты
-		FHitResult Hit(ForceInit);
-
-		//направление и глубина трэйса - от нормали на 0.2 диаметра ножного колеса в опору
-		FVector StepDst = -FootLimb.ImpactNormal * 1.2 * GetLegRadius();
-		const FVector Start = FootBody->GetCOMPosition();
-
-		//параметры: фолс - не трассировать по полигонам, последний параметр - игнрорить себя
-		FCollisionQueryParams RV_TraceParams = FCollisionQueryParams(FName(TEXT("Daemon_TraceForSteppedness")), false, MyrOwner());
-
-		//проверить из центра колеса
-		GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + StepDst, ECC_WorldStatic, RV_TraceParams);
-
-		//обнаружена опора (это не совсем правильно, нужно проверять та же опора или нет)
-		if (Hit.bBlockingHit)
-		{	FootLimb.Stepped = STEPPED_MAX;
-			UE_LOG(LogTemp, Verbose, TEXT("%s: ProcessGirdleFoot %s stepped restore for %s"),
-				*GetOwner()->GetName(), *TXTENUM(ELimb, FootLimb.WhatAmI), *FootLimb.Floor->OwnerComponent->GetName());
-		}
-		//опоры не обнаружено, стереть инфу об опоре
-		else
-		{	FootLimb.EraseFloor();
-			UE_LOG(LogTemp, Verbose, TEXT("%s: ProcessGirdleFoot %s trace not found floor, untouch"),
-				*GetOwner()->GetName(), *TXTENUM(ELimb, FootLimb.WhatAmI));
-		}
-
-		LINELIMBWT(ELimbDebug::LineTrace, FootLimb, StepDst, Hit.bBlockingHit ? 2 : 1, 1.5);
-	}
+		ExplicitTraceFoot(FootLimb, 0.2);
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////
 	//привязь этой ноги к туловищу

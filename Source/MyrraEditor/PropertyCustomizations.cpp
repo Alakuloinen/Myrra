@@ -220,7 +220,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 				[
 					HandleLimbs[i]->CreatePropertyNameWidget()
 				]
-				+ SHorizontalBox::Slot().MaxWidth(20)
+				+ SHorizontalBox::Slot().MaxWidth(40)
 				[
 					HandleLimbs[i]->CreatePropertyValueWidget()
 				]

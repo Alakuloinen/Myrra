@@ -234,7 +234,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 CurrentExpressAction = 255;
 
 	//возможность отключать обплыв камерой препятсвтвий чтоб посмотреть под
-#if WITH_EDITOR
+#if WITH_EDITORONLY_DATA
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool CameraCollision = false;
 #endif
 

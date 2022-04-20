@@ -39,8 +39,8 @@ USTRUCT(BlueprintType) struct FSurfaceInfluence
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float MotionVelocityFactor = 1.0;		// насколько эта поверхность помогает двигаться или сбавляет скорость
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float HealthDamage = 0.0;				// некоторые поверхности болезненны, отнимают здоровье, а некоторые прибавляют
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Amortisation = 0.0;				// амортизация - отнятие урона (1.0 - сберегает единичную полную дозу здоровья)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UParticleSystem* ImpactVisualHit;	// всплеск частиц при наступании на поверхность
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UParticleSystem* ImpactVisualRaise;// всплеск частиц при отрыве от поверхности
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UNiagaraSystem* ImpactBurstHit;	// всплеск частиц при наступании на поверхность
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UNiagaraSystem* ImpactBurstRaise;	// всплеск частиц при отрыве от поверхности
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float SoftnessForFootprint = 0.0;		// насколько мягка поверхность для того, чтоб оставлять вдавленные следы
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class USoundBase* SoundAtImpact;		// звук/сборка звуков, проигрываемая в момент удара по поверхности
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class USoundBase* SoundAtRaise;			// звук/сборка звуков, проигрываемая в момент отрыва от поверхности

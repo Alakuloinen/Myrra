@@ -129,6 +129,10 @@ public:
 	//непосредственно кинематически сдвинуть в нужное место
 	void KineMove(FVector Location, FVector CentralNormal, float DeltaTime);
 
+	//явным образом получить для ноги опору через трассировку, вне зависимости от столкновений
+	bool ExplicitTraceFoot(FLimb& Foot, float HowDeep);
+	bool ExplicitTraceFeet(float HowDeep) { if (HasLegs) return ExplicitTraceFoot(GetLimb(EGirdleRay::Right),HowDeep) || ExplicitTraceFoot(GetLimb(EGirdleRay::Left),HowDeep); else return false; }
+
 	//обработать одну конкретную конечность пояса
 	float ProcedeFoot(FLimb& Foot, FLimb& OppFoot, float FootDamping, float& Asideness, float &WeightAccum, float DeltaTime);
 

@@ -70,7 +70,7 @@ public: // квесты
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) TMap<FName, UMyrQuestProgress*> StartedQuests;
 
 //цвета для рисования линий отладки
-#if WITH_EDITOR
+#if WITH_EDITORONLY_DATA
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbAxisX;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbAxisY;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbAxisZ;

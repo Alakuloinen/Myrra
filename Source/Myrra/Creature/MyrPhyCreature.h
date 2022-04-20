@@ -41,6 +41,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bClimb : 1;		//лазать по деревьям
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bFly : 1;			//летать
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bSoar : 1;		//активно набирать высоту
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematic : 1;	//кинематически перемещать/доводить
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bMoveBack : 1;	//пятиться назад, сохраняя поворот вперед
 
@@ -97,7 +98,7 @@ public:
 	//кэш расстояния между центрами поясов, для позиционирования ведомого пояса
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;			
 
-#if WITH_EDITOR
+#if WITH_EDITORONLY_DATA
 
 	// окрас - только для редактора, чтобы тестировать разные окраски на одном существе		
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 Coat = 0;		
@@ -190,7 +191,7 @@ public:
 	void AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel, bool Fully);
 
 	//кинематически телепортировать в новое место
-	void TeleportToPlace(FTransform Dst, bool Rotation);
+	void TeleportToPlace(FTransform Dst);
 
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
 	void SetWannaClimb(bool Set);
@@ -220,6 +221,7 @@ public:
 
 	//запустить брызг частиц пыли и т.п. из чего состоит заданная поверхность
 	void SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale);
+	void SurfaceBurst(class UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale);
 
 	//проиграть звук контакта с поверхностью / шаг, удар
 	void SoundOfImpact(FSurfaceInfluence *SurfInfo, EMyrSurface Surface, FVector Loc, float Strength, float Vertical, EBodyImpact ImpactType);
@@ -354,12 +356,19 @@ public:
 	//зарегистрировать пересекаемый объём с функционалом
 	void AddOverlap(class UMyrTriggerComponent* Ov);
 	bool DelOverlap(class UMyrTriggerComponent* Ov);
-	bool ModifyMoveDirByOverlap(FVector& INMoveDir);
+
+	//подправить курс по триггер-объёму
+	bool ModifyMoveDirByOverlap(FVector& INMoveDir, bool AI);
 
 //свои возвращуны
 public:	
 
+	//проверить извне, пересекает ли существо выбранный триггер
 	bool HasOverlap(class UMyrTriggerComponent* Ov) const { return (Overlap0 == Ov || Overlap1 == Ov || Overlap2 == Ov); }
+
+	//найти объём, в котором есть интересующая реакция, если нет выдать нуль
+	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR);
+	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger rmin, EWhyTrigger rmax, FTriggerReason*& TR);
 
 	//доступ к глобальным вещам
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrGameInst() const { return (UMyrraGameInstance*)GetGameInstance(); }

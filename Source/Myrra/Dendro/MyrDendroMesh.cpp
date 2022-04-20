@@ -166,7 +166,7 @@ UFUNCTION() void UMyrDendroMesh::OnHit (UPrimitiveComponent * HitComp, AActor * 
 float UMyrDendroMesh::FindBranchThickness(USkeletalMesh* BranchModel)
 {
 	//здесь берется нулевой членик, потому что СУКА НЕТ ФУНКЦИИ GetRootBone. Как правильно искать корневой сегмент, пока непонятно
-	auto AggGeom = BranchModel->PhysicsAsset->SkeletalBodySetups[0]->AggGeom;
+	auto AggGeom = BranchModel->GetPhysicsAsset()->SkeletalBodySetups[0]->AggGeom;
 	if (AggGeom.SphylElems.Num() > 0) return AggGeom.SphylElems[0].Radius * 2;
 	else if (AggGeom.SphereElems.Num() > 0) return AggGeom.SphereElems[0].Radius * 2;
 	return 0.0f;
@@ -178,7 +178,7 @@ float UMyrDendroMesh::FindBranchThickness(USkeletalMesh* BranchModel)
 void UMyrDendroMesh::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	//здесь выключение всяких вычислений костей, если уровень детализации не первый, то есть на минимальном отджалении
-	if(PredictedLODLevel > 0) bRenderStatic = true;
+	if(GetPredictedLODLevel() > 0) bRenderStatic = true;
 	else bRenderStatic = false;
 
 
@@ -260,7 +260,7 @@ float UMyrDendroMesh::GetBodyLength(int i, UPhysicsAsset* Pha)
 		if (AggGeom.SphylElems.Num() > 0)	return AggGeom.SphylElems[0].Length; else
 			if (AggGeom.TaperedCapsuleElems.Num() > 0)	return AggGeom.TaperedCapsuleElems[0].Length; else
 				if (AggGeom.BoxElems.Num() > 0)	return AggGeom.BoxElems[0].Z;
-				else return NAME_None;
+				else return 0.0f;
 }
 
 
@@ -387,8 +387,8 @@ uint8 UMyrDendroMesh::GetFirstBodyToGetToGoal ( uint8 BodyWeReOn, uint8 GoalBody
 	//внимание, после этих проходов переменные BoneUr, BoneMy губятся до -1
 	uint8 PathMy[10]; memset(PathMy, 0, 10); int i = 0; 
 	uint8 PathUr[10]; memset(PathUr, 0, 10); int j = 0;
-	while (BoneMy != -1) { PathMy[i] = BoneMy;	BoneMy = SkeletalMesh->RefSkeleton.GetParentIndex(BoneMy); i++; }
-	while (BoneUr != -1) { PathUr[j] = BoneUr;	BoneUr = SkeletalMesh->RefSkeleton.GetParentIndex(BoneUr); j++;	}
+	while (BoneMy != -1) { PathMy[i] = BoneMy;	BoneMy = SkeletalMesh->GetRefSkeleton().GetParentIndex(BoneMy); i++; }
+	while (BoneUr != -1) { PathUr[j] = BoneUr;	BoneUr = SkeletalMesh->GetRefSkeleton().GetParentIndex(BoneUr); j++;	}
 
 	//сличение построенных путей с конца (с корневой кости)
 	int k=0;
@@ -418,6 +418,6 @@ uint8 UMyrDendroMesh::GetFirstBodyToGetToRoot ( uint8 BodyWeReOn)
 	auto BoneMy = Bodies[BodyWeReOn]->InstanceBoneIndex;
 	
 	//перевести обратно в индекс членика. может выдать неверный индекс, поэтому, возможно, устроить тут доп. проверку / сдвиг
-	return GetPhysicsAsset() -> FindBodyIndex (GetBoneName(SkeletalMesh->RefSkeleton.GetParentIndex(BoneMy)));
+	return GetPhysicsAsset() -> FindBodyIndex (GetBoneName(SkeletalMesh->GetRefSkeleton().GetParentIndex(BoneMy)));
 }
 

@@ -93,9 +93,6 @@ public:
 	//принять от существа подтверждение, что нажата кнопка и действие совершено
 	void ReceiveActiveApproval(class AMyrPhyCreature* Sender);
 
-	//основное завершающее действие
-	void Release(class AMyrPhyCreature* C, class AMyrDaemon *D, bool ByOverlap);
-
 	//действия по изменению расстояния камеры
 	bool ReactionCameraDist(class AMyrDaemon *D, FTriggerReason& R, bool Release);
 	float GetCameraDistIfPresent() { for(auto R : Reactions) if(R.Why == EWhyTrigger::CameraDist) return FCString::Atof(*R.Value); return 1.0f;  }
@@ -119,7 +116,7 @@ public:
 	bool ReactQuiet(class AMyrPhyCreature* C, bool Release);
 
 	//мгновенно переместить себя или предмет в другое место
-	bool ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Rotation);
+	bool ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Deferred);
 
 	//обработать случай входа и выхода из локации
 	bool ReactEnterLocation(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Enter); 
@@ -128,7 +125,9 @@ public:
 	FVector ReactVectorFieldMove(class AMyrPhyCreature* C);
 
 	//найти в этом триггере нужную реакцию
-	FTriggerReason* HasReaction(EWhyTrigger T) { for(auto& R:Reactions) if(R.Why==T) return &R; return nullptr; }
+	FTriggerReason* HasReaction(EWhyTrigger T)									{ for (auto& R : Reactions) if (R.Why == T) return &R; return nullptr; }
+	FTriggerReason* HasReaction(EWhyTrigger T, EWhyTrigger T2, EWhyTrigger T3)	{ for (auto& R : Reactions) if (R.Why == T || R.Why == T2 || R.Why == T3) return &R; return nullptr; }
+	FTriggerReason* HasReaction(EWhyTrigger Tmin, EWhyTrigger Tmax)				{ for (auto& R : Reactions) if ((int)R.Why >= (int)Tmin && (int)R.Why <= (int)Tmax) return &R; return nullptr; }
 
 	///////////////////////////////////////
 

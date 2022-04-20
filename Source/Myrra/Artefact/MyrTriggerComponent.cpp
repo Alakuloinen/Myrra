@@ -171,13 +171,17 @@ bool UMyrTriggerComponent::ReactCameraExtPoser(AMyrDaemon* D, bool Release)
 {
 	if (D)
 	{	
-		USceneComponent* CamPos = nullptr;
-		if (GetAttachChildren().Num())
-			CamPos = GetAttachChildren()[0];
-		else return false;
-
 		if (Release) { D->DeleteExtCameraPoser(); }
-		else D->AdoptExtCameraPoser(CamPos);
+		else
+		{
+			USceneComponent* CamPos = nullptr;
+			if (GetAttachChildren().Num())
+				CamPos = GetAttachChildren()[0];
+			else return false;
+			D->AdoptExtCameraPoser(CamPos);
+		}
+		UE_LOG(LogTemp, Log, TEXT("%s: ReactCameraExtPoser %d"), *GetName(), Release);
+
 	}
 	return true;
 }
@@ -276,19 +280,92 @@ bool UMyrTriggerComponent::ReactDestroy(class AMyrPhyCreature* C, AMyrArtefact* 
 }
 
 //==============================================================================================================
-//мгновенно переместить себя или предмет в другое место
+//кинематически переместить себя или предмет в другое место
 //==============================================================================================================
-bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Rotation)
+bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Deferred)
 {
 	//найти высиратель по имени в том же акторе и высрать из него то, что он умеет
 	auto S = Cast<UMyrTriggerComponent>(GetOwner()->GetDefaultSubobjectByName(FName(*R.Value)));
 	if(!S) S = this;
 	if (C)
 	{	
-		//C->TeleportTo(S->GetComponentTransform());
-		C->TeleportToPlace(S->GetComponentTransform(), Rotation);
-		C->GetMesh()->SetPhysicsLinearVelocity(FVector(0));
-		return true;
+		//извлечение режима (полностью, только позиция, позиция плюс ориентация без знака) из базового режима (сразу или постепенно)
+		int ExactReason = Deferred ? ((int)R.Why - (int)EWhyTrigger::KinematicLerpToCenter) : ((int)R.Why - (int)EWhyTrigger::Teleport);
+
+		//основное различие режимов - как вращать существо, поэтому сюда будут сваливаться все случаи
+		FQuat ResRot = S->GetComponentQuat();
+
+		//вторая константа в группе = только локация, а значит надо сохранить уже имеющееся вращение существа
+		if (ExactReason == 1) ResRot = C->GetActorQuat();
+
+		//третья константа в группе = локация плюс ориентация по оси, в какую сторону ближе
+		else if (ExactReason == 2)
+		{
+			if ((C->GetActorForwardVector() | S->GetComponentTransform().GetUnitAxis(EAxis::X)) > 0)
+				ResRot = S->GetComponentQuat();
+			else  ResRot = S->GetComponentQuat().Inverse();
+		}
+
+		//долгое приведение, вызываеся каждый кадр
+		if (Deferred)
+		{
+			//если за все тики существо уже достаточно прибилзилось к центру
+			float d2 = FVector::DistSquared(C->GetActorLocation(), S->GetComponentLocation());
+
+			//непонятно, откуда брать квант - пока что из размеров самого триггера, но возможно, надо из размеров существа
+			float quant = FMath::Square(Bounds.SphereRadius * 0.1);
+			if (d2 <= quant)
+			{
+				//финальный шаг эквивалентен телепорту
+				if(!C->GetMesh()->IsBumpable())
+					C->TeleportToPlace(FTransform(ResRot, S->GetComponentLocation()));
+
+				//но если уже телепортили и сейчас просто удерживаем, значит более упрощенная форма
+				else
+				{
+					C->GetMesh()->SetSimulatePhysics(false);
+					C->SetActorTransform(FTransform(ResRot, S->GetComponentLocation()), false, nullptr, ETeleportType::TeleportPhysics);
+					C->GetMesh()->SetSimulatePhysics(true);
+				}
+
+				//убрать размовение
+				if (C->Daemon) C->Daemon->SetMotionBlur(0);
+
+				//возвратить колизии телу существа перед выходом из кинематики
+				if(!C->GetMesh()->IsBumpable()) C->GetMesh()->SetPhyBodiesBumpable(true);
+				return true;
+			}
+			//за предыдущий тик дорогу не осилили, продолжать рутинное приближение
+			else
+			{
+				//скорость перемещения брать из параметров триггера
+				float Alpha = FCString::Atof(*R.Value);
+				if (Alpha == 0) Alpha = 0.2;
+
+				//по мере приближения широта шага растёт, чтоб не замедляться перед целью, ибо афизично
+				Alpha = FMath::Min(1.0f, Alpha + quant / d2);
+
+				//вычислить новые позицю и вращение
+				FQuat NewRot = FMath::Lerp(C->GetActorQuat(), ResRot, Alpha);
+				FVector NewLoc = FMath::Lerp(C->GetActorLocation(), S->GetComponentLocation(), Alpha);
+
+				//применить перемещение 
+				C->SetActorTransform(FTransform(NewRot, NewLoc), false, nullptr, ETeleportType::TeleportPhysics);
+
+				//на всякий случай погасить скорость, ибо кажется из-за нее перелетает;
+				C->GetMesh()->GetBodyInstance()->SetLinearVelocity(FVector(0), false);
+				return false;
+			}
+		}
+
+		//мгновенная телепортация
+		else
+		{	
+			//вызывается непосредственно из этого класса при пересечении
+			C->TeleportToPlace(FTransform(ResRot, S->GetComponentLocation()));
+			C->GetMesh()->SetPhysicsLinearVelocity(FVector(0));
+			return true;
+		}
 	}
 	return false;
 }
@@ -399,11 +476,20 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 			break;
 
 		case EWhyTrigger::Teleport:
-			if(!Release) ReactTeleport(Reaction, C, A, true);
+		case EWhyTrigger::TeleportOnlyLocation:
+		case EWhyTrigger::TeleportLocOrient:
+			if(!Release) ReactTeleport(Reaction, C, A, false);
 			break;
 
-		case EWhyTrigger::TeleportOnlyLocation:
-			if(!Release) ReactTeleport(Reaction, C, A, false);
+		case EWhyTrigger::KinematicLerpToCenter:
+		case EWhyTrigger::KinematicLerpToCenterLocationOnly:
+		case EWhyTrigger::KinematicLerpToCenterLocationOrientation:
+			C->bKinematic = !Release;
+			if (C->bKinematic)
+			{	C->GetMesh()->SetPhyBodiesBumpable(false);
+				if (C->Daemon)
+					C->Daemon->SetMotionBlur(10.0f);
+			}
 			break;
 
 		case EWhyTrigger::Quiet:

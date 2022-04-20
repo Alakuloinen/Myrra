@@ -1334,7 +1334,7 @@ void UMyrPhyCreatureMesh::SetFullBodyLax(bool Set)
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: SetFullBodyLax %d"), *GetOwner()->GetName(), Set);
 	if (Set)
 	{	for (auto C : Constraints)
-		{	C->SetAngularPositionDrive(false, false);
+		{	C->SetOrientationDriveTwistAndSwing(false, false);
 			C->SetLinearPositionDrive(false, false, false);
 		}
 		//внимание, без этого не берет труп в зубы, в то же время с этим собаки реалистичнее мертвы

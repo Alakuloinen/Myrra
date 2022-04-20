@@ -827,7 +827,7 @@ void AMyrDaemon::SwitchToMenuPause(bool Set)
 {
 	//включить функцию обесцвечивания экрана
 	Camera->PostProcessSettings.bOverride_ColorSaturation = Set;
-	float& W = Camera->PostProcessSettings.ColorSaturation.W;
+	auto& W = Camera->PostProcessSettings.ColorSaturation.W;
 	if (!Set) W = 0.0f;
 	else if (W > 0.4) W = 0.4;
 }

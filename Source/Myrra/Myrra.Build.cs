@@ -36,7 +36,8 @@ public class Myrra : ModuleRules
                 "HeadMountedDisplay",
                 "AIModule",
                 "GameplayTasks",
-                "MoviePlayer"
+                "MoviePlayer",
+                "Niagara"
             }
             );
 

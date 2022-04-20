@@ -19,6 +19,8 @@
 #include "Components/DecalComponent.h"					//декаль следа
 #include "PhysicsEngine/PhysicsConstraintComponent.h"	// привязь на физдвижке
 #include "Particles/ParticleSystemComponent.h"			//для генерации всплесков шерсти при ударах
+#include "NiagaraComponent.h"							//для генерации всплесков шерсти при ударах
+#include "NiagaraFunctionLibrary.h"						//для генерации всплесков шерсти при ударах
 
 #include "Kismet/GameplayStatics.h"						// для вызова SpawnEmitterAtLocation и GetAllActorsOfClass
 
@@ -215,9 +217,48 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//обработка движений по режимам поведения 
 	ProcessBehaveState(DeltaTime);
 
-	//обработать пояса конечностей
-	Thorax->Procede(DeltaTime);
-	Pelvis->Procede(DeltaTime);
+	//фаза кинематической костыльной доводки до места или удержания на объекте
+	if (bKinematic)
+	{
+		//найти триггер, который отвечает за данную фазу
+		FTriggerReason* FoundTR = nullptr;
+		auto RightOv = HasSuchOverlap(EWhyTrigger::KinematicLerpToCenter, EWhyTrigger::KinematicLerpToCenterLocationOrientation, FoundTR);
+		if (RightOv)
+		{
+			//выполнить шаг перемещения, тру = доводка/телепорт доведена до конца
+			if (RightOv->ReactTeleport(*FoundTR, this, nullptr, true))
+			{
+				//здесь же есть дополнительная реакция удерживать на объекте пока игрок не включит атаку
+				if(RightOv->HasReaction(EWhyTrigger::FixUntilAttack))
+				{	
+					//включили атаку - вышли из фриза, забыли про триггер
+					if(DoesAttackAction() && CurrentAttackPhase>=EActionPhase::STRIKE)
+					{   bKinematic = false;
+						DelOverlap(RightOv);
+					}
+					//продолжаем поддерживать фриз на опоре
+					else
+					{
+						//обработать пояса конечностей
+						Thorax->ExplicitTraceFeet(0.5);
+						Pelvis->ExplicitTraceFeet(0.5);
+						Thorax->Procede(DeltaTime);
+						Pelvis->Procede(DeltaTime);
+					}
+				}
+				//нет дополнительных реакций - выйти из кинематики по достижению цели
+				else bKinematic = false;
+
+			}
+		}
+	}
+	//нормальная, физическая фаза
+	else
+	{
+		//обработать пояса конечностей
+		Thorax->Procede(DeltaTime);
+		Pelvis->Procede(DeltaTime);
+	}
 
 	//по идее здесь тичат компоненты
 	Super::Tick(DeltaTime);
@@ -303,6 +344,9 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 	//по умолчанию убрать флаг пячки назад, если он еще нужен, он возведется в одной из ветвей
 	bMoveBack = false;
 
+	//дабы не считать сложную операцию много раз
+	bool NeedNormalizing = false;
+
 	//руление курса движения осуществляется только при наличии тяги
 	if(D->Gain>0)
 	{
@@ -349,16 +393,14 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 
 						//укладывание в плоскость ХУ, если в настройках сказано, поза тела может искажать
 						if (!BehaveCurrentData->bOrientIn3D) MoveDirection.Z = 0;
-
-						//нормализация, ибо аддитивно
-						MoveDirection.Normalize();
+						NeedNormalizing = true;
 					}
 					break;
 
 					//менее плавное выруливание с линейной интерполяцией
 					case ETurnMode::SlowLerp:
 						MoveDirection = FMath::Lerp(MoveDirection, D->MoveDir, BestTurnReaction->SpeedFactor);
-						MoveDirection.Normalize();
+						NeedNormalizing = true;
 						break;
 
 					//режим рельсовости
@@ -370,9 +412,10 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 						{	MoveDirection = -Thorax->Forward;
 							bMoveBack = true;
 						}
+						//для кручения в плоскости зед убирается, и вектор перестает быть единичным
 						if (!BehaveCurrentData->bOrientIn3D)
 						{	MoveDirection.Z = 0;
-							MoveDirection.Normalize();
+							NeedNormalizing = true;
 						}
 
 				}
@@ -385,6 +428,11 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 		//не задано никаких условий по плавному рулению = просто присвоить
 		else MoveDirection = D->MoveDir;
 	}
+
+	//если есть объём, понуждающий к жесткому курсу, он искажает вектор и точно надо нормализовать
+	NeedNormalizing |= ModifyMoveDirByOverlap(MoveDirection, false);
+	if(NeedNormalizing)
+		MoveDirection.Normalize();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	//если выше, то линейно увеличиваем, а если ниже, то резко обрываем (нужно остановиться вовремя)
@@ -555,22 +603,15 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 //==============================================================================================================
 //кинематически телепортировать в новое место
 //==============================================================================================================
-void AMyrPhyCreature::TeleportToPlace(FTransform Dst, bool Rotation)
+void AMyrPhyCreature::TeleportToPlace(FTransform Dst)
 {
 	//непосредственно поместить это существо в заданное место
 	FHitResult Hit;
 	Mesh->SetSimulatePhysics(false);
-	if(Rotation)
-	{	Dst.SetScale3D(FVector(1, 1, 1));
-		Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
-	}else
-		Mesh->SetWorldLocation(Dst.GetLocation(), false, &Hit, ETeleportType::TeleportPhysics);
-	//Thorax->Procede(0.0);
-	//Pelvis->Procede(0.0);
+	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
 	Mesh->SetSimulatePhysics(true);
-	if (Daemon)
-		Daemon->PoseInsideCreature();
-	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TeleportTo %s"), *GetName(),  *Dst.GetLocation().ToString());
+	if (Daemon)	Daemon->PoseInsideCreature();
+	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TeleportToPlace %s"), *GetName(),  *Dst.GetLocation().ToString());
 }
 
 //==============================================================================================================
@@ -758,8 +799,8 @@ void AMyrPhyCreature::Hurt(float Amount, FVector ExactHitLoc, FVector Normal, EM
 	if (!ExactSurfInfo) return;
 
 	//◘здесь генерируется всплеск пыли от шага - сразу два! - касание и отпуск, а чо?!
-	auto DustAt = ExactSurfInfo->ImpactVisualHit; if (DustAt) SurfaceBurst (DustAt, ExactHitLoc, ExactHitRot, GetBodyLength(), Amount);
-	DustAt = ExactSurfInfo->ImpactVisualRaise; 	  if (DustAt) SurfaceBurst (DustAt, ExactHitLoc, ExactHitRot, GetBodyLength(), Amount);
+	auto DustAt = ExactSurfInfo->ImpactBurstHit; if (DustAt) SurfaceBurst (DustAt, ExactHitLoc, ExactHitRot, GetBodyLength(), Amount);
+	DustAt = ExactSurfInfo->ImpactBurstRaise; 	 if (DustAt) SurfaceBurst (DustAt, ExactHitLoc, ExactHitRot, GetBodyLength(), Amount);
 }
 
 //==============================================================================================================
@@ -844,7 +885,8 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 	Vel.ToDirectionAndLength(VelDir, VelScalar);
 
 	//в качестве нормы берем скорость ходьбы этого существа, она должна быть у всех, хотя, если честно, тут уместнее твердая константа
-	StepForce *= VelScalar / GenePool->BehaveStates[EBehaveState::walk]->MaxVelocity;
+	StepForce *= VelScalar / 200;
+
 
 	//если слабый шаг, то брызги больше вверх, если шаг сильнее, то всё больше в сторону движения 
 	ExactBurstRot = FMath::Lerp(
@@ -871,11 +913,8 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 		{
 
 			//◘здесь генерируется всплеск пыли от шага
-			auto DustAt = Raise ? StepSurfInfo->ImpactVisualRaise : StepSurfInfo->ImpactVisualHit;
-			if (DustAt)
-			{
-				SurfaceBurst(DustAt, ExactStepLoc, ExactStepRot, GetBodyLength(), StepForce);
-			}
+			auto NiagaraDustAt = Raise ? StepSurfInfo->ImpactBurstRaise : StepSurfInfo->ImpactBurstHit;
+			if(NiagaraDustAt) SurfaceBurst(NiagaraDustAt, ExactStepLoc, ExactStepRot, GetBodyLength(), StepForce);
 
 			//отпечаток ноги виден только после поднятия ноги
 			if (Raise)
@@ -954,6 +993,22 @@ void AMyrPhyCreature::SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, F
 	ParticleSystem->SetFloatParameter(TEXT("Amount"), Scale);
 	ParticleSystem->SetFloatParameter(TEXT("Velocity"), Scale);
 	ParticleSystem->SetFloatParameter(TEXT("FragmentStartAlpha"), Scale);
+}
+
+//новая версия с ниагарой
+void AMyrPhyCreature::SurfaceBurst(UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale)
+{
+	auto ParticleSystem = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Dust, ExactHitLoc, FRotator(ExactHitRot), FVector(1, 1, 1), true);
+	ParticleSystem->SetRenderCustomDepth(true);
+
+	//параметр, определяемый размерами тела - размер спрайтов (хорошо бы еще размер области генерации)
+	ParticleSystem->SetFloatParameter(TEXT("BodySize"), BodySize);
+
+	//параметры силы удара - непрозрачность пыли, количество пылинок
+	ParticleSystem->SetFloatParameter(TEXT("Amount"), Scale);
+	ParticleSystem->SetFloatParameter(TEXT("VelocityScale"), FMath::Min(Scale, 1.0f));
+	ParticleSystem->SetFloatParameter(TEXT("FragmentStartAlpha"), Scale);
+
 }
 
 //==============================================================================================================
@@ -1565,6 +1620,9 @@ bool AMyrPhyCreature::JumpAsAttack()
 
 	//прыжок - важное сильновое упражнение, регистрируется 
 	CatchMyrLogicEvent(EMyrLogicEvent::SelfJump, AttackForceAccum, nullptr);
+	
+	//отключить удержание, чтобы прыжок состоялся
+	if (bKinematic) bKinematic = false;
 
 	//техническая часть прыжка - одновременное гарцевание обоими поясами
 	Thorax->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
@@ -1677,7 +1735,7 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 	SetCoatTexture(Src.Coat);
 
 	//непосредственно поместить это существо в заданное место
-	TeleportToPlace(Src.Transform, true);
+	TeleportToPlace(Src.Transform);
 
 	//auto MainMeshPart = GetMesh()->GetMaterialIndex(TEXT("Body"));
 	//if (MainMeshPart == INDEX_NONE) MainMeshPart = 0;
@@ -2221,28 +2279,40 @@ bool AMyrPhyCreature::DelOverlap(UMyrTriggerComponent* Ov)
 	return false;
 }
 
-bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir)
+//найти объём, в котором есть интересующая реакция, если нет выдать нуль
+UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR)
 {
-	auto UsedOv = Overlap0;
+	if (!&TR) return nullptr;
+	if (Overlap0) { TR = Overlap0->HasReaction(r); if (TR) return Overlap0; }
+	if (Overlap1) { TR = Overlap1->HasReaction(r); if (TR) return Overlap1; }
+	if (Overlap2) { TR = Overlap2->HasReaction(r); if (TR) return Overlap2; }
+	return nullptr;
+}
+UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger rmin, EWhyTrigger rmax, FTriggerReason*& TR)
+{
+	if (!&TR) return nullptr;
+	if (Overlap0) { TR = Overlap0->HasReaction(rmin, rmax); if (TR) return Overlap0; }
+	if (Overlap1) { TR = Overlap1->HasReaction(rmin, rmax); if (TR) return Overlap1; }
+	if (Overlap2) { TR = Overlap2->HasReaction(rmin, rmax); if (TR) return Overlap2; }
+	return nullptr;
+}
+//==============================================================================================================
+//извлечь вектор из триггера и направить тело по нему - внимание, здесь нет нормализации!
+//==============================================================================================================
+bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, bool AI)
+{
+	//проверить есть ли заданный триггер вокруг нас
 	FTriggerReason *TR = nullptr;
-	if (!UsedOv) UsedOv = Overlap1; else
-	{	TR = UsedOv->HasReaction(EWhyTrigger::VectorFieldMover);
-		if(!TR) UsedOv = Overlap1;
-	}
-	if(!UsedOv) UsedOv = Overlap2; else
-	{	TR = UsedOv->HasReaction(EWhyTrigger::VectorFieldMover);
-		if (!TR) UsedOv = Overlap2;
-	}
-	if(!UsedOv) return false; else
-	{	TR = UsedOv->HasReaction(EWhyTrigger::VectorFieldMover);
-		if (!TR) return false;
-	}
+	UMyrTriggerComponent* UsedOv = nullptr;
+	if(AI) UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMover, EWhyTrigger::VectorFieldMoverMeToo, TR);
+	else UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMoverMeToo, TR);
+	if (!UsedOv) return false;
 
+	//рассчитать необходимое значение
 	FVector Force = UsedOv->ReactVectorFieldMove(this);
 	float Coef = FCString::Atof(*TR->Value);
 	if (Coef > 0) Force *= Coef;
 	InMoveDir += Force;
-	InMoveDir.Normalize();
 	return true;
 }
 

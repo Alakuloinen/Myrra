@@ -22,7 +22,7 @@ EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, 
 		else WhatToTakeAsChance = Chance;
 		if (!Owner->MyrAI()->ChanceRandom(WhatToTakeAsChance))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("%s chance %d > %d"), *Owner->GetName(), Owner->MyrAI()->RandVar&255, WhatToTakeAsChance);
+			//UE_LOG(LogTemp, Warning, TEXT("%s chance %d > %d"), *Owner->GetName(), Owner->MyrAI()->RandVar&255, WhatToTakeAsChance);
 			return EAttackAttemptResult::OUT_OF_CHANCE;//◘◘>
 		}
 
