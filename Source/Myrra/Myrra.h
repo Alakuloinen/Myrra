@@ -37,6 +37,9 @@
 //новая сборка высокой логики игры, в том числе прокачка
 #include "BaseDefinitions/myrra_gameplay.h"
 
+//новая сборка высокой логики игры, в том числе прокачка
+#include "BaseDefinitions/myrra_food.h"
+
 #include "Myrra.generated.h"
 
 #if WITH_EDITOR
@@ -111,7 +114,7 @@ USTRUCT(BlueprintType) struct FCreatureDrive
 //###################################################################################################################
 //выдать данные о съедобности объекта (заместо пихдохуёбанных через жопу интерфейсов)
 //глобальная функция, потому что съедобными могут быть разные классы
-FDigestivity* GetDigestivity(AActor* Obj);
+FDigestiveEffects* GetDigestiveEffects(AActor* Obj);
 
 //аналогично выдать человеческое локализуемое имя
 FText GetHumanReadableName(AActor* Whatever);
@@ -150,10 +153,15 @@ USTRUCT(BlueprintType) struct FCreatureSaveData
 	//номер текстуры шкуры/расцветки
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	uint8 Coat;
 
+	//класс конкретный существа - нужно для тех, что нет на уровне, который спавнились динамически
+	//хз как этот указатель сохраняется, но вроде так можно
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	UClass* CreatureClass;
+
+
 	//самое главное, абсолютное положение в пространстве
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FTransform Transform;	
 
-	//урон по частям тела
+	//урон по частям тела (сделать тоже целочисленными?)
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	TArray<float> Damages; 
 
 	//все текущие способности данного существа - 
@@ -162,6 +170,7 @@ USTRUCT(BlueprintType) struct FCreatureSaveData
 
 	//компактное представление памяти ИИ о встреченных существах
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) TArray<FSocialMemory> AIMemory;
+
 
 
 

@@ -27,15 +27,13 @@ IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, Myrra, "Myrra" );
 //выдать данные о съедобности объекта (заместо пиздохуёбанных в жопу интерфейсов)
 //глобальная функция, потому что съедобными могут быть разные классы
 //==============================================================================================================
-FDigestivity* GetDigestivity(AActor* Obj)
+FDigestiveEffects* GetDigestiveEffects(AActor* Obj)
 {
 	if (auto A = Cast<AMyrArtefact>(Obj))
-	{	if (A->Archetype)
-			return &A->Archetype->Digestivity;
-		else return nullptr;
+	{	return &A->EffectsWhileEaten;
 	}
 	else if(auto C = Cast<AMyrPhyCreature>(Obj))
-		return &C->GetGenePool()->Digestivity;
+		return &C->GetGenePool()->DigestiveEffects;
 	else return nullptr;
 }
 

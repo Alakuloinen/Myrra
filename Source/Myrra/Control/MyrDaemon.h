@@ -213,8 +213,8 @@ public:
 	//устанавливается из существа (но объявлено не в нём, так как нужно только с демоном) пока только на время активной фазы атаки
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 UseActDirFromAI : 1;
 
-	//пост-процесс материал для экрана боли, достаётся из настроек камеры
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* PainScreen = nullptr;
+	//пост-процесс материал для экрана ухудшения здоровья, достаётся из настроек камеры
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HealthReactionScreen = nullptr;
 
 	//материал для копирования рендер цели отпечатка шагов в историю
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HistorifyTrailsMat = nullptr;
@@ -226,12 +226,19 @@ public:
 	//влияет на материал с гистерезисом, без дождя извне постепенно спадает
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Wetness = 0.0f;
 
+	//степень воздействия психоделического шейдера, включается при потреблении травы и при смерти
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Psychedelic = 0.0f;
+
 	//канал дополнительных чувств, регулируют, какие запахи подсвечиваются
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 AdvSenseChannel = 0;
 
 	//для режима выражения эмоций - список доступных самодействий, типа линий фраз диалога
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	TArray<uint8> AvailableExpressActions;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 CurrentExpressAction = 255;
+
+	//когда логика игры врубает геймовер, сюда заносится выдержка в секундах перед окончательным геймовером в меню
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float PreGameOverTimer = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float PreGameOverLimit = 0.0f;
 
 	//возможность отключать обплыв камерой препятсвтвий чтоб посмотреть под
 #if WITH_EDITORONLY_DATA

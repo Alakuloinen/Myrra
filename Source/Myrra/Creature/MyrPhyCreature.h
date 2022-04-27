@@ -93,7 +93,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Age = 0.0f;					// возраст, просто возраст в секундах, чтобы состаривать и убивать неписей (мож double или int64?)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Stuck = 0.0f;					// степень застревания (плюс = уступ, можно залезть, минус = препятствие, умерить пыл или отойти)
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly) FDigestivity Stomach;				// набор данных воздействия последней съеденной пищи						
+	// набор данных воздействия последней съеденной пищи			
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) FDigestiveEffects DigestiveEffects;			
 
 	//кэш расстояния между центрами поясов, для позиционирования ведомого пояса
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;			
@@ -317,10 +318,10 @@ public:
 	////////////////////////////прием пищи////////////////////////////////
 
 	//поиск еды среди членов тела (схваченная добыча)
-	UPrimitiveComponent* FindWhatToEat(FDigestivity*& D, FLimb*& LimbWith);	
+	UPrimitiveComponent* FindWhatToEat(FDigestiveEffects*& D, FLimb*& LimbWith);	
 
 	//логическое поедание конкретного найденного объекта (живого или не живого)
-	bool EatConsume(UPrimitiveComponent* Food, FDigestivity* D);
+	bool EatConsume(UPrimitiveComponent* Food, FDigestiveEffects* D, float Part = 1);
 
 	//поедиание жтвого объекта в ходе атаки ртом или захвата
 	bool Eat();
@@ -430,7 +431,7 @@ public:
 
 	//проверка на фазу атаки - для краткости
 	bool NowPhaseStrike() const { return (CurrentAttackPhase == EActionPhase::STRIKE); }
-	bool NowPhaseDescend() const { return (CurrentAttackPhase == EActionPhase::STRIKE); }
+	bool NowPhaseDescend() const { return (CurrentAttackPhase == EActionPhase::DESCEND); }
 
 	//текущая фаза атаки соответствует указанным в сборке этой атаки для особых действий: подготовиться к прыжку, прыгнуть, схватить при касании
 	bool NowPhaseToJump() { return (GetAttackActionVictim().JumpPhase == CurrentAttackPhase); }
@@ -486,9 +487,6 @@ public:
 
 	//получить множитель незаметности, создаваемый поверхностью, на которой мы стоим
 	float GetCurrentSurfaceStealthFactor() const;
-
-	//пищевая ценность этого существа как еды для другого существа
-	float GetNutrition() const;
 
 	//целевая скорость, с которой мы хотим двигаться
 	UFUNCTION(BlueprintCallable) float GetDesiredVelocity() const { return BehaveCurrentData->MaxVelocity * MoveGain; }

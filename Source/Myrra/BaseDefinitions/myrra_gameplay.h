@@ -237,23 +237,6 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 
 };
 
-//еда - возможно, перенести в отдельный файл
-
-
-//###################################################################################################################
-// пищевой эффект при съедании существа или объекта
-//###################################################################################################################
-USTRUCT(BlueprintType) struct FDigestivity
-{
-	GENERATED_BODY()
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DeltaEnergy = 0.0f;						// сколько энергии
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DeltaHealth = 0.0f;						// сколько здоровья
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DeltaStamina = 0.0f;						// сколько сил
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Time = 0;									// время действия эффекта
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSubclassOf<AActor> WhatRemains;				// какой объект создавать на месте съеденного
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class USoundBase* SoundAtEat;					// звук при еде
-};
-
 
 
 //...для типа triggervolume
@@ -292,11 +275,13 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 
 	TravelToLevel,				//перейти на ваще другой уровень
 	PlaceMarker,				//поместить маркер цели на заданный компонент
+	GameOver,					// остновить игру и вывести на экран меню
 
 	VectorFieldMover,			//смещать курс неписей за счёт векторного поля направлений, видимо, с помощью компонентов-стрелок
 	VectorFieldMoverMeToo,		//смещать курс неписей за счёт векторного поля направлений, видимо, с помощью компонентов-стрелок
 
 	Quiet,						//успокоитель (неясно, насколько теперь нужно, если локация умеет делать любую эмоцию)
+
 
 	NONE
 };

@@ -132,7 +132,6 @@ public: //свои методы
 	//для всяких зданий, оплетать их кабелями - пока не юзается ибо бажно
 	UFUNCTION(BlueprintCallable) void FillSplineWithMeshes(class AActor* Actor, class USplineComponent* Base, class UStaticMesh* MeshForSegment);
 
-
 	//загрузка и сохранение игры - вызываются из виждета-меню для конкретных файлов
 	UFUNCTION(BlueprintCallable) bool Load (UMyrraSaveGame* Slot);
 	UFUNCTION(BlueprintCallable) bool Save (UMyrraSaveGame* Slot);
@@ -140,16 +139,17 @@ public: //свои методы
 	UFUNCTION(BlueprintCallable) bool SaveByFileName (FString Name);
 	UFUNCTION(BlueprintCallable) bool DeleteSave (FString Name);
 
+
 	//включение и завершение экрана загрузки
 	UFUNCTION(BlueprintCallable) virtual void BeginLoadingScreen (const FString& MapName);
 	UFUNCTION(BlueprintCallable) virtual void EndLoadingScreen (UWorld* InLoadedWorld);
+
 
 	//разобрать все квесты и внести их заманушные стадии в лист ожидания
 	UFUNCTION(BlueprintCallable) void InitializeQuests();
 
 	//большой обработчик различных реакций, в квестах и в триггер объёмах
 	UFUNCTION(BlueprintCallable) bool React(FTriggerReason Rtype, UObject* ContextObj, class AMyrPhyCreature* Owner, bool ReleaseStep = true);
-
 
 	//передать инфу о событии на головной уровень - это может стать причиной продвижения истории и квеста
 	//вызывается из существа

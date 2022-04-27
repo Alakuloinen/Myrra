@@ -79,6 +79,7 @@ public: //свои уникальные методы
 	//что внутри пока неясно, оставлять на блюпринт или набирать списком данных
 	void GameplayTriggerEvent(AActor* Subject, AActor *Object, EMyrLogicEvent WhatHappened);
 
+
 public: //возвращуны
 
 	//инстанция игры со своим типом

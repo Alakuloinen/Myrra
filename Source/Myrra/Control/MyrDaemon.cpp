@@ -309,6 +309,9 @@ void AMyrDaemon::BeginPlay()
 	//здесь инициализируется экран боли
 	SetFirstPerson(false);
 
+	//сбросить счетчик, пока не собираемся выбывать
+	PreGameOverLimit = 0;
+
 	//очистить текстуры следов, а то в редакторе их сохраняет с предыдущего запуска
 	//почему нельзя сделать вместо этой длинючки просто  Target->Clear()? Тупые, блин
 	UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), CaptureTrails->TextureTarget, CaptureTrails->TextureTarget->ClearColor);
@@ -413,13 +416,13 @@ void AMyrDaemon::Tick(float DeltaTime)
 	else 
 	////////////////////////////////////////////////////////////////////////////////////
 	//проверка подопечного существа на мертвость - переход на экран конца игры
-	if (OwnedCreature->GetBehaveCurrentState() == EBehaveState::dead)
+	if (PreGameOverLimit > 0)
 	{
 		//выдержка, показываем мертвое тело еще какое-то время
-		if (OwnedCreature->StateTime < 1.0f)
+		if (PreGameOverTimer < PreGameOverLimit)
 		{
 			//включение замедления времени
-			Camera->PostProcessSettings.MotionBlurAmount = 20 * OwnedCreature->StateTime * OwnedCreature->StateTime;
+			Camera->PostProcessSettings.MotionBlurAmount = 20 * PreGameOverTimer;
 
 			//включить функцию обесцвечивания экрана
 			Camera->PostProcessSettings.bOverride_ColorSaturation = true;
@@ -427,10 +430,29 @@ void AMyrDaemon::Tick(float DeltaTime)
 			//плавно снести уровень цветности до нуля (ЧБ)
 			Camera->PostProcessSettings.ColorSaturation.W *= 0.8f;
 
+			PreGameOverTimer += DeltaTime;
+
 			//усилить слепоту
-			PainScreen->SetScalarParameterValue(TEXT("PainAmount"), 1.0f + OwnedCreature->StateTime * 0.5);
+			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), FMath::Min(Psychedelic + PreGameOverTimer, 1.0f));
+			HealthReactionScreen->SetScalarParameterValue(TEXT("Desaturate"), FMath::Min(PreGameOverTimer, 1.0f));
+		}
+		else
+		{
+			//выход в меню через контроллер игрока, такая вот извращенная логика
+			//а вообщездесь надо сначала выйти на уровень GameMode, оттуда решить что делать - кончить игру или перейти на новый уровень
+			if (auto MyrPlayer = Cast<AMyrPlayerController>(Controller))
+				MyrPlayer->GameOverScreen();
+			return;
+
 		}
 	}
+	else
+	{
+		//упоротость передается в шейдер и снижается, чем больше здоровья и сил, тем быстрее
+		HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), Psychedelic);
+		Psychedelic *= 1 - 0.001 * (OwnedCreature->Health + OwnedCreature->Stamina);
+	}
+
 
 
 	
@@ -510,25 +532,9 @@ void AMyrDaemon::LowPaceTick(float DeltaTime)
 	//закоментарено, потому что пока непонятно, как будет выражен метаболизм в новом существе
 	GetMyrGameMode()->SetSoundLowHealth(1.0f - OwnedCreature->Health, 1.0f - OwnedCreature->GetMetabolism(), OwnedCreature->Pain);
 
-	//-------------------------------------------------------------------------------
-	//проверка подопечного существа на мертвость - переход на экран конца игры
-	if (OwnedCreature->GetBehaveCurrentState() == EBehaveState::dead)
-	{
-
-		//окончательная смерть спустя какое-то врея
-		if (OwnedCreature->StateTime > 1.0f)
-		{
-			//выход в меню через контроллер игрока, такая вот извращенная логика
-			//а вообщездесь надо сначала выйти на уровень GameMode, оттуда решить что делать - кончить игру или перейти на новый уровень
-			if (auto MyrPlayer = Cast<AMyrPlayerController>(Controller))
-				MyrPlayer->GameOverScreen();
-		}
-		return;
-	}
-
 	//спецэффект низкого здоровья - переименовать, ведь это не эффект боли, а эффект агонии
-	if (PainScreen)
-		PainScreen->SetScalarParameterValue(TEXT("PainAmount"), FMath::Clamp(1.2f - 1.1f * OwnedCreature->Health, 0.0f, 1.0f));
+	if (HealthReactionScreen)
+		HealthReactionScreen->SetScalarParameterValue(TEXT("LowHealthAmount"), FMath::Clamp(1.2f - 1.1f * OwnedCreature->Health, 0.0f, 1.0f));
 
 	//применение эффекта размытия, специфичного для данного состояния
 	if (Camera->PostProcessSettings.bOverride_MotionBlurAmount)
@@ -983,13 +989,14 @@ void AMyrDaemon::AdoptCameraVisuals(const FEyeVisuals& EV)
 		//ссылка на материал в структуре - статическая
 		//нужно сделать из нее динамическую. непонятно, будет ли удаляться старая 
 		auto* mat = Cast<UMaterialInterface>(Camera->PostProcessSettings.WeightedBlendables.Array[0].Object);
-		PainScreen = UMaterialInstanceDynamic::Create(mat, this);
+		HealthReactionScreen = UMaterialInstanceDynamic::Create(mat, this);
 
 		//заменить в том же слоте статическую на динамическую
-		Camera->PostProcessSettings.WeightedBlendables.Array[0].Object = PainScreen;
+		Camera->PostProcessSettings.WeightedBlendables.Array[0].Object = HealthReactionScreen;
 
-		//сразу же настроить параметр
-		PainScreen->SetScalarParameterValue(TEXT("PainAmount"), FMath::Min(1.0f - OwnedCreature->Health, 1.0f));
+		//сразу же настроить параметр (надо бы переименовать, так как это не боль, а просто низкое здоровье)
+		HealthReactionScreen->SetScalarParameterValue(TEXT("LowHealthAmount"), FMath::Min(1.0f - OwnedCreature->Health, 1.0f));
+		HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), 0);
 	}
 }
 

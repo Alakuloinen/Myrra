@@ -20,9 +20,6 @@ public:
 	//канал, на котором "виден" запах существ этого класса
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  uint8 SmellChannel = 0;
 
-	//связанное с возможностью съесть этот артефакт
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Item") FDigestivity Digestivity;
-
 	//восприимчивость двери к ударам, лёгкость открывания
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float DoorSensibility = 0.5f;
 

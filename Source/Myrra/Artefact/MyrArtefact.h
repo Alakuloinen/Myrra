@@ -29,9 +29,8 @@ public:
 	//данные по типу артефакта
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrArtefactInfo* Archetype;
 
-	//артефакт можно есть по кусочкам
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)  TArray<FDigestivity> WhatItDoesIfEaten;
-
+	//список воздействий при поедании, одновремено запас питательности
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FDigestiveEffects EffectsWhileEaten;
 
 public:	
 

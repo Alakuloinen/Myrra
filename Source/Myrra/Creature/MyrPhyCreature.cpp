@@ -721,12 +721,19 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	//исключить метаболизм параметров в мертвом состоянии
 	if (Health <= 0) return;
 
-	//влияние содержимого желудка на здоровье
-	if(Stomach.Time > 0)
-	{	Health += Stomach.DeltaHealth * DeltaTime;
-		Stamina += Stomach.DeltaStamina * DeltaTime;
-		Energy += Stomach.DeltaEnergy * DeltaTime;
-		Stomach.Time -= DeltaTime;
+	//по всем текущим эффектам от пищи
+	for (int i = DigestiveEffects.Effects.Num()-1; i>=0; i--)
+	{	float* Dst = nullptr;
+		switch(DigestiveEffects.Effects[i].Target)
+		{	case EDigestiveTarget::Energy:			Dst = &Energy; break;
+			case EDigestiveTarget::Health:			Dst = &Health; break;
+			case EDigestiveTarget::Stamina:			Dst = &Stamina; break;
+			case EDigestiveTarget::Psychedelic:     if(Daemon) Dst = &Daemon->Psychedelic; break;
+		}
+
+		//модифицировать параметр, если порция испита до дна, удалить ее
+		if(DigestiveEffects.Effects[i].SpendToParam(Dst, DeltaTime))
+			DigestiveEffects.Effects.RemoveAt(i);
 	}
 
 	//учёт воздействия поверхности, к которой мы прикасаемся любой частью тела, на здоровье
@@ -1277,6 +1284,7 @@ bool AMyrPhyCreature::BewareDying()
 	if (Health <= 0)
 	{	AdoptBehaveState(EBehaveState::dying);
 		ActionFindStart(ECreatureAction::SELF_DYING1);
+		CatchMyrLogicEvent(EMyrLogicEvent::SelfDied, 1.0f, nullptr);
 		MyrAI()->LetOthersNotice(EHowSensed::DIED);
 		Health = 0.0f;
 		return true;
@@ -1866,6 +1874,7 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
 	return R;//◘◘>
 }
 
+
 //==============================================================================================================
 //завершить (или наоборот вдарить после подготовки) конкретное действие
 //==============================================================================================================
@@ -2065,13 +2074,15 @@ void AMyrPhyCreature::RelaxActionReachEnd()
 }
 
 //◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘
+
+
 //==============================================================================================================
 // найти, что схесть - живая еда должна быть подвешена (взята) в одну из конечностей
 //==============================================================================================================
-UPrimitiveComponent* AMyrPhyCreature::FindWhatToEat(FDigestivity*& D, FLimb*& LimbWith)
+UPrimitiveComponent* AMyrPhyCreature::FindWhatToEat(FDigestiveEffects*& D, FLimb*& LimbWith)
 {
 	UPrimitiveComponent* Food = nullptr;
-	FDigestivity* dFood = nullptr;
+	FDigestiveEffects* dFood = nullptr;
 	FLimb* LimbWithVictim = nullptr;
 
 	//по всем частям тела - поиск объектов, которых они так или иначе касаются
@@ -2082,7 +2093,7 @@ UPrimitiveComponent* AMyrPhyCreature::FindWhatToEat(FDigestivity*& D, FLimb*& Li
 		if(!Limb.Floor) continue;
 
 		//глобальная функция по поиску пищевой ценности в произвольном объекте
-		dFood = GetDigestivity (Limb.Floor->OwnerComponent->GetOwner());
+		dFood = GetDigestiveEffects (Limb.Floor->OwnerComponent->GetOwner());
 		if(dFood)
 		{
 			//можно есть лишь тех, которые зажаты в зубах
@@ -2091,7 +2102,7 @@ UPrimitiveComponent* AMyrPhyCreature::FindWhatToEat(FDigestivity*& D, FLimb*& Li
 			if (!Limb.Grabs) continue;
 
 			//исключить те объекты, которые не восполняют энергию, то есть несъедобные
-			if (dFood->Time <= 0) continue;
+			if (dFood->Empty()) continue;
 			Food = Limb.Floor->OwnerComponent.Get();
 			LimbWith = &Limb;
 			D = dFood;
@@ -2103,30 +2114,19 @@ UPrimitiveComponent* AMyrPhyCreature::FindWhatToEat(FDigestivity*& D, FLimb*& Li
 //==============================================================================================================
 //абстрактно съесть конкретную вещь в мире = поглотть ее энергию, может, отравиться
 //==============================================================================================================
-bool AMyrPhyCreature::EatConsume(UPrimitiveComponent* Food, FDigestivity* D)
+bool AMyrPhyCreature::EatConsume(UPrimitiveComponent* Food, FDigestiveEffects* D, float Part)
 {
 	//время действия пищи должно быть положительным, иначе это не пища
-	if (D->Time <= 0)
+	if (D->Empty())
 	{	UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s EatConsume: Uneatable! %s"), *GetName(), *Food->GetName());
 		return false;
 	}
 
-	//желудок пустой и полностью загружается новой едой
-	if (Stomach.Time <= 0)
-		Stomach = *D;
-	else
-	{
-		//новая еда подмешивается к уже находящейся в желудке
-		float Whole = Stomach.DeltaEnergy * Stomach.Time + D->DeltaEnergy * D->Time;
-		float WholeInvTime = 1 / (Stomach.Time + D->Time);
-		Stomach.Time = Whole * WholeInvTime;
-		Stomach.DeltaEnergy = FMath::Clamp(FMath::Lerp(Stomach.DeltaEnergy, D->DeltaEnergy, D->Time * WholeInvTime), 0.0f, 1.0f);
-		Stomach.DeltaHealth = FMath::Clamp(FMath::Lerp(Stomach.DeltaHealth, D->DeltaHealth, D->Time * WholeInvTime), 0.0f, 1.0f);
-		Stomach.DeltaStamina = FMath::Clamp(FMath::Lerp(Stomach.DeltaStamina, D->DeltaStamina, D->Time * WholeInvTime), 0.0f, 1.0f);
-	}
+	//логически съесть = перенести эффекты пищи из объекта в себя
+	bool AteAll = DigestiveEffects.Transfer(D, Part);
 
 	//здесь фиксируется только субъективный факт поедания, применения силы, а не результат
-	CatchMyrLogicEvent(EMyrLogicEvent::ObjEat, D->Time * D->DeltaEnergy, Food);
+	CatchMyrLogicEvent(EMyrLogicEvent::ObjEat, Part, Food);
 
 	//вывести сообщение, что кого-то съели
 	if (Daemon)
@@ -2144,7 +2144,7 @@ bool AMyrPhyCreature::EatConsume(UPrimitiveComponent* Food, FDigestivity* D)
 bool  AMyrPhyCreature::Eat()
 {
 	//сначала найти, что кушать
-	FDigestivity* dFood = nullptr;
+	FDigestiveEffects* dFood = nullptr;
 	FLimb* LimbWithVictim = nullptr;
 	UPrimitiveComponent* Food = FindWhatToEat(dFood, LimbWithVictim);
 	if (!Food) return false;
@@ -2161,10 +2161,10 @@ bool  AMyrPhyCreature::Eat()
 	//не смогли съесть, остальное значит не нужно
 	if (!result) return false;
 
-	//найти и создать объект останков
-	AActor* Remains = nullptr;
-	if (dFood->WhatRemains)
-		Remains = GetWorld()->SpawnActor(*dFood->WhatRemains, &Food->GetComponentTransform());
+	//найти и создать объект останков (с новой системой надо переделать, видимо из генофонда
+	//AActor* Remains = nullptr;
+	//if (dFood->WhatRemains)
+	//	Remains = GetWorld()->SpawnActor(*dFood->WhatRemains, &Food->GetComponentTransform());
 
 
 	//перед деструкцией будет отвязан ИИ
@@ -2445,13 +2445,6 @@ float AMyrPhyCreature::GetMetabolism() const
 {
 	auto I = (UMyrPhyCreatureAnimInst*)Mesh->GetAnimInstance();
 	return I ? I->Metabolism : 1.0f;
-}
-
-//==============================================================================================================
-//пищевая ценность этого существа как еды для другого существа
-//==============================================================================================================
-float AMyrPhyCreature::GetNutrition() const
-{	return GenePool->Digestivity.DeltaEnergy * GenePool->Digestivity.Time;
 }
 
 

@@ -66,7 +66,7 @@ public: // анатомия, части тела
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") float JumpVelocityBase = 600;
 
 	//характеристика существа как еды и того, что после съедения остаётся
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy")	FDigestivity Digestivity;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy")	FDigestiveEffects DigestiveEffects;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") TSubclassOf<AActor> Remains;					// объект, который остаётся после съедения
 
 

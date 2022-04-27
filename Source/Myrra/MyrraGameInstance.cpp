@@ -288,6 +288,15 @@ bool UMyrraGameInstance::Load(UMyrraSaveGame * Slot)
 		GetMyrGameMode()->Sky->ChangeTimeOfDay();
 	}
 
+	//по всем сохраненным существам
+	for (auto CSD : JustLoadedSlot->AllCreatures)
+	{
+		//если явно указан класс, это динамически высранное существо
+		if (CSD.Value.CreatureClass)
+			GetWorld()->SpawnActor<AMyrPhyCreature>(CSD.Value.CreatureClass, CSD.Value.Transform);
+	}
+
+
 	//а вот квесты загрузить сразу же
 	StartedQuests.Reset();
 	for(auto QSD : JustLoadedSlot->AllQuests)
@@ -344,7 +353,7 @@ bool UMyrraGameInstance::Save(UMyrraSaveGame * Slot)
 		Slot->AllArtefacts.Add(Ar->GetFName(), ASD);
 	}
 
-	//сохранение всех артефактов
+	//сохранение всех локаций
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyrLocation::StaticClass(), Found);
 	for (auto Actor : Found)
 	{	auto Lo = Cast<AMyrLocation>(Actor);
@@ -464,6 +473,16 @@ UFUNCTION(BlueprintCallable) bool UMyrraGameInstance::React(FTriggerReason Rtype
 					C->Daemon->PlaceMarker(U);
 			}
 			break;
+
+		//прервать игру и дать возможность загрузиться с сохранения
+		case EWhyTrigger::GameOver:
+			if (C->Daemon)
+			{
+				//вывести меню не сразу, а спустя указанное время, за которое применить эффект
+				C->Daemon->PreGameOverLimit = FCString::Atof(*Rtype.Value);
+			}
+			break;
+
 
 	}
 	return true;

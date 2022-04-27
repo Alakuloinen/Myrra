@@ -222,21 +222,24 @@ bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C, bool* EndChain)
 		if (auto M = Cast<USwitchableStaticMeshComponent>(GetAttachParent()))
 		{
 			//текущее воплощение предмета еды изначально не содержит пищевой ценности - возможно, его уже съели
-			if (M->GetCurrent() > A->WhatItDoesIfEaten.Num() - 1)
+			if(A->EffectsWhileEaten.Empty())
 			{	UE_LOG(LogTemp, Log, TEXT("%s: No Edible Object"), *GetName());
 				return false;
 			}
 
 			//съесть и протолкнуть меш на новый образ (пустая тарелка, например)
-			if (C->EatConsume(this, &(A->WhatItDoesIfEaten[M->GetCurrent()])))
-			{	M->SetMesh(M->GetCurrent() + 1);
+			//количество кусей однозначно определяется числом вариаций, отсюда доля на каждый кусь
+			if (C->EatConsume(this, &A->EffectsWhileEaten, 1.0f/(M->Variants.Num()-1) ))
+			{	
+				//продвинуть меш
+				M->SetMesh(M->GetCurrent() + 1);
 
-				//по итогам съедения стоит ли прервать цепочку кусей и считать триггер пересеченным, или пока держаться в нем
-				if (EndChain) *EndChain = (M->GetCurrent() >= A->WhatItDoesIfEaten.Num() - 1);
+				//если всё съели, триггер считается досрочно пересеченным и не подсказывает о съедобности
+				if (EndChain) *EndChain = A->EffectsWhileEaten.Empty();
 				return true;
 			}
-
 		}
+		//сюда еще добавить случаи для других мешей
 	}
 	return false;
 }
@@ -559,7 +562,11 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 	//существо вызывает эту функцию само, когда внутри себя видит пересечение
 	//поэтому реагировать на него нужно только если предусмотрен активный досрочный спуск
 	//почему false?
-	if (PerformOnlyByApprovalFromCreature)	React(Sender, nullptr, true);
+	if (PerformOnlyByApprovalFromCreature)
+	{
+		UE_LOG(LogTemp, Log, TEXT("%s React by instant approval"), *GetOwner()->GetName());
+		React(Sender, nullptr, true);
+	}
 }
 
 //==============================================================================================================
@@ -581,7 +588,10 @@ UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* Overlap
 		//только пересеклись с существом, а оно уже заранее успело активировать атаку, по которой этот триггер должен срабатывать
 		if (PerformOnlyByApprovalFromCreature)
 			if (C->CouldSendApprovalToTrigger(this))
+			{
+				UE_LOG(LogTemp, Log, TEXT("%s React by deferred approval"), *GetOwner()->GetName());
 				React(C, A, true);
+			}
 
 		//возможно, этот триггер помимо всего прочего используется для влияния на целую игру
 		if (GenerateMyrLogicMsgOnIn)
@@ -606,7 +616,7 @@ UFUNCTION() void UMyrTriggerComponent::OverlapEnd(UPrimitiveComponent* Overlappe
 	if (C || A)
 	{
 		//автоматически по выходу из объёма применять функцию только в том случае, если не включено применение по действию
-		//if (!PerformOnlyByApprovalFromCreature)
+		if (!PerformOnlyByApprovalFromCreature)
 		React(C, A, true);
 
 		//повторно вызывается если в реакте так и не вызвалось
