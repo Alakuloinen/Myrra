@@ -156,6 +156,10 @@ bool UMyrTriggerComponent::ReactionCameraDist(class AMyrDaemon *D, FTriggerReaso
 			if (!SC->IsOn())
 				 return false;
 
+		if (R.Notify == ETriggerNotify::CanEat)
+			if (auto A = Cast<AMyrArtefact>(GetOwner()))
+				return !A->EffectsWhileEaten.Empty();
+
 		//выдрать из текста парамтера значение, на которое приближать камеру
 		float CamDist = FCString::Atof(*R.Value);
 		D->ChangeCameraPos(CamDist);
@@ -213,33 +217,38 @@ void UMyrTriggerComponent::ReactionOpenDoor(class AMyrPhyCreature* C, FTriggerRe
 //==============================================================================================================
 //действия по съеданию
 //==============================================================================================================
-bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C, bool* EndChain)
+bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C, bool* EndChain, FTriggerReason& R)
 {
 	//кушать можно только акторы-артефакты
 	if (auto A = Cast<AMyrArtefact>(GetOwner()))
 	{
-		//если данный триггер объем прикреплен к вариативному мешу, который и отображает предмет еды
-		if (auto M = Cast<USwitchableStaticMeshComponent>(GetAttachParent()))
-		{
-			//текущее воплощение предмета еды изначально не содержит пищевой ценности - возможно, его уже съели
-			if(A->EffectsWhileEaten.Empty())
-			{	UE_LOG(LogTemp, Log, TEXT("%s: No Edible Object"), *GetName());
-				return false;
-			}
-
-			//съесть и протолкнуть меш на новый образ (пустая тарелка, например)
-			//количество кусей однозначно определяется числом вариаций, отсюда доля на каждый кусь
-			if (C->EatConsume(this, &A->EffectsWhileEaten, 1.0f/(M->Variants.Num()-1) ))
-			{	
-				//продвинуть меш
-				M->SetMesh(M->GetCurrent() + 1);
-
-				//если всё съели, триггер считается досрочно пересеченным и не подсказывает о съедобности
-				if (EndChain) *EndChain = A->EffectsWhileEaten.Empty();
-				return true;
-			}
+		//текущее воплощение предмета еды изначально не содержит пищевой ценности - возможно, его уже съели
+		if(A->EffectsWhileEaten.Empty())
+		{	UE_LOG(LogTemp, Log, TEXT("%s: No Edible Object"), *GetName());
+			return false;
 		}
-		//сюда еще добавить случаи для других мешей
+
+		auto SM = Cast<USwitchableStaticMeshComponent>(GetAttachParent());
+
+		//количество пищи за один кусь указывается явно в параметрах
+		float MeatForBit = 1.0f;
+			
+		//для многоликого меша число кусей определяется числом вариаций, отсюда доля на каждый кусь
+		if (SM)	MeatForBit = 1.0f / (SM->Variants.Num() - 1);
+		else	MeatForBit = FCString::Atof(*R.Value);
+		if (MeatForBit <= 0.0f) MeatForBit = 1.0f;
+
+		// акт логического поедания, удачность означает успех всей функции
+		if (C->EatConsume(this, &A->EffectsWhileEaten, MeatForBit))
+		{
+			//если многоликий меш - продвинуть на новый образ, в котором меньше осталось еды
+			if (SM)	SM->SetMesh(SM->GetCurrent() + 1);
+
+			//если всё съели, триггер считается досрочно пересеченным и не подсказывает о съедобности
+			if (EndChain) *EndChain = A->EffectsWhileEaten.Empty();
+
+			return true;
+		}
 	}
 	return false;
 }
@@ -461,7 +470,7 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 			break;
 
 		case EWhyTrigger::Eat:
-			if (Release) return ReactionEat(C, EndChain);
+			if (Release) return ReactionEat(C, EndChain, Reaction);
 			break;
 
 		case EWhyTrigger::SpawnAtComeIn:
@@ -547,7 +556,11 @@ void UMyrTriggerComponent::React(class AMyrPhyCreature* C, class AMyrArtefact* A
 	}
 
 	//если по итогам исполнения больше от этого объёма ничего не нужно, удалить его из стека
-	if (Release && EndChain) C->DelOverlap(this);
+	if (Release && EndChain)
+	{
+		UE_LOG(LogTemp, Log, TEXT("%s Early deleting overlapper %s"), *GetName(), *C->GetName());
+		C->DelOverlap(this);
+	}
 }
 
 

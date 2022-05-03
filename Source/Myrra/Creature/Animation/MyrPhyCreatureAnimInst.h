@@ -43,6 +43,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionRage = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionFear = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionPower = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionAmount = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float Lighting = 0.0f;
 
 	//все хозяйство, связанное с атаками (действиями от себя на цель)

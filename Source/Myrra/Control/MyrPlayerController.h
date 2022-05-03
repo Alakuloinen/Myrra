@@ -36,9 +36,6 @@ UCLASS() class MYRRA_API AMyrPlayerController : public APlayerController
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 		FText PlayHudMessage;
 
-	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
-	//	class UMyrRPGComponent* RPGComponent = nullptr;
-
 public:
 
 	//прямой доступ к вектору ориентации тела (для шаманства с ограничениями обзора для первого лица)
@@ -51,6 +48,9 @@ public:
 
 	//ограничение на поворот головы 
 	float FirstPersonHeadYawLimit = 90;
+
+	class UCameraShakeBase* Shake = nullptr;
+	class UCameraShakeBase* PainShake = nullptr;
 
 //-------------------------------------------------------------
 public:	//переопределения стандартных методов
@@ -79,6 +79,11 @@ public:	//свои методы
 	class UMyrraGameInstance* GetMyrGameInstance() { return (UMyrraGameInstance*)GetGameInstance(); }
 	class AMyrraGameModeBase* GetMyrGameMode() { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }
 
+	void AddCameraShake(TSubclassOf<UCameraShakeBase> s) { Shake = PlayerCameraManager->StartCameraShake(s); }
+	void AddPainCameraShake(TSubclassOf<UCameraShakeBase> s) { PainShake = PlayerCameraManager->StartCameraShake(s); }
+	UCameraShakeBase* GetCameraShake() { return Shake; }
+	UCameraShakeBase* GetPainCameraShake() { return PainShake; }
+
 	//смена режима лица
 	void SetFirstPerson(bool Set);
 
@@ -95,8 +100,6 @@ public:	//свои методы
 
 	//если мы находимся на уровне, который предполагает игру (а не только интерфейс) для этого должен присутствовать виджет худ
 	UFUNCTION(BlueprintCallable) bool OnPlayLevel() const { return (bool)UIWidgets.Find(TEXT("Play"));  }
-
-	//UMyrRPGComponent* GetRPGComponent() { return RPGComponent; }
 
 //-------------------------------------------------------------
 public:	//обработчики некоторых системных команд

@@ -209,7 +209,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	WhatIfWeBumpedIn();
 
 	//боль - усиленная разность старого, высокого здоровья и нового, сниженного мгновенным уроном. 
-	Pain *= 0.99f;
+	Pain *= 1 - DeltaTime * 0.7 * Health;
 
 	//восстановление запаса сил (используется та же функция, что и при трате)
 	StaminaChange (Mesh->DynModel->StaminaAdd * DeltaTime );										
@@ -258,6 +258,26 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		//обработать пояса конечностей
 		Thorax->Procede(DeltaTime);
 		Pelvis->Procede(DeltaTime);
+	}
+
+	//если есть что метаболировать из еды, это надо делать каждый кадр
+	//по всем текущим эффектам от пищи
+	for (int i = DigestiveEffects.Effects.Num() - 1; i >= 0; i--)
+	{
+		float* Dst = nullptr;
+		switch (DigestiveEffects.Effects[i].Target)
+		{
+		case EDigestiveTarget::Energy:			Dst = &Energy; break;
+		case EDigestiveTarget::Health:			Dst = &Health; break;
+		case EDigestiveTarget::Stamina:			Dst = &Stamina; break;
+		case EDigestiveTarget::Pain:			Dst = &Pain; break;
+		case EDigestiveTarget::Psychedelic:     if (Daemon) Dst = &Daemon->Psychedelic; break;
+		case EDigestiveTarget::Sleepiness:     if (Daemon) Dst = &Daemon->Sleepiness; break;
+		}
+
+		//модифицировать параметр, если порция испита до дна, удалить ее
+		if (DigestiveEffects.Effects[i].SpendToParam(Dst, DeltaTime))
+			DigestiveEffects.Effects.RemoveAt(i);
 	}
 
 	//по идее здесь тичат компоненты
@@ -659,14 +679,17 @@ void AMyrPhyCreature::StaminaChange(float delta)
 	//однако этому восстановлению мешает эмоциональное напряжение
 	if (delta > 0)
 	{	
-		//сонность мягко ухудшает восстановление сил
-		delta *= (1 - Sleepiness);
+		//для игра стамину снижают
+		if(Daemon)
+		{ 
+			//сырость и сонность
+			delta *= (1 - Daemon->Sleepiness);
+			delta -= Daemon->Wetness;
+		}
 
 		//злоба и страх также отрубают восстановление сил
 		delta -= (MyrAI()->IntegralEmotionFear*0.4 + MyrAI()->IntegralEmotionRage*0.2) * Phenotype.StaminaCurseByEmotion();
 
-		//сырость также снижает
-		if(Daemon) delta -= Daemon->Wetness;
 
 		//но всё же не отнимают сверх меры
 		if (delta < 0) delta = 0;
@@ -704,7 +727,9 @@ void AMyrPhyCreature::HealthChange(float delta)
 	if(delta>0)
 	{
 		float dH = delta * FMath::Sqrt(Energy);			// низкая энергия = голод = слабая регенерация, за одно не даст энергии прогнуться ниже нуля
-		if(Sleepiness>0.5) dH -= Sleepiness - 0.5;		// сонность
+		if(Daemon)
+			if(Daemon->Sleepiness>0.5)
+				dH -= Daemon->Sleepiness - 0.5;			// сонность
 		Health += dH;									// приращение
 		if (Health >= 1.0f) Health = 1.0f;				// полностью восстановленное здоровье не надо дополнительно восстанавливать
 		else Energy -= dH * 0.01;						// отъем энергии для восстановления здоровья
@@ -720,21 +745,6 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 {
 	//исключить метаболизм параметров в мертвом состоянии
 	if (Health <= 0) return;
-
-	//по всем текущим эффектам от пищи
-	for (int i = DigestiveEffects.Effects.Num()-1; i>=0; i--)
-	{	float* Dst = nullptr;
-		switch(DigestiveEffects.Effects[i].Target)
-		{	case EDigestiveTarget::Energy:			Dst = &Energy; break;
-			case EDigestiveTarget::Health:			Dst = &Health; break;
-			case EDigestiveTarget::Stamina:			Dst = &Stamina; break;
-			case EDigestiveTarget::Psychedelic:     if(Daemon) Dst = &Daemon->Psychedelic; break;
-		}
-
-		//модифицировать параметр, если порция испита до дна, удалить ее
-		if(DigestiveEffects.Effects[i].SpendToParam(Dst, DeltaTime))
-			DigestiveEffects.Effects.RemoveAt(i);
-	}
 
 	//учёт воздействия поверхности, к которой мы прикасаемся любой частью тела, на здоровье
 	EMyrSurface CurSu = EMyrSurface::Surface_0;
@@ -756,9 +766,6 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 
 	//восстановление здоровья (стамина перенесена в основной тик, чтоб реагировать на быструю смену фаз атаки)
 	HealthChange ((Mesh->DynModel->HealthAdd + SurfaceHealthModifier ) * DeltaTime	);	
-
-	//пока неясно, как нормально выставлять приращение сонности
-	Sleepiness += 0.001;
 
 	//пересчитать здоровье и мобильность тела
 	UpdateMobility();
@@ -792,6 +799,8 @@ void AMyrPhyCreature::Hurt(float Amount, FVector ExactHitLoc, FVector Normal, EM
 	//для простоты вводится нормаль, а уже тут переводится в кватернион, для позиционирования источника частиц
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g"), *GetName(), Amount);
 	FQuat ExactHitRot = FRotationMatrix::MakeFromX(Normal).ToQuat();
+
+	Pain += Amount;
 
 	//если выполняется самодействие или действие-период, но указано его отменять при ударе
 	CeaseActionsOnHit();
@@ -1885,11 +1894,11 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindRelease(ECreatureAction Type, UP
 	switch (Type)
 	{
 		//выключение бега
-		case ECreatureAction::TOGGLE_HIGHSPEED:	bRun = false;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_CROUCH:	bCrouch = false;	return R;//◘◘>
-		case ECreatureAction::TOGGLE_FLY:		bFly = false;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_SOAR:		bSoar = false;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_CLIMB:		bClimb = false;
+		case ECreatureAction::TOGGLE_HIGHSPEED:	bRun = 0;		return R;//◘◘>
+		case ECreatureAction::TOGGLE_CROUCH:	bCrouch = 0;	return R;//◘◘>
+		case ECreatureAction::TOGGLE_FLY:		bFly = 0;		return R;//◘◘>
+		case ECreatureAction::TOGGLE_SOAR:		bSoar = 0;		return R;//◘◘>
+		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 0;
 			SetWannaClimb(false);
 			return R;//◘◘>
 	}
@@ -2225,20 +2234,13 @@ void AMyrPhyCreature::WigdetOnTriggerNotify(ETriggerNotify Notify, AActor* What,
 //==============================================================================================================
 //передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)
 //==============================================================================================================
-void AMyrPhyCreature::TransferIntegralEmotion(float& Rage, float& Fear, float& Power)
+void AMyrPhyCreature::TransferIntegralEmotion(float& Rage, float& Fear, float& Power, float &Amount)
 {
 	Rage = MyrAI()->IntegralEmotionRage;
 	Fear = MyrAI()->IntegralEmotionFear;
-
-	//при атаках эмоции не выражать, атаки сами выбираются из диапазона эмоций и уже включают их
-	if (NoAttack())
-	{
-		Power = MyrAI()->IntegralEmotionPower;
-		Power *= GetBehaveCurrentData()->ExpressEmotionPower;
-		if(!NoRelaxAction()) GetRelaxAction()->MetabolismMult;
-		if(!NoSelfAction()) GetSelfAction()->MetabolismMult;
-	}
-	else Power = 0;
+	Power = MyrAI()->IntegralEmotionPower;
+	Amount = FMath::Lerp(Amount,
+		NoAttack() ? GetBehaveCurrentData()->ExpressEmotionPower : 0.0f, 0.1f);
 }
 
 //==============================================================================================================

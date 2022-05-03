@@ -1,6 +1,7 @@
 #include "MyrCreatureAttackInfo.h"
 #include "..\Creature\MyrPhyCreature.h"
 #include "..\Control\MyrAI.h"
+#include "..\Control\MyrDaemon.h"
 #include "..\Myrra.h"
 #include "Animation/AnimSequenceBase.h"			//для расчёта длины и закладок анимации
 #include "..\Creature\Animation\MyrAnimNotify.h"
@@ -32,6 +33,12 @@ EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, 
 			return EAttackAttemptResult::OUT_OF_SENTIMENT;//◘◘>
 	}
 
+	// попадает в диапазоны 
+	if(Owner->Daemon)
+		if (!Sleepinesses.Contains(Owner->Daemon->Sleepiness))
+			return EAttackAttemptResult::OUT_OF_SLEEPINESS;//◘◘>
+
+
 	// если нельзя при произнесении звуков ртом
 	if (SkipDuringSpeaking && Owner->CurrentSpelledSound != (EPhoneme)0)			
 		return EAttackAttemptResult::OUT_OF_STAYING_MUTE;//◘◘>
@@ -53,10 +60,6 @@ EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, 
 	// попадает в диапазоны здоровья
 	if (!Healthes.Contains(Owner->Health))
 		return EAttackAttemptResult::OUT_OF_HEALTH;//◘◘>
-
-	// попадает в диапазоны здоровья
-	if (!Sleepinesses.Contains(Owner->Sleepiness))
-		return EAttackAttemptResult::OUT_OF_SLEEPINESS;//◘◘>
 
 	// попадает в диапазоны длительностей текущего состояния (хз зачем)
 	if (!StateAges.Contains(Owner->StateTime))

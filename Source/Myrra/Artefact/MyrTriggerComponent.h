@@ -104,7 +104,7 @@ public:
 	void ReactionOpenDoor(class AMyrPhyCreature* C, FTriggerReason& R, bool Release);
 
 	//действия по съеданию
-	bool ReactionEat(class AMyrPhyCreature* C, bool *EndChain);
+	bool ReactionEat(class AMyrPhyCreature* C, bool *EndChain, FTriggerReason& R);
 
 	//реакция - высер нового объекта
 	bool ReactSpawn(FTriggerReason& R, bool Release);

@@ -320,6 +320,13 @@ void AMyrDaemon::BeginPlay()
 	//создать рычаг для динамического изменения материала окружающей мокроты
 	RainDecalMatInst = RainWetArea->CreateDynamicMaterialInstance();
 	PreviousPosition = GetActorLocation();
+
+	//запустить тряску камеры, она бесконечна и регулируется параметрами
+	if (Shake.Get())	MyrController()->AddCameraShake(Shake);
+	if (PainShake.Get())	MyrController()->AddPainCameraShake(PainShake);
+
+	//разблокировать настройку контраста = его регулирует сонность
+	Camera->PostProcessSettings.bOverride_ColorContrastMidtones = true;
 }
 
 //==============================================================================================================
@@ -432,8 +439,11 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 			PreGameOverTimer += DeltaTime;
 
+			BaseTurnRate *= 1 - DeltaTime;
+			BaseLookUpRate *= 1 - DeltaTime;
+
 			//усилить слепоту
-			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), FMath::Min(Psychedelic + PreGameOverTimer, 1.0f));
+			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), FMath::Min(FMath::Max(Psychedelic, 0.5f*PreGameOverTimer/PreGameOverLimit), 1.0f));
 			HealthReactionScreen->SetScalarParameterValue(TEXT("Desaturate"), FMath::Min(PreGameOverTimer, 1.0f));
 		}
 		else
@@ -448,9 +458,27 @@ void AMyrDaemon::Tick(float DeltaTime)
 	}
 	else
 	{
-		//упоротость передается в шейдер и снижается, чем больше здоровья и сил, тем быстрее
-		HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), Psychedelic);
-		Psychedelic *= 1 - 0.001 * (OwnedCreature->Health + OwnedCreature->Stamina);
+		//если есть градус упоротости
+		if (Psychedelic > 0)
+		{
+			//упоротость передается в шейдер и снижается, чем больше здоровья и сил, тем быстрее
+			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), Psychedelic);
+			Psychedelic *= 1 - 0.01 * DeltaTime * (OwnedCreature->Health + OwnedCreature->Stamina + OwnedCreature->GetMetabolism());
+			SetMotionBlur(Psychedelic * 10);
+		}
+
+		//размах тряски камеры
+		if (MyrController())
+		{
+			if (MyrController()->GetCameraShake())
+				MyrController()->GetCameraShake()->ShakeScale = Psychedelic;
+			if (MyrController()->GetPainCameraShake())
+				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.5f, 0.0f, 2.0f);
+		}
+
+		//от сонности изображение становится блёклым
+		Camera->PostProcessSettings.ColorContrastMidtones.W = 1.0f - Sleepiness*0.5f;
+
 	}
 
 
@@ -545,6 +573,10 @@ void AMyrDaemon::LowPaceTick(float DeltaTime)
 
 	//вывод имени объекта в фокусе камеры
 	auto R = OwnedCreature->FindObjectInFocus(0.1, 0.3, ObjectAtFocus, ObjectNameAtFocus);
+
+	//пока неясно, как нормально выставлять приращение сонности,
+	Sleepiness += 0.001*DeltaTime;
+
 }
 
 

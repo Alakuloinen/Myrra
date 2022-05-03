@@ -48,17 +48,17 @@ void UMyrSmellEmitter::UpdateParams(const float alpha)
 
 	//цвет и яркость
 	FLinearColor Co = GI ? GI->ColorsOfSmellChannels[SmellChannel] : FLinearColor(1.0f, FMath::RandRange(0.0f, 0.15f), FMath::RandRange(0.0f, 0.2f));
-	SetVectorParameter(TEXT("Color"), FVector(Co) * LerpR(ParticleBrightness, alpha));
+	SetColorParameter(TEXT("Color"), FVector(Co) * LerpR(ParticleBrightness, alpha));
 
 	//размер клуба
-	SetVectorParameter(TEXT("Size"), FVector(LerpR(ParticleSize, alpha)));
+	SetFloatParameter(TEXT("SmellSize"), LerpR(ParticleSize, alpha));
 
 
 	//густота в количестве частиц
-	SetFloatParameter(TEXT("Amount"), LerpR(ParticleAmount, alpha));
+	SetFloatParameter(TEXT("SmellAmount"), LerpR(ParticleAmount, alpha));
 
 	//скорость = определяет высоту конуса
-	SetFloatParameter(TEXT("Velocity"), LerpR(ParticleVelocity, alpha));
+	SetFloatParameter(TEXT("SmellVelocity"), LerpR(ParticleVelocity, alpha));
 
 }
 

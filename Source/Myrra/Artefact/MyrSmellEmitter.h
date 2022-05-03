@@ -5,13 +5,15 @@
 #include "CoreMinimal.h"
 #include "Myrra.h"
 #include "Particles/ParticleSystemComponent.h"
+#include "NiagaraComponent.h"							
+#include "NiagaraFunctionLibrary.h"						
 #include "MyrSmellEmitter.generated.h"
 
 //№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 //модифицированный источник частиц, сам откликающися на включение видения запахов
 //№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class MYRRA_API UMyrSmellEmitter : public UParticleSystemComponent
+class MYRRA_API UMyrSmellEmitter : public UNiagaraComponent
 {
 	GENERATED_BODY()
 	

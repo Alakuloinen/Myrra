@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "Camera/CameraShakeBase.h"
 #include "Myrra.h"
 #include "MyrDaemon.generated.h"
 
@@ -79,6 +80,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		class USceneComponent* ExternalCameraPoser = nullptr;
 
+	//новая попытка сотворить эффект тряски камеры - это не объект, это в редакторе подвязать класс
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		TSubclassOf<UCameraShakeBase> Shake;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		TSubclassOf<UCameraShakeBase> PainShake;
 
 protected:
 
@@ -216,6 +222,9 @@ public:
 	//пост-процесс материал для экрана ухудшения здоровья, достаётся из настроек камеры
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HealthReactionScreen = nullptr;
 
+	//пост-процесс материал для экрана ухудшения здоровья, достаётся из настроек камеры
+	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HealthReactionScreen = nullptr;
+
 	//материал для копирования рендер цели отпечатка шагов в историю
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HistorifyTrailsMat = nullptr;
 
@@ -228,6 +237,9 @@ public:
 
 	//степень воздействия психоделического шейдера, включается при потреблении травы и при смерти
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Psychedelic = 0.0f;
+
+	// сонность, накапливается при бодрствовании
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Sleepiness = 0.0f;				
 
 	//канал дополнительных чувств, регулируют, какие запахи подсвечиваются
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 AdvSenseChannel = 0;

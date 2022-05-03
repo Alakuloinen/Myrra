@@ -19,7 +19,7 @@ FVector FORCEINLINE SmoothDistortion(const FVector& PrevValue, const FVector New
 //==============================================================================================================
 float FORCEINLINE SmoothDistortion01(const float& PrevValue, const float NewValue, float Coeff)
 {
-	return PrevValue + (NewValue - PrevValue)*Coeff*(1.0 - 0.4*FMath::Abs(NewValue - PrevValue));
+	return PrevValue + (NewValue - PrevValue)*Coeff*(1.0 - 0.6*FMath::Abs(NewValue - PrevValue));
 }
 
 //==============================================================================================================

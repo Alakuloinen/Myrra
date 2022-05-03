@@ -168,6 +168,8 @@ void UMyrPhyCreatureMesh::BeginPlay()
 //==============================================================================================================
 void UMyrPhyCreatureMesh::TickComponent (float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+	this->UpdateRBJointMotors();
+
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	//проверки для отсечения всяких редакторных версий объекта, чтоб не тикало

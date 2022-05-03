@@ -535,13 +535,14 @@ float UMyrGirdle::ProcedeFoot (FLimb &FootLimb, FLimb& OppositeLimb, float FootD
 		LINELIMB(ELimbDebug::GirdleGuideDir, FootLimb, GuideDir * 5 * (1 + 2 * Weight));
 
 	}
+	//нога на весу
 	else
 	{
 		//без опоры скорость мееедленно переходит на отсчёт абсолютный
 		VelocityAgainstFloor = FMath::Lerp ( VelocityAgainstFloor, RelativeSpeedAtPoint, DeltaTime);
 
 		//пока нога в воздухе, меедленно смещать ее "нормаль" к направлению вверх туловища
-		FootLimb.ImpactNormal = FMath::Lerp(FootLimb.ImpactNormal, BAXIS(CentralBody,Up), DeltaTime);
+		FootLimb.ImpactNormal = FMath::Lerp(FootLimb.ImpactNormal, StandHardness > 0.5 ? BAXIS(CentralBody, Up) : BAXIS(CentralBody,Forth), DeltaTime);
 		
 		//раз и на весь период полета делаем полетными праметры сил ноги
 		if(FootBody->LinearDamping != 0.01f) 

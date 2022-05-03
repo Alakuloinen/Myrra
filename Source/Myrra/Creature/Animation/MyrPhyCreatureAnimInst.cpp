@@ -58,6 +58,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	//нулевой лод это вообще ультра прямо перед глазами, поэтому берется еще и первый
 	const bool AllowMoreCalc = (GetLODLevel() <= 1);
 
+	//целевое значение обмена веществ определяется режимом поведения и скоростью расхода стамины
+	float NewMetabolism = Creature->GetBehaveCurrentData()->MetabolismBase - 10 * Ma->DynModel->StaminaAdd;
+
 	//текущий произносимый звук (пока пологаемся, что Blend сделает плавный переход без ухищрений
 	CurrentSpelledSound = Creature->CurrentSpelledSound;
 
@@ -75,6 +78,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	if (CurrentSelfAction != 255)
 	{	SelfActionPlayRate =	Creature->GetSelfAction() -> DynModelsPerPhase [ Creature->SelfActionPhase ] . AnimRate;
 		SelfAction =			Creature->GetSelfAction() -> Motion;
+
+		//изменятель скорости обмена веществ для этого конкретного действия
+		NewMetabolism *= Creature->GetSelfAction()->MetabolismMult;
 	}
 
 	//действия по отдыху
@@ -85,21 +91,18 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		CurrentRelaxAction = (uint8)Creature->GetRelaxAction()->Type;
 		RelaxActionPlayRate =   Creature->GetRelaxAction() -> DynModelsPerPhase [ Creature->RelaxActionPhase ] . AnimRate;
 		RelaxMotion =			Creature->GetRelaxAction() -> Motion;
+
+		//изменятель скорости обмена веществ для этого конкретного действия
+		NewMetabolism *= Creature->GetRelaxAction() -> MetabolismMult;
 	}
 
-	//метаболизм - очень плавное изменение: чем больше расход (со знаком минус), тем сильнее метаболизм
-	Metabolism = FMath::Lerp ( Metabolism, Creature->GetBehaveCurrentData()->MetabolismBase - 10 * Ma->DynModel->StaminaAdd, DeltaTimeX*0.5 );
-
 	//переписать новые значения компонентов общей эмоции существа, чтоб отразить в позах
-	Creature->TransferIntegralEmotion (EmotionRage, EmotionFear, EmotionPower);
+	Creature->TransferIntegralEmotion (EmotionRage, EmotionFear, EmotionPower, EmotionAmount);
 
 	//атаки (если в материнском объекте атака на задана, то и тут ничего не надо делать)
 	if(Creature->CurrentAttack != 255)
 	{
 		auto AttackInfo = Creature->GetAttackAction();
-
-		//при атаке полностью отключить позу эмоции, так как суть уже зашита в атаке + будет портить сложную анимацию атаки
-		EmotionPower = 0.0f;
 
 		//аним-ролики атаки меняются только при изменении номера атаки
 		if(CurrentAttack != Creature->CurrentAttack)
@@ -122,9 +125,14 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 
 		AttackDirAdvLeftRight =		FVector::DotProduct (Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Pectus));
 		AttackDirAdvUpDown =		FVector::DotProduct (Creature->AttackDirection, Ma->GetLimbAxisUp(Ma->Pectus));
+
+		//изменятель скорости обмена веществ для этого конкретного действия
+		NewMetabolism *= AttackInfo->MetabolismMult;
 	}
 	else CurrentAttack = 255;
 
+	//метаболизм - очень плавное изменение: чем больше расход (со знаком минус), тем сильнее метаболизм
+	Metabolism = FMath::Lerp(Metabolism, NewMetabolism, DeltaTimeX * 0.5);
 
 	//проекции скоростей на оси поясов конечностей - для анимации шагов
 	//если шаги будут процедурные, то это нахрен не нужно
@@ -342,7 +350,8 @@ void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& H
 		+ AGirdle.LegsSpread * Creature->BehaveCurrentData->AffectLegsSpreadOnLegOffset;
 
 	//резко нельзя, нереалистично, но для наземного - достаточно резко
-	LeftRight = FMath::Lerp(OldLeftRight, LeftRight, Limb.Stepped ? 0.2 : 0.1);
+	float Dlt = OldLeftRight - LeftRight;
+	if(FMath::Abs(Dlt) > 0.01) LeftRight += FMath::Sign(Dlt) * (Limb.Stepped ? 0.05 : 0.01);
 
 }
 
