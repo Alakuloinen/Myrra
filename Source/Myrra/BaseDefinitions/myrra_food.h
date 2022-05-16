@@ -61,7 +61,7 @@ USTRUCT(BlueprintType) struct FDigestivePotion
 
 			//пока не было кусей, резерв еды максимальный, и можно брать долю непосредственно от него
 			//берем минимальное на случай если пользователь ввел долю больше единицы
-			Reserve += FMath::Min(Other.Reserve, Other.Reserve * NewPart);
+			Reserve += FMath::Min(Other.Reserve, Other.MaxReserve() * NewPart);
 			Other.Reserve -= Other.Reserve * NewPart;
 
 			//если первая доля больше или равна единице, то еда уже тут будет опустошена

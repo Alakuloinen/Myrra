@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "Myrra.h"
 #include "IDetailCustomization.h"
 #include "IPropertyTypeCustomization.h"
 #include "Widgets/Text/STextBlock.h"
@@ -20,8 +21,43 @@ public:
     virtual void CustomizeChildren (TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder,	IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
 private:
     TSharedPtr<IPropertyHandle> DynModelPropertyHandle;
+ 
 
 
+};
+
+//#######################################################################################################
+//вроде как это только для структур
+//#######################################################################################################
+class FEmotionTypeCustomization : public IPropertyTypeCustomization
+{
+public:
+    //создать экземпляр
+    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
+
+    //для подкраски результирующего цветового эквивалента
+    FSlateColorBrush EquiColorBrush;
+
+    //видимо, здесь происходит украшение заголовка и его составляющих
+    virtual void CustomizeHeader(TSharedRef<class IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+    virtual void CustomizeChildren(TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+
+    FEmotionTypeCustomization();
+
+private:
+
+    TSharedPtr<IPropertyHandle> MainHandle;
+    TSharedPtr<IPropertyUtilities> PropertyUtilities;
+    TSharedPtr<SBorder> Me;
+    FLinearColor GetColorForMe();
+    UEnum* Typicals;
+
+    //обработчик события
+    void OnChanged();
+
+    int GetEnumVal() const { return (int)EEmotio::Peace;  }
+
+    void ChangeEnumVal(int Nv, ESelectInfo::Type Hz) {}
 };
 
 //#######################################################################################################

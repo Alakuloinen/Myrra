@@ -42,7 +42,7 @@ bool UMyrQuestProgress::DoTransition(FName NewState, class AMyrPhyCreature* Owne
 		CurrentState = NewState;
 
 		//удалить старый маркер состояния если таковой имелся
-		Owner->Daemon->RemoveMarker();
+		if(Owner->Daemon) Owner->Daemon->RemoveMarker();
 
 		//прореагировать на смену состояния
 		UObject* ContextObj = nullptr;

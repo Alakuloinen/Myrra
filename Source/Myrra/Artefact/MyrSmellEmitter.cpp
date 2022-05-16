@@ -28,7 +28,9 @@ void UMyrSmellEmitter::BeginPlay()
 	{	auto GM = GetWorld()->GetAuthGameMode<AMyrraGameModeBase>();
 		if (GM)
 		{	if (GM->Protagonist)
-				GM->Protagonist->SwitchToSmellChannel.AddUObject(this, &UMyrSmellEmitter::OnSwitchToSmellChannel);
+			{	GM->Protagonist->SwitchToSmellChannel.AddUObject(this, &UMyrSmellEmitter::OnSwitchToSmellChannel);
+				GM->Protagonist->UpdateSmellVision();
+			}
 		}
 	}
 

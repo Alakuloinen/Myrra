@@ -79,8 +79,8 @@ public:	//свои методы
 	class UMyrraGameInstance* GetMyrGameInstance() { return (UMyrraGameInstance*)GetGameInstance(); }
 	class AMyrraGameModeBase* GetMyrGameMode() { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }
 
-	void AddCameraShake(TSubclassOf<UCameraShakeBase> s) { Shake = PlayerCameraManager->StartCameraShake(s); }
-	void AddPainCameraShake(TSubclassOf<UCameraShakeBase> s) { PainShake = PlayerCameraManager->StartCameraShake(s); }
+	void AddCameraShake(TSubclassOf<UCameraShakeBase> s) { Shake = PlayerCameraManager->StartCameraShake(s); Shake->ShakeScale = 0; }
+	void AddPainCameraShake(TSubclassOf<UCameraShakeBase> s) { PainShake = PlayerCameraManager->StartCameraShake(s);  PainShake->ShakeScale = 0; }
 	UCameraShakeBase* GetCameraShake() { return Shake; }
 	UCameraShakeBase* GetPainCameraShake() { return PainShake; }
 
@@ -89,6 +89,9 @@ public:	//свои методы
 
 	//переключиться на другой интерфейс
 	UFUNCTION(BlueprintCallable) void ChangeUIMode(FName ModeName);
+
+	//сменить целевое существо в виджете
+	void ChangeWidgetProps(UMyrBioStatUserWidget* UW = nullptr);
 
 	//текущий интерфейс
 	UFUNCTION(BlueprintCallable) FName GetCurrentUIModeName() const { return CurrentUIModeName; };

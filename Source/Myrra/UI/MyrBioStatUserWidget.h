@@ -71,6 +71,10 @@ public:	// функции
 	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerCanClimb(AActor* Obj, bool Can);
 	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerCanSleep(AActor* Obj, bool Can);
 
+	//новый универсальный вариант
+	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerNotify(EWhyTrigger ExactReaction, AActor* Obj, bool Can);
+
+
 };
 
 

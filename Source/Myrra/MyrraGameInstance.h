@@ -52,8 +52,7 @@ public: // супер глобальные свойства
 	//материал (видимо тупой простой) для копирования следов (забить в редакторе конкретный материал)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialInterface* MaterialToHistorifyTrails;
 
-	//эффект дрожи камеры - сюда надо в релакторе подцепить реальный блюпринт-ассет
-	//UPROPERTY(EditDefaultsOnly, Category = Effects)	TSubclassOf<UCameraShake> PainCameraShake;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FEmotio Emotio;
 
 //--------------------------------------------------------------------------------
 public: // квесты

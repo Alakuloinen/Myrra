@@ -463,6 +463,11 @@ UFUNCTION(BlueprintCallable) bool UMyrraGameInstance::React(FTriggerReason Rtype
 			UGameplayStatics::OpenLevel(GetWorld(), FName(Rtype.Value), true, TEXT("listen"));
 			break;
 
+		//переставить демона на новое существо
+		case EWhyTrigger::ChangeProtagonist:
+			GetMyrGameMode()->ChangeProtagonist(Rtype, C);
+			break;
+
 		//поставить маркер квеста (если место поставки не триггер-объём, то сработает здесь)
 		case EWhyTrigger::PlaceMarker:
 			if (C->Daemon)

@@ -125,6 +125,24 @@ void AMyrraGameModeBase::SetSoundLowHealth(float Health, float Metabolism, float
 	Music->SetFloatParameter(TEXT("Pain"), Pain);
 }
 
+//==============================================================================================================
+//сменить на этом уровне протагониста
+//==============================================================================================================
+void AMyrraGameModeBase::ChangeProtagonist(FTriggerReason R, AMyrPhyCreature* Former)
+{
+	if (!Former->IsUnderDaemon()) return;
+	Protagonist->ReleaseCreature();
+	TArray<AActor*> FoundCreatures;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyrPhyCreature::StaticClass(), FoundCreatures);
+	for (auto& Actor : FoundCreatures)
+	{
+		if (Actor->GetName() == R.Value)
+		{
+			Protagonist->ClingToCreature(Actor);
+		}
+	}
+}
+
 
 
 //==============================================================================================================

@@ -79,6 +79,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	{	SelfActionPlayRate =	Creature->GetSelfAction() -> DynModelsPerPhase [ Creature->SelfActionPhase ] . AnimRate;
 		SelfAction =			Creature->GetSelfAction() -> Motion;
 
+		//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
+		SelfAnimLocalSpace =	(SelfAction->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
+
 		//изменятель скорости обмена веществ для этого конкретного действия
 		NewMetabolism *= Creature->GetSelfAction()->MetabolismMult;
 	}
@@ -91,6 +94,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		CurrentRelaxAction = (uint8)Creature->GetRelaxAction()->Type;
 		RelaxActionPlayRate =   Creature->GetRelaxAction() -> DynModelsPerPhase [ Creature->RelaxActionPhase ] . AnimRate;
 		RelaxMotion =			Creature->GetRelaxAction() -> Motion;
+
+		//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
+		RelaxAnimLocalSpace = (RelaxMotion->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
 
 		//изменятель скорости обмена веществ для этого конкретного действия
 		NewMetabolism *= Creature->GetRelaxAction() -> MetabolismMult;
@@ -177,6 +183,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	//если от третьего лица
 	if (!Creature->IsFirstPerson())
 	{
+		//только в третьем лице вычисляется освещение, влияющее на зрачки
+		Lighting = TrueLinearInterp(Lighting, Creature->LightingAtView, DeltaTimeX*0.5f);
+
 		//голову крутим только здесь, иначе вид будет кривой
 		ROTATE(HeadLeftOrRight, DOF.HeadLeftRight,	PECTUS, Right,	HEAD, Front, AllowMoreCalc);
 		ROTATE(HeadUpOrDown,	DOF.HeadUpDown,		PECTUS, Up,		HEAD, Front, AllowMoreCalc);

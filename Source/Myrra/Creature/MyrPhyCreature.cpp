@@ -141,7 +141,8 @@ void AMyrPhyCreature::BeginPlay()
 			UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s First Assign Params %s %d"),
 				*GetName(), *TXTENUM(EPhene,(EPhene)i), Phenotype.ByInt(i).XP);
 		}
-		SetCoatTexture(0);
+
+		SetCoatTexture(Coat);
 	}
 
 	//сгенерировать имя
@@ -330,6 +331,7 @@ void AMyrPhyCreature::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			BehaveCurrentData = *GetGenePool()->BehaveStates.Find(EBehaveState::walk);
 		}
 	}
+
 	//ручная смена расы/окраски в редакторе
 	else if (PropertyName == GET_MEMBER_NAME_CHECKED(AMyrPhyCreature, Coat))
 		SetCoatTexture(Coat);
@@ -1661,7 +1663,7 @@ void AMyrPhyCreature::UnGrab()
 	auto Released = Mesh->UnGrabAll();
 
 	//послать на уровень глобального замысла сигнал, что именно этот объект был отпущен/потерян
-	CatchMyrLogicEvent(EMyrLogicEvent::ObjUnGrab, 1.0f, Released);
+	if(Released) CatchMyrLogicEvent(EMyrLogicEvent::ObjUnGrab, 1.0f, Released);
 }
 
 //==============================================================================================================
@@ -2218,18 +2220,16 @@ void AMyrPhyCreature::WidgetOnUnGrab(AActor* Victim)
 
 //==============================================================================================================
 //показать на виджете худа то, что пересечённый григгер-волюм имел нам сообщить
-//==============================================================================================================
-void AMyrPhyCreature::WigdetOnTriggerNotify(ETriggerNotify Notify, AActor* What, USceneComponent* WhatIn, bool On)
+
+
+void AMyrPhyCreature::WigdetOnTriggerNotify(EWhyTrigger ExactReaction, AActor* What, USceneComponent* WhatIn, bool On)
 {
 	if (Daemon)
 		if (auto Wid = Daemon->HUDOfThisPlayer())
-			switch (Notify)
-			{
-			case ETriggerNotify::CanClimb:	 Wid->OnTriggerCanClimb(What, On); break;
-			case ETriggerNotify::CanEat:	 Wid->OnTriggerCanEat(What, On); break;
-			case ETriggerNotify::CanSleep:	 Wid->OnTriggerCanSleep(What, On); break;
-			}
+			Wid->OnTriggerNotify(ExactReaction, What, On);
+
 }
+
 
 //==============================================================================================================
 //передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)

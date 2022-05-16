@@ -10,7 +10,7 @@
 
 
 //###################################################################################################################
-//полный набор данных для спавно
+//полный набор данных для высирания (спавна) объектов
 //###################################################################################################################
 USTRUCT(BlueprintType) struct FSpawnableData
 {
@@ -18,6 +18,9 @@ USTRUCT(BlueprintType) struct FSpawnableData
 
 	//тип объекта, который высирается по объекту этой структуры
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSubclassOf<AActor> WhatToSpawn;
+
+	//при высере брать координаты на плоскости, а Z трассировать вниз, пока не достигнется земля - для посадки растений
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool TraceForGround = false;
 
 	//вероятность (для взвешенной суммы) что будет высран именно этот
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 Chance = 255;
@@ -112,6 +115,9 @@ public:
 	//реакция - убийство попавшего в объём существа
 	bool ReactDestroy(class AMyrPhyCreature* C, class AMyrArtefact* A, FTriggerReason& R);
 
+	//реакция - немедленное уничтожение всего того, что высрано
+	bool ReactDestroySpawned(FTriggerReason& R);
+
 	//залезть в коробку умиротворения
 	bool ReactQuiet(class AMyrPhyCreature* C, bool Release);
 
@@ -124,6 +130,9 @@ public:
 	//сформировать вектор дрейфа по векторному полю, вызывается не отсюда, а из ИИ
 	FVector ReactVectorFieldMove(class AMyrPhyCreature* C);
 
+	//вывести наэкран некую инфу относительно содержимого актора, к которому приадлежит этот триггер объём
+	bool ReactNotify(FTriggerReason& R, class AMyrPhyCreature* C);
+
 	//найти в этом триггере нужную реакцию
 	FTriggerReason* HasReaction(EWhyTrigger T)									{ for (auto& R : Reactions) if (R.Why == T) return &R; return nullptr; }
 	FTriggerReason* HasReaction(EWhyTrigger T, EWhyTrigger T2, EWhyTrigger T3)	{ for (auto& R : Reactions) if (R.Why == T || R.Why == T2 || R.Why == T3) return &R; return nullptr; }
@@ -134,8 +143,15 @@ public:
 	//прореагировать одну строку реакции
 	bool ReactSingle(FTriggerReason& R, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release, bool* EndChain = nullptr);
 
-	//шлавное
-	void React(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release);
+	//прореагировать все имеющиеся в этом компоненте реакции (может быть вызвано извне как реакция сюжета)
+	void React(class AMyrPhyCreature* C, class AMyrArtefact* A, class AMyrDaemon* D, bool Release, EWhoCame Who);
+
+	//зонтик для входов и выходов из пересечения
+	void OverlapEvent(AActor* OtherActor, UPrimitiveComponent* OverlappedComp, bool ComingOut);
+
+	//вышестоящие инстанции
+	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrGameInst() { return (UMyrraGameInstance*)GetOwner()->GetGameInstance(); }
+	UFUNCTION(BlueprintCallable) class AMyrraGameModeBase* GetMyrGameMode();
 
 public:
 

@@ -91,6 +91,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float AttackStrength = 0.0f;			// сила атаки, пока используется как дальность прыжка в прыжковой атаке, надо повесить сюда задержку при нажатии кнопки
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Age = 0.0f;					// возраст, просто возраст в секундах, чтобы состаривать и убивать неписей (мож double или int64?)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Stuck = 0.0f;					// степень застревания (плюс = уступ, можно залезть, минус = препятствие, умерить пыл или отойти)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float LightingAtView = 0.0f;			// уровень освещенности в направлении взгляда
 
 	// набор данных воздействия последней съеденной пищи			
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FDigestiveEffects DigestiveEffects;			
@@ -98,10 +99,11 @@ public:
 	//кэш расстояния между центрами поясов, для позиционирования ведомого пояса
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;			
 
-#if WITH_EDITORONLY_DATA
-
 	// окрас - только для редактора, чтобы тестировать разные окраски на одном существе		
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 Coat = 0;		
+
+#if WITH_EDITORONLY_DATA
+
 
 	//набор битов какие линии отладки рисовать
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELimbDebug)) int32 DebugLinesToShow = 0;
@@ -335,7 +337,7 @@ public:
 	bool CouldSendApprovalToTrigger(class UMyrTriggerComponent* Sender);
 
 	//показать на виджете худа то, что пересечённый григгер-волюм имел нам сообщить
-	void WigdetOnTriggerNotify(ETriggerNotify Notify, AActor* What, USceneComponent* WhatIn, bool On);
+	void WigdetOnTriggerNotify(EWhyTrigger ExactReaction, AActor* What, USceneComponent* WhatIn, bool On);
 
 	//////////////////////////////////////////////////////////////////////
 

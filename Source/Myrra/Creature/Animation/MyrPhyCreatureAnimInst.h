@@ -44,7 +44,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionFear = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionPower = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionAmount = 0.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float Lighting = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float Lighting = 1.0f;
 
 	//все хозяйство, связанное с атаками (действиями от себя на цель)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		class UAimOffsetBlendSpace* AttackAnimation;
@@ -63,11 +63,14 @@ public:
 	//все хозяйство, связанное с самодействиями (самовызываемыми действиями на себя)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* SelfAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 CurrentSelfAction = 255;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		bool SelfAnimLocalSpace = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float SelfActionPlayRate = 0.0f;
+
 
 	//все хозяйство, связанное с действиями отдыха (на себя, но вызываемыми игроком и с четким набором фаз)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* RelaxMotion;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 CurrentRelaxAction = 255;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		bool RelaxAnimLocalSpace = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float RelaxActionPlayRate = 0.0f;
 
 	//звук, который сейчас произносится, для выбора позы рта для lipsync

@@ -70,6 +70,11 @@ UCLASS() class MYRRA_API AMyrDaemon : public APawn
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 		class USceneCaptureComponent2D* CaptureTrails = nullptr;
 
+	//захватчик сцены для определения освещенности, размера зрачков и незаметности
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+		class USceneCaptureComponentCube* CaptureLighting = nullptr;
+
+
 public:
 
 	//ссылка на существо, в данный момент управляемое - это не компонент
@@ -239,7 +244,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Psychedelic = 0.0f;
 
 	// сонность, накапливается при бодрствовании
-	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Sleepiness = 0.0f;				
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Sleepiness = 0.0f;	
+
+	// 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Luminance = 0.0f;
+
 
 	//канал дополнительных чувств, регулируют, какие запахи подсвечиваются
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 AdvSenseChannel = 0;
@@ -301,6 +310,9 @@ public:
 	//для запроса извне - от первого лица или от третьего лица
 	bool IsFirstPerson();
 
+	//раздать всем запахам команду вкл выкл запах
+	void UpdateSmellVision() { SwitchToSmellChannel.Broadcast(IsFirstPerson() ? AdvSenseChannel : -1); }
+
 	//привзяать камеру к внешнему актору
 	void AdoptExtCameraPoser(USceneComponent* A) { ExternalCameraPoser = A; AllowExtCameraPosing = true; }
 	void DeleteExtCameraPoser() {AllowExtCameraPosing = false; }
@@ -337,6 +349,9 @@ public:
 	//поместить или удалить маркер квеста - извне
 	UFUNCTION(BlueprintCallable) void PlaceMarker(USceneComponent* Dst);
 	UFUNCTION(BlueprintCallable) void RemoveMarker();
+
+	//получить уровень освещенности
+	float GetLightingAtVector(FVector V);
 
 //реакции на управление реальным существом
 public: 

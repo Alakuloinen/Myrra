@@ -157,14 +157,22 @@ USTRUCT(BlueprintType) struct FGestaltRelation
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 Authority : 1;	// этот объект представляет собой непререкаемый авторитет, уважение и т.п.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 Reserved5 : 1;	// 
 
-	//работа с цветом
-	void LoadFromFColor(FColor c) { Rage = c.R; Love = c.G; Fear = c.B; }
-	FColor ToFColor() const { return FColor(Rage, Love, Fear, 255); }
+	//получить эмоцию извне
+	void		FromFColor(FColor c) { Rage = c.R; Love = c.G; Fear = c.B; }
+	void		FromFLinearColor(FLinearColor c) { Rage = c.R*255; Love = c.G*255; Fear = c.B*255; }
+
+	//выдать эмоцию наружу
+	FColor			ToFColor() const { return FColor(Rage, Love, Fear, 255); }
+	FLinearColor	ToFLinearColor() const { return FLinearColor(Rage/255.0f, Love/255.0f, Fear/255.0f, 1.0f); }
+
+	//хз, наверно уже не нужно
 	bool IsHome() const { return (Rage == 255 && Love == 255 && Fear == 255);  }
 
 	//выдать полноформатную эмоцию и сохранить эмоцию в образе
 	FEmotion GetEmotion() const { return FEmotion ( Rage/255.0, Love/255.0, Fear/255.0); }
-	void KeepEmotion(FEmotion E) { Rage = E.Rage()*255; Love = E.Love()*255; Fear = E.Fear()*255; }
+	void SaveEmotionToLongMem(FLinearColor E, float Alpha) { Rage = E.R*255; Love = E.G*255; Fear = E.B*255; }
+
+	void SaveEmotionToLongTermMem(FEmotionMemory& EM) { FromFLinearColor(FMath::Lerp(ToFLinearColor(), EM.Emotion, EM.GetSure())); }
 
 	FGestaltRelation() {
 		InGoal0 = 0;
@@ -209,6 +217,6 @@ USTRUCT(BlueprintType) struct FGoal
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FEmotionMemory EventMemory;
 
 	//хз нужно ли в таком виде или заводить отдельную переменную уверенности
-	float& Sure() { return EventMemory.Emotion.Sure(); }
+	float& Sure() { return EventMemory.Emotion.A; }
 };
 

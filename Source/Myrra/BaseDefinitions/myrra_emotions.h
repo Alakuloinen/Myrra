@@ -19,6 +19,44 @@
 // +0.5	   ╫  ненависть   ╫::::╫╫   злость   ╫╫::::╫╫  интерес   ╫╫::::╫╫  симпатия  ╫╫::::╫    любовь    ╫
 // +0.9	   [    ярость    ]::::╫ раздражение  ╫::::╫    мания     ╫::::╫   влечение   ╫::::[   обожание   ]
 //=================================================================================================================
+UENUM(BlueprintType) enum class EEmotio : uint8
+{
+	Peace,
+	Anger,
+	Grace,
+	Scare,
+	MAX
+};
+
+USTRUCT(BlueprintType) struct FEmotio
+{
+	GENERATED_USTRUCT_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0")) float R;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0")) float G;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0")) float B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0")) float A;
+
+	//базовые компоненты: ярость(красный), любовь(зеленый), страх(синий) - 
+	float Rage()		const { return R; }
+	float Love()		const { return G; }
+	float Fear()		const { return B; }
+
+	operator FLinearColor() { return ((FLinearColor)*this); }
+	operator FVector4() { return ((FVector4)*this); }
+	operator FColor() { return FColor(R*255, G*255, B*255, A*255); }
+
+	FEmotio()				: R(0),G(0),B(0),A(1) {}
+	FEmotio(FColor O)		: R((float)O.R / 255.0), G((float)O.G / 255.0), B((float)O.B / 255.0), A((float)O.A / 255.0) {}
+	FEmotio(FLinearColor O) : R(O.R), G(O.G), B(O.B), A(O.A) {}
+	FEmotio(float All)		: R(All), G(All), B(All), A(1) {}
+	FEmotio(float nRage, float nLove, float nFear, float Sure = 1) : R(nRage), G(nLove), B(nFear), A(Sure) {}
+
+	static FEmotio Peace() { return FEmotio(0.5f, 0.5f, 0.5f); }
+
+	static FEmotio predef[EEmotio::MAX];
+
+};
 
 //надо вычищать этот класс, слишком много хни, особенно значений альфы
 USTRUCT(BlueprintType) struct FEmotion

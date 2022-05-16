@@ -11,6 +11,7 @@
 #include "Components/AudioComponent.h"					// звук
 #include "Components/DecalComponent.h"					// декал
 #include "Components/SceneCaptureComponent2D.h"			// рендер в текстуру примятия травы
+#include "Components/SceneCaptureComponentCube.h"		// рендер в текстуру примятия травы
 #include "Components/ArrowComponent.h"					// херь для корня и индикации
 #include "Components/CapsuleComponent.h"					// херь для корня и индикации
 #include "Components/SphereComponent.h"					// херь для регистрации помех камеры
@@ -18,6 +19,7 @@
 #include "Engine/TextureRenderTarget2D.h"				//текстура для рендера в текстуру
 #include "../UI/MyrBioStatUserWidget.h"					// индикатор над головой
 #include "Components/WidgetComponent.h"					// ярлык с инфой
+#include "Engine/TextureRenderTargetCube.h"
 
 //системные дополнения
 #include "Engine/Classes/Kismet/GameplayStatics.h"		// замедление времени
@@ -92,9 +94,11 @@ AMyrDaemon::AMyrDaemon()
 	bUseControllerRotationRoll = false;
 
 	RootComp = CreateDefaultSubobject<UCapsuleComponent>(TEXT("Root"));
+	RootComp->SetUsingAbsoluteScale(true);
 	RootComponent = RootComp;
-	RootComp->SetCollisionObjectType(ECollisionChannel::ECC_Camera);
-	RootComp->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+	RootComp->SetCollisionProfileName(TEXT("PawnTransparent"));
+	//RootComp->SetCollisionObjectType(ECollisionChannel::ECC_Camera);
+	//RootComp->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
 	RootComp->SetUsingAbsoluteRotation(true);	// чтобы не поворачивалось пространства вместе с существом
 
 	// Create a follow camera
@@ -142,6 +146,13 @@ AMyrDaemon::AMyrDaemon()
 	CaptureTrails->SetRelativeRotation(FRotator(90, 0, 90));
 	CaptureTrails->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 	//тут ещё надо ShowFlags устанавливать на одни Decals, но как-то мутно из кода это делается
+
+	CaptureLighting = CreateDefaultSubobject<USceneCaptureComponentCube>(TEXT("Scene Capture Cube Lighting"));
+	CaptureLighting->SetupAttachment(RootComponent);
+	CaptureLighting->bCaptureOnMovement = false;
+	CaptureLighting->bCaptureEveryFrame = false;	//будет вызываться изредка
+	CaptureLighting->bAutoActivate = true;
+	CaptureLighting->DetailMode = EDetailMode::DM_High;
 
 	//битовое поле зажатых клавиш, для асинхронной проверки и установки режимов
 	bMove = 0;
@@ -299,6 +310,9 @@ void AMyrDaemon::BeginPlay()
 	//если нет подвязанного существа, всё остальное не нужно
 	if (!OwnedCreature) return;
 
+	//исключаем из расчёта освещенности себя
+	CaptureLighting->HiddenActors.Add(OwnedCreature);
+
 	//расстояние камеры от цели, зависит от размера цели, хотя лучше завести переменную в генофонде
 	ThirdPersonDist = OwnedCreature->GetBodyLength()*2;
 	MoveCamera3p();
@@ -443,7 +457,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 			BaseLookUpRate *= 1 - DeltaTime;
 
 			//усилить слепоту
-			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), FMath::Min(FMath::Max(Psychedelic, 0.5f*PreGameOverTimer/PreGameOverLimit), 1.0f));
+			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), FMath::Min(FMath::Max(Psychedelic, PreGameOverTimer/PreGameOverLimit), 1.0f));
 			HealthReactionScreen->SetScalarParameterValue(TEXT("Desaturate"), FMath::Min(PreGameOverTimer, 1.0f));
 		}
 		else
@@ -473,7 +487,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 			if (MyrController()->GetCameraShake())
 				MyrController()->GetCameraShake()->ShakeScale = Psychedelic;
 			if (MyrController()->GetPainCameraShake())
-				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.5f, 0.0f, 2.0f);
+				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.9f, 0.0f, 2.0f);
 		}
 
 		//от сонности изображение становится блёклым
@@ -571,11 +585,25 @@ void AMyrDaemon::LowPaceTick(float DeltaTime)
 			OwnedCreature->GetBehaveCurrentData()->MotionBlurAmount,
 			FMath::Clamp(OwnedCreature->StateTime, 0.0f, 1.0f));
 
-	//вывод имени объекта в фокусе камеры
+	//вывод имени объекта в фокусе камеры (хз, нужно ли теперь)
 	auto R = OwnedCreature->FindObjectInFocus(0.1, 0.3, ObjectAtFocus, ObjectNameAtFocus);
 
 	//пока неясно, как нормально выставлять приращение сонности,
 	Sleepiness += 0.001*DeltaTime;
+
+	//пересчитать уровень освещенности для зрачков (освещенность камеры не подходит, так как если видны зрачки, камера смотрит в другую сторону)
+	if(!IsFirstPerson())
+	{
+		//только если камера смотрит хоть чуть-чуть в сторону лица, если же на спину, то нах не нужно, ибо глаз не видно
+		if( (OwnedCreature->GetLookingVector() | GetControlRotation().Vector()) < 0 )
+		{
+			//собственно, пересчитать освещенность - тяжелая операция
+			CaptureLighting->CaptureSceneDeferred();
+
+			//перебрать пиксели и найти среднее, тоже нелегкая операция
+			OwnedCreature->LightingAtView = GetLightingAtVector(OwnedCreature->GetLookingVector());
+		}
+	}
 
 }
 
@@ -601,6 +629,9 @@ void AMyrDaemon::ClingToCreature(AActor* a)
 		//привязать себя в управляемом объекте
 		OwnedCreature->MakePossessedByDaemon(this);
 		UE_LOG(LogTemp, Log, TEXT("ClingToCreature %s to %s"), *GetName(), *OwnedCreature->GetName());
+
+		//посредством контроллера игрока переподключить новое существо к худ виджету
+		if(MyrController()) MyrController()->ChangeWidgetProps();
 
 		//переопределить связки с клавишами
 		if (InputComponent)
@@ -1235,4 +1266,46 @@ void AMyrDaemon::RemoveMarker()
 	ObjectiveMarkerWidget->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
 	ObjectiveMarkerWidget->SetRelativeLocation(FVector(0));
 
+}
+
+//==============================================================================================================
+//найти уровень освещения по заданному вектору взгляда
+//==============================================================================================================
+float AMyrDaemon::GetLightingAtVector(FVector V)
+{
+	float Accum = 0.0f;
+	TArray<FFloat16Color> ColorBuffer;
+	FTextureRenderTargetCubeResource* textureResource = 
+		(FTextureRenderTargetCubeResource*)CaptureLighting->TextureTarget->Resource;
+
+	//если вектор нулевой, то ищется средняя освещенность по всем сторонам, хз, нужно ли так брутфорсно
+	if(V.X == 0 && V.Z == 0)
+	{
+		for(int i=0;i<6;i++)
+		{	if(textureResource->ReadPixels (ColorBuffer, FReadSurfaceDataFlags(RCM_MinMax, (ECubeFace)i)))
+				for (auto Pi : ColorBuffer)
+					Accum += Pi.R + Pi.G + Pi.B;
+		}
+		Accum /= 6 * 3 * ColorBuffer.Num();
+	}
+
+	//если вектор единичный, то берется один квадрат куба в нужной стороне
+	else
+	{
+		ECubeFace Whether;
+		if(V.X >  0.72) Whether = ECubeFace::CubeFace_PosX; else
+		if(V.X < -0.72) Whether = ECubeFace::CubeFace_NegX; else
+		if(V.Y >  0.72) Whether = ECubeFace::CubeFace_PosY; else
+		if(V.Y < -0.72) Whether = ECubeFace::CubeFace_NegY; else
+		if(V.Z >  0.72) Whether = ECubeFace::CubeFace_PosZ; else
+		if(V.Z < -0.72) Whether = ECubeFace::CubeFace_NegZ;
+		if(textureResource->ReadPixels (ColorBuffer, FReadSurfaceDataFlags(RCM_MinMax, Whether)))
+		{
+			//тут пока неясно, стоит ли искать средний, или все же максимальный уровень яркости
+			for (auto Pi : ColorBuffer)
+				Accum += Pi.R + Pi.G + Pi.B;
+			Accum /= 3 * ColorBuffer.Num();
+		}
+	}
+	return Accum;
 }

@@ -487,10 +487,10 @@ FGestaltRelation* AMyrAI::Remember (UPrimitiveComponent* NewObj)
 	if (PRel) return PRel;
 
 	//первый раз увидели - залить эмоцию из архетипичных для класса
-	auto& Rel = Memory.Add(NewObj);
-	Rel.NeverBefore = 1;
-	Rel.LoadFromFColor ( ClassRelationToClass(NewObj->GetOwner()) );
-	return &Rel;
+	auto& NeuGestalt = Memory.Add(NewObj);
+	NeuGestalt.NeverBefore = 1;
+	NeuGestalt.FromFColor ( ClassRelationToClass(NewObj->GetOwner()) );
+	return &NeuGestalt;
 }
 
 
@@ -595,7 +595,7 @@ EGoalAcceptResult AMyrAI::Notice (UPrimitiveComponent* NewGoalObj, EHowSensed Ho
 void AMyrAI::Forget(FGoal& Goal, FGestaltRelation* Gestalt)
 {
 	//изменяем глубинное отношение к цели по текущей эмоции настолько, насколько уверенны, что узнали цель
-	Gestalt->KeepEmotion ( Goal.EventMemory.Emotion.MixMeWithThis (Gestalt->GetEmotion(), 1.0-Goal.Sure()) );
+	Gestalt->SaveEmotionToLongTermMem( Goal.EventMemory );
 
 	//убрать флаг "никогда раньше" потому что теперь гешатльт считается изменён живывм опытом
 	Gestalt->NeverBefore = 0;
@@ -693,7 +693,7 @@ void AMyrAI::PostPerceive(FGoal& Goal, EHowSensed HowSensed, float Strength, FGe
 	{	
 		//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 		ME()->CatchMyrLogicEvent(EMyrLogicEvent::ObjNoticedFirstTime, 1.0f, Goal.Object);
-		Goal.EventMemory.Emotion.MixWithArchetypeEmotion(me()->ClassRelationToClass(Goal.Object->GetOwner()), 1.0);
+		Goal.EventMemory.Emotion = me()->ClassRelationToClass(Goal.Object->GetOwner());
 		Gestalt->NeverBefore = false;
 	}
 
@@ -912,7 +912,7 @@ float AMyrAI::CalcAdditiveGain(FGoal& Goal, float& StealthAmount, float& FacingA
 			//подсчёт общей заметности уже НАС для цели, которая могут быть агрессивными или которые нас боятся
 			//реально существо не может точно знать, что его видят, оно само должно хорошо видеть и/или слышать тех, чью зоркость оценивает
 			//к тому же существо должно быть уверенно, что оно отслеживает правильных оппонентов, для этого пока служит множитель Sure
-			if (Goal.EventMemory.Emotion.Rage() > 0.1f || Goal.EventMemory.Emotion.Fear() > 0.1f)
+			if (Goal.EventMemory.GetRage() > 0.1f || Goal.EventMemory.GetFear() > 0.1f)
 				Paranoia += HowClearlyYouPerceiveMe(MyrGoal) * Goal.Sure();
 		}
 		else DistFactor = me()->GetBodyLength();
@@ -925,7 +925,7 @@ float AMyrAI::CalcAdditiveGain(FGoal& Goal, float& StealthAmount, float& FacingA
 	//цвет эмоции домножается на уверенность, чтобы действовал стелс
 	// пока враг не уверен, что его преследуем мы, к которому он плохо относится, он не делает резких определенных движений
 	// возможно, следует помещать уверенность в альфа-канал, чтобы поведение при неизвестном объекте было разным
-	auto myEmotion = Goal.EventMemory.Emotion.EquiColor * Goal.Sure();
+	auto myEmotion = Goal.EventMemory.Emotion * Goal.Sure();
 
 	//▄ получаем вектор аналоговых тяг для пограничных эмоций (положительный или отрицательный)
 	//* это отдельный параметр для цели, выбор движения осуществляется на его основе дискретным образом
@@ -1253,7 +1253,7 @@ void AMyrAI::DesideHowToReactOnGrace(float Amount, AMyrPhyCreature* Sweetheart)
 
 		//если на нас намеренно ласкает враг
 		auto Goal = FindAmongGoals(Sweetheart->GetMesh());
-		if (Goal) if (Goal->EventMemory.Emotion.Rage() > 0.8)
+		if (Goal) if (Goal->EventMemory.GetRage() > 0.8)
 			ExactEventForPatient = EMyrLogicEvent::MePatient_PlannedGraceByEnemy;//▄
 
 		//если нас наказывает хозяин
@@ -1267,7 +1267,7 @@ void AMyrAI::DesideHowToReactOnGrace(float Amount, AMyrPhyCreature* Sweetheart)
 
 		//если на нас случайно ласкает враг
 		auto Goal = FindAmongGoals(Sweetheart->GetMesh());
-		if (Goal) if (Goal->EventMemory.Emotion.Rage() > 0.8)
+		if (Goal) if (Goal->EventMemory.GetRage() > 0.8)
 			ExactEventForPatient = EMyrLogicEvent::MePatient_CasualGraceByEnemy;//▄
 	}
 
@@ -1407,7 +1407,7 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 						return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
 					}
 					//для сильного страха также по ложной тревоге срываться на бег
-					else if (Goal_1().EventMemory.Emotion.Fear() > 0.7)
+					else if (Goal_1().EventMemory.GetFear() > 0.7)
 					{	Drive.DoThis = ECreatureAction::TOGGLE_HIGHSPEED;
 						Drive.Gain = 1.0f;
 						return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
@@ -1522,7 +1522,7 @@ float AMyrAI::RecalcGoalWeight(const FGoal& Goal) const
 	return 0.001f	// константа, чтобы не получить в знаменателе ноль
 
 		// взвешенная сила эмоции к оппоненту, максимальная эмоция - страх
-		+ Goal.EventMemory.Emotion.AlertPower()				
+		+ Goal.EventMemory.GetAlertPower()
 
 		// коэффициент актуальности силы эмоций его к нам
 		* (0.7f + 0.3f * WhatYouFeelOrRememberAboutMe (Goal.Object).Power()) 

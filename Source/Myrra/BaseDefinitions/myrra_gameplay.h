@@ -174,7 +174,7 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 LastEventTicks = 0;	
 
 	//накопленная эмоция, результат работы
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEmotion Emotion;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FLinearColor Emotion;
 
 	////////////////////////////////////
 	uint64& AsOne() { return *((uint64*)Events); }
@@ -185,6 +185,16 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 
 	//последний идентификатор воздействия
 	EMyrLogicEvent Last() const { return Events[0]; }
+
+	//выдать отдельные компоненты эмоции
+	float GetFear() const { return Emotion.B; }
+	float GetLove() const { return Emotion.G; }
+	float GetRage() const { return Emotion.R; }
+	float GetSure() const { return Emotion.A; }
+
+	//перевзвешенная мощность чувств, чтобы те, кого мы боимся, больше побуждали к действиям, чем те, кого мы любим
+	float GetAlertPower() const { return GetRage() * 0.2f + GetLove() * 0.2f + GetFear() * 0.6f; }
+
 
 	//последний коэффициент воздействия целым числом
 	uint8& LastMult() { return Mults[0]; }
@@ -199,7 +209,7 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 	//тут не нужно знать, какое конкретное событияе вызвало данный прилив эмоций
 	void Change(FMyrLogicEventData* EventInfo, bool ForGoal, float ExtFactor)
 	{	FLinearColor NewEmo = EventInfo->Emo(ForGoal);
-		Emotion.EquiColor = FMath::Lerp ( Emotion.EquiColor, NewEmo,
+		Emotion = FMath::Lerp ( Emotion, NewEmo,
 			NewEmo.A * (EventInfo->MultEmotionByInputScalar ? ExtFactor : 1.0f));
 	}
 	
@@ -241,7 +251,7 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 
 //...для типа triggervolume
 //###################################################################################################################
-//причина использования триггера
+//причина использования триггера - фактически список глобальных геймплейных реакций на условия
 //###################################################################################################################
 UENUM(BlueprintType) enum class EWhyTrigger : uint8
 {
@@ -252,12 +262,13 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 	UnlockDoorDimButton,		//открыть дверь, в строке указывается имя компонента двери в том же акторе
 	UnlockDoorFlashButton,		//открыть дверь, в строке указывается имя компонента двери в том же акторе
 
-	SpawnAtComeIn,				//генернуть что-то, видимо, существо (в параметре указать имя специального компонента спавнера)
-	SpawnAtComeOut,				//генернуть что-то, видимо, существо (в параметре указать имя специального компонента спавнера)
-	SpawnAtInDestroyAtOut,		//генернуть что-то, например растение при входе в и уничтожить на выходе
+	SpawnAtComeIn,				//высрать что-то (в параметре указать имя специального компонента спавнера)
+	SpawnAtComeOut,				//высрать что-то (в параметре указать имя специального компонента спавнера)
+	DestroyWhoComesIn,			//удалить актора-пересекателя со сцены (пока неясно, как фильтровать поддающихся этой участи)
+	DestroyWhoComesOut,			//удалить актора-пересекателя со сцены (пока неясно, как фильтровать поддающихся этой участи)
+	DestroySpawnedAtComeOut,
 
 	Attract,					//привлекать с помощью ИИ существ определенного вида (пока неясно, как формировать эмоцию, видимо в паре со Spawner, пусть и нерабочим
-	Destroy,					//удалить актора-пересекателя со сцены (пока неясно, как фильтровать поддающихся этой участи)
 
 	Eat,						//съесть неживое - указывается компонент свитчабл, который с каждым кусем +1 индекс воплощения
 
@@ -274,6 +285,7 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 	FixUntilAttack,				//зафиксировать на все кадры до включения атаки
 
 	TravelToLevel,				//перейти на ваще другой уровень
+	ChangeProtagonist,			//переподключить демона к новому существу
 	PlaceMarker,				//поместить маркер цели на заданный компонент
 	GameOver,					// остновить игру и вывести на экран меню
 
@@ -282,20 +294,17 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 
 	Quiet,						//успокоитель (неясно, насколько теперь нужно, если локация умеет делать любую эмоцию)
 
+	NotifyEat,
+	NotifyClimb,
+	NotifySleep,
+
+	GenerateMyrLogicMsgAtIn,
+	GenerateMyrLogicMsgAtOut,
 
 	NONE
 };
 
-//###################################################################################################################
-//дополнительное увеомление на экран при встрече триггера
-//###################################################################################################################
-UENUM(BlueprintType) enum class ETriggerNotify : uint8
-{
-	NONE,
-	CanClimb,
-	CanEat,
-	CanSleep
-};
+UENUM(BlueprintType) enum class EWhoCame : uint8 { Creature, Artefact, Daemon, NONE };
 
 
 //###################################################################################################################
@@ -306,9 +315,9 @@ USTRUCT(BlueprintType) struct FTriggerReason
 {
 	GENERATED_USTRUCT_BODY()
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) EWhyTrigger Why;			//команда
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = EWhoCame)) uint8 Filter = 3;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ExactContextObj;		//где выполняется, обычно триггер-объём
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FString Value;				//аргумент зависящий от команды
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ETriggerNotify Notify;
 };
 
 

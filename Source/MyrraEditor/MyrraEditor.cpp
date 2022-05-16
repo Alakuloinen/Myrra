@@ -31,6 +31,7 @@ void FMyrraEditorModule::StartupModule()
 	PropertyModule.RegisterCustomPropertyTypeLayout("WholeBodyDynamicsModel",	FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMyrDynModelTypeCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("GirdleDynModels",			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMyrGirdleModelTypeCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("MyrLogicEventData",		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMyrLogicEventDataTypeCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout("Emotio",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FEmotionTypeCustomization::MakeInstance));
 
 	//это вообще непонятно зачем
 	PropertyModule.NotifyCustomizationModuleChanged();
@@ -58,6 +59,7 @@ void FMyrraEditorModule::ShutdownModule()
 	PropertyModule.UnregisterCustomClassLayout("WholeBodyDynamicsModel");
 	PropertyModule.UnregisterCustomClassLayout("GirdleDynModels");
 	PropertyModule.UnregisterCustomClassLayout("MyrLogicEventData");
+	PropertyModule.UnregisterCustomClassLayout("Emotio");
 }
 
 //самая важная макрооболочка... кажется, должна быть в самом конце

@@ -95,11 +95,7 @@ void AMyrPlayerController::ChangeUIMode (FName ModeName)
 		}
 
 		//если виджет определен как местный класс, инициализируем дополнительные поля
-		if (auto BioCurWi = Cast<UMyrBioStatUserWidget>(CurWi))
-		{	BioCurWi->MyrPlayerController = this;
-			BioCurWi->MyrOwner = GetDaemonPawn()->GetOwnedCreature();
-			BioCurWi->OnJustShowed();
-		}
+		ChangeWidgetProps(Cast<UMyrBioStatUserWidget>(CurWi));
 
 		//настроить ток времени / паузу по настройкам свежевыставленного режима
 		if (CurrentUIMode->TimeFlowMod == 0)
@@ -111,6 +107,18 @@ void AMyrPlayerController::ChangeUIMode (FName ModeName)
 		}
 	}
 	else { UE_LOG(LogTemp, Error, TEXT("No Widget pointer %s"), *ModeName.ToString());	return; }
+}
+
+void AMyrPlayerController::ChangeWidgetProps(UMyrBioStatUserWidget* UW)
+{
+	if (!UW) UW = CurrentWidget();
+	if (UW)
+	{	UW->MyrPlayerController = this;
+		UW->MyrOwner = GetDaemonPawn()->GetOwnedCreature();
+		UW->MyrAI = UW->MyrOwner->MyrAI();
+		UW->OnJustShowed();
+	}
+
 }
 
 //==============================================================================================================

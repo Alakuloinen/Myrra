@@ -77,7 +77,10 @@ public: //свои уникальные методы
 	void SetSoundLowHealth(float Health, float Metabolism, float Pain);
 
 	//что внутри пока неясно, оставлять на блюпринт или набирать списком данных
-	void GameplayTriggerEvent(AActor* Subject, AActor *Object, EMyrLogicEvent WhatHappened);
+	//void GameplayTriggerEvent(AActor* Subject, AActor *Object, EMyrLogicEvent WhatHappened);
+
+	//сменить на этом уровне протагониста
+	void ChangeProtagonist(FTriggerReason R, AMyrPhyCreature* Former);
 
 
 public: //возвращуны

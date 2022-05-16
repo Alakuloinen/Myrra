@@ -1319,6 +1319,7 @@ void UMyrPhyCreatureMesh::AdoptDynModelForLimb(FLimb& Limb, uint32 Model, float 
 		SetLimbDamping(Limb, DampMult * DampingBase);
 	}
 
+	//отдельный случай для хвоста, нагружать кончик а не корень
 	if(Limb.WhatAmI == ELimb::TAIL && HasFlesh(Limb.WhatAmI))
 		Body = GetFleshBody(Limb, 0);
 

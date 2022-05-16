@@ -8,7 +8,7 @@ public class MyrraEditor : ModuleRules
     public MyrraEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "AssetTools", "UnrealEd", "PropertyEditor", "Slate", "SlateCore", "EditorStyle", "AppFramework" });
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "AssetTools", "UnrealEd", "PropertyEditor", "Slate", "SlateCore", "EditorStyle", "EditorWidgets", "AppFramework" });
         PublicDependencyModuleNames.AddRange(new string[] { "Myrra" });
         PrivateDependencyModuleNames.AddRange(new string[] {  });
 

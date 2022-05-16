@@ -526,7 +526,7 @@ float UMyrGirdle::ProcedeFoot (FLimb &FootLimb, FLimb& OppositeLimb, float FootD
 
 		//если включены "тяжелые ноги" удельный вес ног все же зависит от их повреждений - чтобы при сильном увечьи легче валиться на бок
 		if(CurrentDynModel->HeavyLegs)
-			FootBody->SetMassScale(ArchFootBody->MassScale*(1 - 0.5 * ClampedDamage));
+			FootBody->SetMassScale(ArchFootBody->MassScale*(1 - 0.5f * ClampedDamage));
 
 		//настройки силы сгиба лапы (это надо переписать так чтобы не вытаскивать каждый раз 3 параметр
 		Cons->SetLinearDriveParams(ElbowForce,						// собственно сила
