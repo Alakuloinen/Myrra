@@ -478,18 +478,22 @@ bool UMyrTriggerComponent::ReactNotify(FTriggerReason& R, class AMyrPhyCreature*
 //==============================================================================================================
 //сформировать вектор дрейфа по векторному полю, вызывается не отсюда, а из ИИ
 //==============================================================================================================
-FVector UMyrTriggerComponent::ReactVectorFieldMove(class AMyrPhyCreature* C)
+FVector UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AMyrPhyCreature* C)
 {
 	//накопитль вектора
 	FVector Accu(0,0,0);
 	if(!C) return Accu;
+
+	//множитель силы указывается строкой
+	float Coef = FCString::Atof(*R.Value);
+	if (Coef > 0) Coef = 1;
 
 	//вектора задаются дочерними компонентами (для наглядности стрелками), откуда берется ось Х
 	TArray<USceneComponent*> Children = GetAttachChildren();
 
 	//если вектор только один, взвешенной суммы не требуется, просто вернуть его
 	if(Children.Num()==1)
-		return Children[0]->GetComponentTransform().GetUnitAxis(EAxis::X);
+		return Children[0]->GetComponentTransform().GetUnitAxis(EAxis::X)*Coef;
 
 	//нормировочный коэффициент = максимальный размер всего объёма, чтобы расстояния до стрелок были весами меньше единицы
 	float Normer = 0.5 / (Bounds.SphereRadius);
@@ -503,7 +507,38 @@ FVector UMyrTriggerComponent::ReactVectorFieldMove(class AMyrPhyCreature* C)
 		Denominator += Weight;
 	}
 	if(Denominator > 1) Accu /= Denominator;
-	return Accu;
+	return Accu*Coef;
+}
+
+//==============================================================================================================
+//сформировать вектор тяги в пределы зоны
+//==============================================================================================================
+FVector UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCreature* C)
+{
+	//вектор к центру, полноразмерный
+	FVector Ra =  (GetComponentLocation() - C->GetHeadLocation());
+	float RaDist2 = Ra.SizeSquared();
+
+	//такого не случится, потому что пересёк с существом пропадёт, но вдруг...
+	if (RaDist2 > FMath::Square(Bounds.SphereRadius)) return Ra;
+
+	//существо в пределах сферы
+	else
+	{
+		//явный радиус, с которого начинать тягу
+		//ибо в середине ямы должна быть полностью свободная область 
+		float RadiusToStart = FCString::Atof(*R.Value);
+		if (RadiusToStart <= 0 || RadiusToStart >= Bounds.SphereRadius)
+			RadiusToStart = Bounds.SphereRadius / 2;
+		
+		//если внутри области свободного движения, то вектор нулевой
+		if (RaDist2 <= FMath::Square(RadiusToStart))
+			return FVector(0);
+
+		//при выходе за область вектор начинает расти 
+		else return Ra * (FMath::Sqrt(RaDist2) - RadiusToStart) / (Bounds.SphereRadius - RadiusToStart);
+		
+	}
 }
 
 

@@ -151,6 +151,7 @@ public:
 	//основная, анимация (с закладками), аддитивная, которая передаётся в AnimInst в виде переменной.
 	//для атак сюда следует пихать пустую анимацию с правильными закладками, да и вообще закладки держать сздесь
 	UPROPERTY(EditAnywhere, Category = "Resources", BlueprintReadWrite) class UAnimSequenceBase* Motion;
+	UPROPERTY(EditAnywhere, Category = "Resources", BlueprintReadWrite) TArray<UAnimSequenceBase*> AlternativeRandomMotions;
 
 	//человекопонятное имя, которое можно отобразить на экране как пункт меню и переовдить
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText HumanReadableName;

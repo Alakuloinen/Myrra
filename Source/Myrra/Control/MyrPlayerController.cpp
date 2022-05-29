@@ -114,7 +114,7 @@ void AMyrPlayerController::ChangeWidgetProps(UMyrBioStatUserWidget* UW)
 	if (!UW) UW = CurrentWidget();
 	if (UW)
 	{	UW->MyrPlayerController = this;
-		UW->MyrOwner = GetDaemonPawn()->GetOwnedCreature();
+		UW->SetOwnerCreature(GetDaemonPawn()->GetOwnedCreature());
 		UW->MyrAI = UW->MyrOwner->MyrAI();
 		UW->OnJustShowed();
 	}

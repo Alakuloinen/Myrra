@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "AdvMath.h"
 #include "myrra_emotions.generated.h"
 
 //БЛЯДЬ КАК ЖЕ ВЫ ЗАДОЛБАЛИ С ТАКИМИ ДЛИННЫМИ ИМЕНАМИ ДЛЯ ТАКИХ ПРОСТЫХ ВЕЩЕЙ
@@ -7,28 +8,50 @@
 #define M2 GetUpperBoundValue()
 
 
-//B - степень внешнего влияния, открытость для влияния, протагонист должен повышать это у других для своей выгоды
-
-//###################################################################################################################
-// карта эмоций персонажа (H: полярность эмоции плохо-хорошо, V: активность эмоции стремление-избегание)
-//активность V ================================= полярность =======================================================>
-//               -0.9                -0.5                0.0                +0.5                 +0.9
-// -0.9	   [   отчаяние   ]::::╫ запуганность ╫::::╫    страх     ╫::::╫    трепет    ╫::::[обожествление ]
-// -0.5	   ╫ обречённость ╫::::╫╫ угнетение  ╫╫::::╫╫  тревога   ╫╫::::╫╫ очарование ╫╫::::╫ благоговение ╫
-//  0.0	   ╫  презрение   ╫::::╫╫ неприязнь  ╫╫::::╫╫╫  ПОКОЙ   ╫╫╫::::╫╫  принятие  ╫╫::::╫   уважение   ╫
-// +0.5	   ╫  ненависть   ╫::::╫╫   злость   ╫╫::::╫╫  интерес   ╫╫::::╫╫  симпатия  ╫╫::::╫    любовь    ╫
-// +0.9	   [    ярость    ]::::╫ раздражение  ╫::::╫    мания     ╫::::╫   влечение   ╫::::[   обожание   ]
-//=================================================================================================================
 UENUM(BlueprintType) enum class EEmotio : uint8
 {
-	Peace,
-	Anger,
-	Grace,
-	Scare,
+	Void,			//опустошенность
+	Reverie,		//мечтательность, надежда
+	Gloom,			//хмурость
+	Worry,			//беспокойство
+
+	Peace,			//уравновешенность, покой в бодрствовании, уравновешены все эмоции
+	Hope,			//недежда на лучшее, но неуверенность
+	Pessimism,		//пессимизм, мизантропия
+	Carelessness,	//беспечность
+
+
+	Enmity,			//враждебность, осознанная оппозиция с уважением и осторожностью
+	Hatred,			//ненависть, враждеьность с осторожностью, но без уважения
+	Anger,			//сердитость, обиженность, злоба на того, кто важен
+	Fury,			//бешенство, безудержная неприязнь
+
+	Grace,			//благосклонность, осознанная поддержка с критичностью и осторожностью
+	Love,			//любовь, обожание с волнением, боязнь сделать хуже
+	Patronage,		//покровительство, пренебрежительное вазвышение
+	Adoration,		//обожание, без страха и критичности
+
+	Fear,			//боязнь, осознанное принятие опасности
+	Anxiety,		//предчувствие дурного? или сокрушенность? или стыд? удивленность? или очень осторожное любопытство
+	Phobia,			//фобия, страх и ненависть
+	Horror,			//ужас
+
+
+	Mania,			//мания, одержимость
+	Awe,			//благоговение, трясучесть от страха и обожания, паника
+	Disgust,		//отвращение, активная неуемная ненависть, желание скрыться или уничтожить
+	Insanity,		//безумие, 
 	MAX
 };
+//R безвольность			бодрствование					ярость
+//G равнодушие				учтивость						любовь
+//B беспечность				осторожность					ужас
+//A - 
+// * уровень эмоций потребляет энергию, при низкой энергии и низком запасе сил накал эмоций проседает
+// * уровень эмоций увеличивает сонность, чем возбужденнее, тем больше захочется спать
 
-USTRUCT(BlueprintType) struct FEmotio
+// * дисперсия эмоций потребляет запас сил, чем более резкие различия у эмоций, тем быстрее организм выдыхается
+USTRUCT(BlueprintType) struct MYRRA_API FEmotio
 {
 	GENERATED_USTRUCT_BODY()
 
@@ -38,13 +61,19 @@ USTRUCT(BlueprintType) struct FEmotio
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0")) float A;
 
 	//базовые компоненты: ярость(красный), любовь(зеленый), страх(синий) - 
-	float Rage()		const { return R; }
-	float Love()		const { return G; }
-	float Fear()		const { return B; }
+	float Rage()		const { return R; }		//тяга приблизиться
+	float Love()		const { return G; }		//тяга приблизиться 
+	float Fear()		const { return B; }		//тяга отдалиться 
+	float Sure()		const { return A; }
 
-	operator FLinearColor() { return ((FLinearColor)*this); }
-	operator FVector4() { return ((FVector4)*this); }
-	operator FColor() { return FColor(R*255, G*255, B*255, A*255); }
+	float PowerSquared()const { return R * R + B * B + G * G; }
+	float PowerAxial ()	const { return FMath::Abs(R) + FMath::Abs(G) + FMath::Abs(B); }
+	float Discordance() const { return FMath::Abs(R-G) + FMath::Abs(G-B) + FMath::Abs(R-B); }
+
+	FLinearColor ToFLinearColor() { return *((FLinearColor*)this); }
+	FVector4 ToFVector4() { return *((FVector4*)this); }
+	FVector ToFVector() const { return *((FVector*)this); }
+	FColor ToFColor() { return FColor(R*255, G*255, B*255, A*255); }
 
 	FEmotio()				: R(0),G(0),B(0),A(1) {}
 	FEmotio(FColor O)		: R((float)O.R / 255.0), G((float)O.G / 255.0), B((float)O.B / 255.0), A((float)O.A / 255.0) {}
@@ -52,9 +81,59 @@ USTRUCT(BlueprintType) struct FEmotio
 	FEmotio(float All)		: R(All), G(All), B(All), A(1) {}
 	FEmotio(float nRage, float nLove, float nFear, float Sure = 1) : R(nRage), G(nLove), B(nFear), A(Sure) {}
 
-	static FEmotio Peace() { return FEmotio(0.5f, 0.5f, 0.5f); }
+	FEmotio operator*	(float M) { return FEmotio(R*M, G*M, B*M, A); }
+	FEmotio Dim			(float M) { if(M<=1 && M>=0) return (*this)*M; else return *this; }
+	FEmotio StepTo		(FEmotio New, float Step, bool SureToo=false)	{ return FEmotio ( ::StepTo(R,New.R,Step), ::StepTo(G,New.G,Step), ::StepTo(B,New.B,Step), SureToo?(::StepTo(A,New.A,Step)):A ); }
+	FEmotio Combine		(FEmotio N, bool SureToo=false)					{ return FEmotio ( FMath::Lerp(R, N.R, N.A), FMath::Lerp(G, N.G, N.A), FMath::Lerp(B, N.B, N.A), SureToo?FMath::Lerp(A,N.A,N.A):A); }
+	FEmotio Mix			(FEmotio N, float E, bool SureToo=false)		{ return FEmotio ( FMath::Lerp(R, N.R, E), FMath::Lerp(G, N.G, E), FMath::Lerp(B, N.B, E), SureToo?FMath::Lerp(A,N.A,E):A); }
 
-	static FEmotio predef[EEmotio::MAX];
+	float DistSquared3D (FEmotio& O) const { return FVector::DistSquared(ToFVector(), O.ToFVector()); }
+	float Dist3D (FEmotio& O)		const { return FVector::Dist(ToFVector(), O.ToFVector()); }
+	float DistAxial3D (FEmotio& O)	const { return FMath::Abs(R - O.R) + FMath::Abs(G - O.G) + FMath::Abs(B - O.B); }
+
+	float PrimaryMotionStimulus() const { return R + G - 2*B*B; }
+	float PrimaryStealthStimulus() const { return 2*(B - FMath::Square(B*B)) - R - G*G; }
+
+	static FEmotio& As(EEmotio Arch)
+	{
+		static FEmotio archetypes[(int)EEmotio::MAX] =
+		{
+			{0.0f, 0.0f, 0.0f, 1.0f},		//Void				0.0			опустошенность
+			{0.0f, 0.5f, 0.0f, 1.0f},		//Reverie			0.5	|		мечтательность, надежда
+			{0.5f, 0.0f, 0.0f, 1.0f},		//Gloom				0.5	|		хмурость
+			{0.0f, 0.0f, 0.5f, 1.0f},		//Worry				0.5	|		беспокойство
+
+			{0.5f, 0.5f, 0.5f, 1.0f},		//Peace				0.0			уравновешенность, покой в бодрствовании, уравновешены все эмоции
+			{0.0f, 0.5f, 0.5f, 1.0f},		//Hope				1.0	||		недежда на лучшее, но неуверенность
+			{0.5f, 0.0f, 0.5f, 1.0f},		//Pessimism			1.0	||		пессимизм, мизантропия
+			{0.5f, 0.5f, 0.0f, 1.0f},		//Carelessness		1.0	||		беспечность
+
+
+			{1.0f, 0.5f, 0.5f, 1.0f},		//Enmity			1.0	||		враждебность, осознанная оппозиция с уважением и осторожностью
+			{1.0f, 0.0f, 0.5f, 1.0f},		//Hatred			2.0	||||	ненависть, враждеьность с осторожностью, но без уважения
+			{1.0f, 0.5f, 0.0f, 1.0f},		//Anger				2.0	||||	сердитость, обиженность, злоба на того, кто важен
+			{1.0f, 0.0f, 0.0f, 1.0f},		//Fury				2.0	||||	бешенство, безудержная неприязнь
+
+			{0.5f, 1.0f, 0.5f, 1.0f},		//Grace				1.0	||		благосклонность, осознанная поддержка с критичностью и осторожностью
+			{0.0f, 1.0f, 0.5f, 1.0f},		//Love				2.0	||||	любовь, обожание с волнением, боязнь сделать хуже
+			{0.5f, 1.0f, 0.0f, 1.0f},		//Patronage			2.0	||||	покровительство, пренебрежительное вазвышение
+			{0.0f, 1.0f, 0.0f, 1.0f},		//Adoration			2.0	||||	обожание, без страха и критичности
+
+			{0.5f, 0.5f, 1.0f, 1.0f},		//Fear				1.0	||		боязнь, осознанное принятие опасности
+			{0.0f, 0.5f, 1.0f, 1.0f},		//Anxiety			2.0	||||	предчувствие дурного? или сокрушенность? или стыд? удивленность? или очень осторожное любопытство
+			{0.5f, 0.0f, 1.0f, 1.0f},		//Phobia			2.0	||||	фобия, страх и ненависть
+			{0.0f, 0.0f, 1.0f, 1.0f},		//Horror			2.0	||||	ужас
+
+
+			{1.0f, 1.0f, 0.0f, 1.0f},		//Mania				2.0	||||	мания, одержимость
+			{0.0f, 1.0f, 1.0f, 1.0f},		//Awe				2.0	||||	благоговение, трясучесть от страха и обожания, паника
+			{1.0f, 0.0f, 1.0f, 1.0f},		//Disgust			2.0	||||	отвращение, активная неуемная ненависть, желание скрыться или уничтожить
+			{1.0f, 1.0f, 1.0f, 1.0f}		//Insanity			0.0			безумие, 
+
+		};
+		return archetypes[(int)Arch];
+	}
+
 
 };
 

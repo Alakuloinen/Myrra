@@ -143,13 +143,17 @@ void UMyrAnimNotify::Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Ani
 
 		//для случая простого самодействия - смена фазы ничего не значит, кроме смены физики для тела
 		if (MyrPhyCreature->CurrentSelfAction < 255)
-			if(MyrPhyCreature->GetSelfAction()->Motion == Anim)
+		{
+			if (MyrPhyCreature->GetSelfAction()->Motion == Anim)
 				MyrPhyCreature->SelfActionNewPhase();
+		}
 
 		//для случая анимации перехода в отдых - смена фазы означает переход в стабильный отдых
 		if (MyrPhyCreature->CurrentRelaxAction < 255)
-			if(MyrPhyCreature->GetRelaxAction()->Motion == Anim)
+		{
+			if (MyrPhyCreature->GetRelaxAction()->Motion == Anim)
 				MyrPhyCreature->RelaxActionReachPeace();
+		}
 		break;
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////
@@ -160,14 +164,19 @@ void UMyrAnimNotify::Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Ani
 
 		//для случая простого самодействия
 		if (MyrPhyCreature->CurrentSelfAction < 255)
-			if(MyrPhyCreature->GetSelfAction()->Motion == Anim)
+		{	if (MyrPhyCreature->GetSelfAction()->Motion == Anim)
 				MyrPhyCreature->SelfActionCease();
+			else for(auto A : MyrPhyCreature->GetSelfAction()->AlternativeRandomMotions)
+				if (A == Anim)
+					MyrPhyCreature->SelfActionCease();
+		}
 		else UE_LOG(LogTemp, Error, TEXT("WTF Self Action Anim Ended without beginning!!11")); 
 
 		//для случая анимации перехода в отдых - смена фазы означает переход в стабильный отдых
 		if (MyrPhyCreature->CurrentRelaxAction < 255)
-			if(MyrPhyCreature->GetRelaxAction()->Motion == Anim)
+		{	//if (MyrPhyCreature->GetRelaxAction()->Motion == Anim)
 				MyrPhyCreature->RelaxActionReachEnd();
+		}
 		break;
 	}
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("notify anim:%s cause:%s attack:%s currentstate:%s"),

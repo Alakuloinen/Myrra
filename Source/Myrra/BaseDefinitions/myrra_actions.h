@@ -227,8 +227,8 @@ UENUM(BlueprintType) enum class ECreatureAction : uint8
 	ATTACK203 = 203 UMETA(Hidden),
 	ATTACK204 = 204 UMETA(Hidden),
 
-	SELF_YAWN1 = 205,			//зевать
-	SELF_YAWN2 = 206,			//зевать
+	SELF_YAWN = 205,			//зевать
+	SELF_LICK = 206,			//зевать
 	SELF_YAWN3 = 207,			//зевать
 		
 	SELF_TONGUE1 = 208,			//движение языком

@@ -128,7 +128,10 @@ public:
 	bool ReactEnterLocation(class AMyrPhyCreature* C, class AMyrArtefact* A, bool Enter); 
 
 	//сформировать вектор дрейфа по векторному полю, вызывается не отсюда, а из ИИ
-	FVector ReactVectorFieldMove(class AMyrPhyCreature* C);
+	FVector ReactVectorFieldMove(FTriggerReason& R, class AMyrPhyCreature* C);
+
+	//сформировать вектор тяги в пределы зоны
+	FVector ReactGravityPitMove(FTriggerReason& R, class AMyrPhyCreature* C);
 
 	//вывести наэкран некую инфу относительно содержимого актора, к которому приадлежит этот триггер объём
 	bool ReactNotify(FTriggerReason& R, class AMyrPhyCreature* C);

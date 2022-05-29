@@ -2,7 +2,13 @@
 #include "../Myrra/Myrra.h"	
 #include "SlateBasics.h"
 #include "SlateCore.h"
-#include "SEnumCombobox.h"
+#include "Runtime/Launch/Resources/Version.h"
+#if (ENGINE_MAJOR_VERSION >= 5)	
+#include "SEnumCombo.h"
+#endif
+#if (ENGINE_MAJOR_VERSION == 4)	
+#include "SEnumComboBox.h"
+#endif
 #include "PropertyEditorModule.h"
 #include "PropertyEditorDelegates.h"
 #include "DetailWidgetRow.h"
@@ -47,21 +53,23 @@ void FEmotionTypeCustomization::CustomizeHeader(TSharedRef<class IPropertyHandle
 		//квадратик с цветом
 		+ SHorizontalBox::Slot().MaxWidth(20)	[	SAssignNew(Me, SBorder).VAlign(VAlign_Center).HAlign(HAlign_Center).BorderImage(&EquiColorBrush)	]
 
-		+ SHorizontalBox::Slot().FillWidth(0.5).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Rage")) ]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(0.5).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Love"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(0.5).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Fear"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(0.5).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Sure"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, A))->CreatePropertyValueWidget()		]
-
-		+ SHorizontalBox::Slot().FillWidth(1).MaxWidth(50)
+		//выбор из списка архетипов
+		+ SHorizontalBox::Slot().FillWidth(2).MaxWidth(100)
 		[	
 			SNew(SEnumComboBox, Typicals)
 				.CurrentValue(this, &FEmotionTypeCustomization::GetEnumVal)
 				.OnEnumSelectionChanged(SEnumComboBox::FOnEnumSelectionChanged::CreateSP(this, &FEmotionTypeCustomization::ChangeEnumVal))
 		]
+
+		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[SNew(STextBlock).Text(FText::FromString("Rage"))]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Love"))]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Fear"))]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Sure"))]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, A))->CreatePropertyValueWidget()		]
+
 	];
 
 }
@@ -75,7 +83,7 @@ FEmotionTypeCustomization::FEmotionTypeCustomization():EquiColorBrush(FLinearCol
 	Typicals = FindObject<UEnum>(ANY_PACKAGE, TEXT("EEmotio"), true);
 }
 
-FLinearColor FEmotionTypeCustomization::GetColorForMe()
+FLinearColor FEmotionTypeCustomization::GetColorForMe() const
 {	FLinearColor Re(0,0,0,1);
 	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->GetValue(Re.R);
 	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->GetValue(Re.G);
@@ -88,3 +96,31 @@ void FEmotionTypeCustomization::OnChanged()
 	EquiColorBrush.TintColor = GetColorForMe();
 	PropertyUtilities->RequestRefresh();
 }
+
+//когда редактируется выбором из списка архетипов
+int FEmotionTypeCustomization::GetEnumVal() const
+{
+	FEmotio Mee(GetColorForMe());
+	int RightArch = 0;
+	float RightDist = 10;
+	for (int i = 0; i < (int)EEmotio::MAX; i++)
+	{
+		float NuDist = Mee.DistAxial3D(FEmotio::As((EEmotio)i));
+		if (NuDist < RightDist)
+		{
+			RightDist = NuDist;
+			RightArch = i;
+		}
+	}
+	return RightArch;
+}
+
+//когда редактируется выбором из списка архетипов
+ void FEmotionTypeCustomization::ChangeEnumVal(int Nv, ESelectInfo::Type Hz)
+ {
+	FEmotio Result = FEmotio::As((EEmotio)Nv);
+	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->SetValue(Result.R);
+	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->SetValue(Result.G);
+	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->SetValue(Result.B);
+
+ }

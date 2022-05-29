@@ -66,9 +66,8 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 
 	//лоически несколько состояний - графически одно и то же, шаг (даже если бег и если увечье/усталость и не выжимается скорость)
 	CurrentState = Creature->CurrentState;
-	if (CurrentState == EBehaveState::crouch || 
+	if (CurrentState == EBehaveState::crouch ||
 		CurrentState == EBehaveState::stand
-		|| CurrentState == EBehaveState::sidewalk
 		|| (CurrentState == EBehaveState::run && Creature->MoveGain < 0.5f))
 		CurrentState = EBehaveState::walk;
 	StateTime = Creature->StateTime;
@@ -76,15 +75,27 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	//самодействия
 	CurrentSelfAction = Creature->CurrentSelfAction;
 	if (CurrentSelfAction != 255)
-	{	SelfActionPlayRate =	Creature->GetSelfAction() -> DynModelsPerPhase [ Creature->SelfActionPhase ] . AnimRate;
-		SelfAction =			Creature->GetSelfAction() -> Motion;
+	{
+		//скорость анимации (она изменяетсч каждый кадр потому что могут быть секции с разной скоростью)
+		SelfActionPlayRate = Creature->GetSelfAction()->DynModelsPerPhase[Creature->SelfActionPhase].AnimRate;
 
-		//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
-		SelfAnimLocalSpace =	(SelfAction->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
+		//перед началом анимации вписать указатель на ресурс с кадрами
+		if (SelfAction == nullptr)
+		{
+			//главная анимация вероятнее всего, затем альтернативные, если есть
+			SelfAction = Creature->GetSelfAction()->Motion;
+			if (auto NR = Creature->GetSelfAction()->AlternativeRandomMotions.Num())
+				if (FMath::RandBool())
+					SelfAction = Creature->GetSelfAction()->AlternativeRandomMotions[FMath::RandRange(0, NR - 1)];
+			//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
+			SelfAnimLocalSpace = (SelfAction->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
 
-		//изменятель скорости обмена веществ для этого конкретного действия
-		NewMetabolism *= Creature->GetSelfAction()->MetabolismMult;
+			//изменятель скорости обмена веществ для этого конкретного действия
+			NewMetabolism *= Creature->GetSelfAction()->MetabolismMult;
+		}
 	}
+	//вне самодействий поддерживать указатель на роик пустым
+	else SelfAction = nullptr;
 
 	//действия по отдыху
 	CurrentRelaxAction = Creature->CurrentRelaxAction;
@@ -92,45 +103,45 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	{
 		//здесь CurrentRelaxAction адресуется не по номеру, а по понятию, чтобы анимации можено было подправлять для отдельных групп
 		CurrentRelaxAction = (uint8)Creature->GetRelaxAction()->Type;
-		RelaxActionPlayRate =   Creature->GetRelaxAction() -> DynModelsPerPhase [ Creature->RelaxActionPhase ] . AnimRate;
-		RelaxMotion =			Creature->GetRelaxAction() -> Motion;
+		RelaxActionPlayRate = Creature->GetRelaxAction()->DynModelsPerPhase[Creature->RelaxActionPhase].AnimRate;
+		RelaxMotion = Creature->GetRelaxAction()->Motion;
 
 		//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
 		RelaxAnimLocalSpace = (RelaxMotion->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
 
 		//изменятель скорости обмена веществ для этого конкретного действия
-		NewMetabolism *= Creature->GetRelaxAction() -> MetabolismMult;
+		NewMetabolism *= Creature->GetRelaxAction()->MetabolismMult;
 	}
 
 	//переписать новые значения компонентов общей эмоции существа, чтоб отразить в позах
-	Creature->TransferIntegralEmotion (EmotionRage, EmotionFear, EmotionPower, EmotionAmount);
+	Creature->TransferIntegralEmotion(EmotionRage, EmotionFear, EmotionPower, EmotionAmount);
 
 	//атаки (если в материнском объекте атака на задана, то и тут ничего не надо делать)
-	if(Creature->CurrentAttack != 255)
+	if (Creature->CurrentAttack != 255)
 	{
 		auto AttackInfo = Creature->GetAttackAction();
 
 		//аним-ролики атаки меняются только при изменении номера атаки
-		if(CurrentAttack != Creature->CurrentAttack)
-		{	CurrentAttack = Creature->CurrentAttack;
-			AttackAnimation =		 Creature->GetAttackActionVictim().RawTargetAnimation;
+		if (CurrentAttack != Creature->CurrentAttack)
+		{
+			CurrentAttack = Creature->CurrentAttack;
+			AttackAnimation = Creature->GetAttackActionVictim().RawTargetAnimation;
 			AttackPreciseAnimation = Creature->GetAttackActionVictim().PreciseTargetAnimation;
-			AttackCurvesAnimation =  Creature->GetAttackAction() -> Motion;
+			AttackCurvesAnimation = Creature->GetAttackAction()->Motion;
 		}
 		//фаза меняется при неизменной атаке
 		CurrentAttackPhase = Creature->CurrentAttackPhase;
-		CurrentAttackPlayRate = AttackInfo-> DynModelsPerPhase [ (int)Creature->CurrentAttackPhase ] . AnimRate;
+		CurrentAttackPlayRate = AttackInfo->DynModelsPerPhase[(int)Creature->CurrentAttackPhase].AnimRate;
 
 		//если фаза атаки подразумевает прыжок, то плоскость проекции на карту анимаций - не передняя, а нижняя
 		//чтобы одной сборкой обрабатывать прыжки назад и вперед
 		FVector VerOrAx = Creature->NowPhaseToJump() ? Ma->GetLimbAxisForth(Ma->Lumbus) : Ma->GetLimbAxisUp(Ma->Lumbus);
 
 		//разложение абсолютного направления по базисам (пока неясно, какие в точности части тела брать, как точнее будет визуально)
-		AttackDirRawLeftRight =		FVector::DotProduct (Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Lumbus));
-		AttackDirRawUpDown =		FVector::DotProduct (Creature->AttackDirection, VerOrAx);
-
-		AttackDirAdvLeftRight =		FVector::DotProduct (Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Pectus));
-		AttackDirAdvUpDown =		FVector::DotProduct (Creature->AttackDirection, Ma->GetLimbAxisUp(Ma->Pectus));
+		AttackDirRawLeftRight = FVector::DotProduct(Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Lumbus));
+		AttackDirRawUpDown = FVector::DotProduct(Creature->AttackDirection, VerOrAx);
+		AttackDirAdvLeftRight = FVector::DotProduct(Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Pectus));
+		AttackDirAdvUpDown = FVector::DotProduct(Creature->AttackDirection, Ma->GetLimbAxisUp(Ma->Pectus));
 
 		//изменятель скорости обмена веществ для этого конкретного действия
 		NewMetabolism *= AttackInfo->MetabolismMult;
@@ -151,11 +162,16 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	if (!gP->CurrentDynModel) return;
 #endif
 
-	//глобальный уклон тела
-	float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->SpeedAlongFront();
-	if(WaveOrSoar<0)
-		WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
-	else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
+	if (CurrentState == EBehaveState::climb)
+		WholeBodyUpDown = Ma->Erection();
+	else
+	{
+		//глобальный уклон тела - сложный расчёт только для птицы
+		float WaveOrSoar = FVector::DotProduct(gP->VelocityAgainstFloor, Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->SpeedAlongFront();
+		if (WaveOrSoar < 0)
+			WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
+		else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
+	}
 
 	//поворот физической спины влево-вправо (змейка) - регулируется направлением хода
 	//включается только когда имеется один ведущий, один ведомый пояс
@@ -184,7 +200,7 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	if (!Creature->IsFirstPerson())
 	{
 		//только в третьем лице вычисляется освещение, влияющее на зрачки
-		Lighting = TrueLinearInterp(Lighting, Creature->LightingAtView, DeltaTimeX*0.5f);
+		Lighting = StepTo (Lighting, Creature->LightingAtView, DeltaTimeX*0.5f);
 
 		//голову крутим только здесь, иначе вид будет кривой
 		ROTATE(HeadLeftOrRight, DOF.HeadLeftRight,	PECTUS, Right,	HEAD, Front, AllowMoreCalc);
@@ -359,8 +375,7 @@ void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& H
 		+ AGirdle.LegsSpread * Creature->BehaveCurrentData->AffectLegsSpreadOnLegOffset;
 
 	//резко нельзя, нереалистично, но для наземного - достаточно резко
-	float Dlt = OldLeftRight - LeftRight;
-	if(FMath::Abs(Dlt) > 0.01) LeftRight += FMath::Sign(Dlt) * (Limb.Stepped ? 0.05 : 0.01);
+	LeftRight = StepTo( OldLeftRight, LeftRight, Limb.Stepped ? 0.05 : 0.01);
 
 }
 

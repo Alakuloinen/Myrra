@@ -165,7 +165,7 @@ void AMyrPhyCreature::BeginPlay()
 	//дать виджету знать, в контексте чего он будет показываться 
 	//ахуеть! если это вызвать до Super::BeginPlay(), то виджет ещё не будет создан, и ничего не сработает
 	if (StatsWidget())
-	{	StatsWidget()->MyrOwner = this;					
+	{	StatsWidget()->SetOwnerCreature(this);
 		StatsWidget()->MyrAI = MyrAI();			
 	}
 
@@ -293,7 +293,7 @@ void AMyrPhyCreature::OnAudioPlaybackPercent(const USoundWave* PlayingSoundWave,
 {
 	//ебанатский анрил 4.27 запускает это сообщение даже когда не играет звук
 	if (!Voice->IsPlaying()) return;
-
+	
 	//длина строки субитров
 	const int Length = PlayingSoundWave->SpokenText.Len();
 
@@ -697,14 +697,16 @@ void AMyrPhyCreature::StaminaChange(float delta)
 		if (delta < 0) delta = 0;
 	}
 
-	//внимание! пищевая энергия расходуется только при восстановлении запаса сил и при попытке отнять силы, когда их уже нет
-	Stamina += delta;								// прирастить запас сил на дельту (или отнять), вычисленную извне
+	// прирастить запас сил на дельту (или отнять), вычисленную извне
+	Stamina += delta;								
 
-	if (Stamina < 0)								// сил и так нет, а от нас ещё требуют
+	// сил и так нет, а от нас ещё требуют
+	if (Stamina < 0)								
 	{	Stamina = 0;								// восстановить ноль - сил как не было, так и нет
 		Energy -= delta * 0.02f;					// а вот расход пищевой энергии всё равно происходит, да ещё сильнее
 	}
-	else											// запас сил имеется (или нашёлся)
+	// запас сил имеется (или нашёлся)
+	else											
 	{
 		if (Stamina > 1.0f) Stamina = 1.0f;			// запас сил и так восстановлен, дальше некуда
 		else if (delta > 0)							// если же есть куда восстанавливать запас сил (происходит именно восстановление, не расход)...
@@ -769,11 +771,18 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	//восстановление здоровья (стамина перенесена в основной тик, чтоб реагировать на быструю смену фаз атаки)
 	HealthChange ((Mesh->DynModel->HealthAdd + SurfaceHealthModifier ) * DeltaTime	);	
 
+	//энергия пищевая тратится на эмоции, чем возбужденнее, тем сильнее
+	//здесь нужен какой-то коэффициент, нагруженный параметром фенотипа
+	Energy -= 0.001*DeltaTime*MyrAI()->IntegralEmotionPower;
+
 	//пересчитать здоровье и мобильность тела
 	UpdateMobility();
 
 	//возраст здесь, а не в основном тике, ибо по накоплению большого числа мелкие приращения могут быть меньше разрядной сетки
 	Age += DeltaTime;
+
+	//если повезёт, здесь высосется код связанный в блюпринтах
+	RareTickInBlueprint(DeltaTime);
 
 }
 
@@ -1970,6 +1979,9 @@ void AMyrPhyCreature::SelfActionCease()
 	//если есть, что прерывать
 	if (CurrentSelfAction != 255)
 	{
+		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s SelfActionCease %s"),
+			*GetName(), *GetCurrentSelfActionName());
+
 		//если к самодействию привязан еще и звук
 		if (Mesh->DynModel->Sound.IsValid())
 		{
@@ -1984,7 +1996,6 @@ void AMyrPhyCreature::SelfActionCease()
 
 		//применить новые настройки динамики движения/поддержки для частей тела поясов
 		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
-		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s SelfActionCease"), *GetName());
 	}
 }
 
@@ -2306,14 +2317,25 @@ bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, bool AI)
 	//проверить есть ли заданный триггер вокруг нас
 	FTriggerReason *TR = nullptr;
 	UMyrTriggerComponent* UsedOv = nullptr;
-	if(AI) UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMover, EWhyTrigger::VectorFieldMoverMeToo, TR);
-	else UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMoverMeToo, TR);
-	if (!UsedOv) return false;
+	FVector Force(0);
+	if (AI)
+	{
+		UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMover, EWhyTrigger::VectorFieldMoverMeToo, TR);
+		if(UsedOv) 	Force = UsedOv->ReactVectorFieldMove(*TR, this);
+		else UsedOv = HasSuchOverlap(EWhyTrigger::GravityPit, TR);
+		if (UsedOv) Force = UsedOv->ReactGravityPitMove(*TR, this);
+		else return false;
 
-	//рассчитать необходимое значение
-	FVector Force = UsedOv->ReactVectorFieldMove(this);
-	float Coef = FCString::Atof(*TR->Value);
-	if (Coef > 0) Force *= Coef;
+	}
+	else
+	{
+		UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMoverMeToo, TR);
+		if (UsedOv) Force = UsedOv->ReactVectorFieldMove(*TR, this);
+		else return false;
+	}
+
+	DrawDebugLine(GetWorld(), GetHeadLocation(), GetHeadLocation() + Force, FColor(100, 100, 200), false, 1, 100, 3);
+
 	InMoveDir += Force;
 	return true;
 }

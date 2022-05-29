@@ -79,6 +79,7 @@ public:
 
 	//меш этого существа
 	class UMyrPhyCreatureMesh* me();
+	class UMyrPhyCreatureMesh* mec() const;
 
 	//выдать членик и его физ-тело в системе коориднат конкретно этого пояса
 	ELimb			GetELimb(EGirdleRay R) { return GirdleRays[IsThorax][(int)R]; }
@@ -145,5 +146,7 @@ public:
 	//скаляр скорости в направлении движения
 	float SpeedAlongFront() { return (VelocityAgainstFloor | Forward);  }
 
+	//выдать все уроны частей тела в одной связки - для блюпринта обновления худа
+	UFUNCTION(BlueprintCallable) FLinearColor GetDamage() const;
 
 };

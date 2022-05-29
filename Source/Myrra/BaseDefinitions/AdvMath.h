@@ -9,7 +9,7 @@ float FORCEINLINE SAT01(float v) { return v>1.0f ? 1.0f : (v<0.0f ? 0.0f : v); }
 //==============================================================================================================
 //линейная интерполяция в прямом смысле, с константным шагом, никаких кривых
 //==============================================================================================================
-float FORCEINLINE TrueLinearInterp( float OldVal, float NewVal, float Step)
+float FORCEINLINE StepTo( float OldVal, float NewVal, float Step)
 {
 	float Diffe = NewVal - OldVal;
 	if(Diffe > Step)	return OldVal + Step; else

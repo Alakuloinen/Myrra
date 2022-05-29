@@ -110,9 +110,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float TailTipUpOrDown = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float TailTipLeftOrRight = 0.0f;
 
-	//выворот ног и рук взад-вниз
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float LegsRotation = 0.0f;
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float ArmsRotation = 0.0f;
 
 	//смещения конечностей относительно нормальных значений - без структур, так как в блюпринтах это косно
 	//по умолчанию на середине интервала 0-1, так как часть их может реализовываться осбю времени, которая нормируется

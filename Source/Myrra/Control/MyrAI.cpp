@@ -360,8 +360,9 @@ void AMyrAI::Tick(float DeltaTime)
 
 	//если вошли в триггер-объём с установленными векторами движения - отклонить ранее посчитанный вектор в соответствии
 	if(me()->ModifyMoveDirByOverlap(Drive.MoveDir, true))
-	{	Drive.MoveDir.Normalize();
+	{	
 		UE_LOG(LogMyrAI, Warning, TEXT("AI %s ModifyMoveDirByOverlap %s"), *me()->GetName(), *Drive.MoveDir.ToString());
+		Drive.MoveDir.Normalize();
 	}
 
 
@@ -1015,10 +1016,10 @@ ERouteResult AMyrAI::DecideOnObstacle(FVector LookDir, FGoal& Goal, FGestaltRela
 		if(auto Myr = Cast<AMyrPhyCreature>(Goal.Object->GetOwner()))
 		{
 			//если это существо именно что сидит на объекте выше нас
-			if(Myr->IsStandingOnThisActor(Hit->Actor.Get()))
+			if(Myr->IsStandingOnThisActor(Hit->Component->GetOwner()))
 			{
 				//пока пробуем подойти к предмету, а вообще тут надо выбирать, каким боком объодить, как прыгнуть
-				OutMoveDir = Hit->Actor->GetActorLocation() - me()->GetHeadLocation();
+				OutMoveDir = Hit->Component->GetOwner()->GetActorLocation() - me()->GetHeadLocation();
 				OutMoveDir.Normalize();
 				return ERouteResult::Towards_Base;//◘◘>
 			}
@@ -1055,7 +1056,7 @@ ERouteResult AMyrAI::SimpleWalkAroundObstacle(FVector LookDir, FHitResult* Hit, 
 	FVector ClosestPoint = Hit->Location + RadicalByPass * Thickness;
 	FVector NewDir = ClosestPoint - me()->GetHeadLocation();
 	NewDir.Normalize();
-	UE_LOG(LogTemp, Log, TEXT("AI %s SimpleWalkAroundObstacle %s"), *me()->GetName(), *Hit->Actor->GetName());
+	UE_LOG(LogTemp, Log, TEXT("AI %s SimpleWalkAroundObstacle %s"), *me()->GetName(), *Hit->Component->GetOwner()->GetName());
 	return ERouteResult::Simple_Walkaround;
 }
 

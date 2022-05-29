@@ -308,9 +308,7 @@ public:
 	//прописать в членики профили стокновений чтобы они были либо сталкивались с другими существами, либо нет
 	void SetPhyBodiesBumpable(bool Set);
 
-	//прописать в членики контакт с землей, если его нет на самом деле
-	void FakeStandOnGround();
-
+	UFUNCTION(BlueprintCallable) float GetDamage(ELimb eLimb) const { return ((FLimb*)(&Pelvis))[(int)(eLimb)].Damage; }
 
 //фигня для отладки
 public:

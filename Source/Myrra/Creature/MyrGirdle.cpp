@@ -28,6 +28,7 @@
 
 //меш этого существа
 UMyrPhyCreatureMesh* UMyrGirdle::me() { return MyrOwner()->GetMesh(); }
+UMyrPhyCreatureMesh* UMyrGirdle::mec() const  { return MyrOwner()->GetMesh(); }
 
 //статический, таблица поиска абсолютного идентификатора части тела по его относительному идентификатору ("лучу")
 ELimb UMyrGirdle::GirdleRays[2][(int)EGirdleRay::MAXRAYS] =
@@ -46,6 +47,7 @@ FConstraintInstance* UMyrGirdle::GetGirdleArchSpineConstraint() { return (IsThor
 //то же для краткости и инлайновости
 #define ELMB(R)							GirdleRays[IsThorax][(int)EGirdleRay::R]
 #define LMB(R)		me()->GetLimb       (GirdleRays[IsThorax][(int)EGirdleRay::R])
+#define CLMB(R)		mec()->GetLimb       (GirdleRays[IsThorax][(int)EGirdleRay::R])
 #define BDY(R)		me()->GetMachineBody(GirdleRays[IsThorax][(int)EGirdleRay::R])
 
 #define LAXIS(L,V) me()->GetLimbAxis##V##(L)
@@ -385,14 +387,14 @@ bool UMyrGirdle::ExplicitTraceFoot(FLimb& FootLimb, float HowDeep)
 		FootLimb.Stepped = STEPPED_MAX;
 		FootLimb.Floor = Hit.Component.Get()->GetBodyInstance(Hit.BoneName);
 		FootLimb.ImpactNormal = Hit.Normal;
-		UE_LOG(LogTemp, Log, TEXT("%s: ExplicitTraceFoot %s stepped restore for %s"),
+		UE_LOG(LogTemp, Verbose, TEXT("%s: ExplicitTraceFoot %s stepped restore for %s"),
 			*GetOwner()->GetName(), *TXTENUM(ELimb, FootLimb.WhatAmI), *FootLimb.Floor->OwnerComponent->GetName());
 	}
 	//опоры не обнаружено, стереть инфу об опоре
 	else
 	{
 		FootLimb.EraseFloor();
-		UE_LOG(LogTemp, Log, TEXT("%s: ExplicitTraceFoot %s trace not found floor, untouch"),
+		UE_LOG(LogTemp, Verbose, TEXT("%s: ExplicitTraceFoot %s trace not found floor, untouch"),
 			*GetOwner()->GetName(), *TXTENUM(ELimb, FootLimb.WhatAmI));
 	}
 
@@ -448,7 +450,8 @@ float UMyrGirdle::ProcedeFoot (FLimb &FootLimb, FLimb& OppositeLimb, float FootD
 
 	//пока неясно, как лучше расчитывать скорость
 	//брать саму скорость не из членика-колеса, а из центрального членика
-	FVector RelativeSpeedAtPoint = CentralBody->GetUnrealWorldVelocity();
+	//FVector RelativeSpeedAtPoint = CentralBody->GetUnrealWorldVelocity();
+	FVector RelativeSpeedAtPoint = FootBody->GetUnrealWorldVelocity();
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////
 	//нога на опоре, опору знаем, по ней можем позиционировать тело
@@ -469,7 +472,7 @@ float UMyrGirdle::ProcedeFoot (FLimb &FootLimb, FLimb& OppositeLimb, float FootD
 		RelativeSpeedAtPoint -= FootLimb.Floor->GetUnrealWorldVelocityAtPoint (FootBody->GetCOMPosition());
 
 		//финальное значение плавно подвигать - хз, может лишнее
-		VelocityAgainstFloor = FMath::Lerp(VelocityAgainstFloor, RelativeSpeedAtPoint, 0.1f);
+		VelocityAgainstFloor = FMath::Lerp(VelocityAgainstFloor, RelativeSpeedAtPoint, 0.2f);
 
 		//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 		//вычислить направление движения для данной ноги из внешних факторов
@@ -839,97 +842,6 @@ void UMyrGirdle::Procede(float DeltaTime)
 	//////////////////////////////////////////////////////////////////////////////
 	KineMove(CentralBody->GetUnrealWorldTransform().GetLocation(), CentralLimb.ImpactNormal, DeltaTime);
 
-/*	//кинематическое перемещение якоря пояса в нужную позицию
-	FVector L = CentralBody->GetUnrealWorldTransform().GetLocation();
-	FVector F, U;
-
-	//в режиме пришпиленности к опоре
-	if(FixedOnFloor)
-	{
-		//если тело хочет и может двигаться (нажата кнопка)
-		if(MyrOwner()->MoveGain > 0)
-		{
-			//движение за этот кадр
-			FVector Offset = GuidedMoveDir * MyrOwner()->GetDesiredVelocity() * DeltaTime;
-
-			//только для поясов с реальными ногами
-			if(HasLegs)
-			{
-				//текущаяя вытяжка ног (минимальная: пусть 1 нога будет свободна)
-				float CurH = FMath::Min(GetFeetLengthSq(false), GetFeetLengthSq(false));
-
-				//отклонение от номинальной длины (берется чуть меньше, чтобы детектировать вытяжку)
-				float errorH = CurH - FMath::Square(LimbLength * 0.8);
-
-				//обнаружено значительное отклонение = скомпнесировать
-				if (errorH > FMath::Square(LimbLength * 0.05))
-				{	Offset -= CentralLimb.ImpactNormal * LimbLength * 0.02;
-					UE_LOG(LogTemp, Log, TEXT("%s: Procede %s push into, length = %g, base = %g"),
-						*GetOwner()->GetName(), *GetName(), FMath::Sqrt(CurH), LimbLength*0.8);
-
-				}
-				else if (errorH < -FMath::Square(LimbLength * 0.05))
-				{	Offset += CentralLimb.ImpactNormal * LimbLength * 0.02;
-					UE_LOG(LogTemp, Log, TEXT("%s: Procede %s pull out, length = %g, base = %g"),
-						*GetOwner()->GetName(), *GetName(), FMath::Sqrt(CurH), LimbLength*0.8);
-				}
-			}
-
-			//для ведомого пояса
-			if (!CurrentDynModel->Leading)
-			{
-				//противоположный пояс
-				auto AG = MyrOwner()->GetAntiGirdle(this);
-
-				//радиус вектор прямой спины от этого до противоположного
-				auto ToAG = AG->GetComponentLocation() - GetComponentLocation();
-
-				//текущее отклонение растяжки спины
-				float errorL = ToAG.SizeSquared() - FMath::Square(LimbLength);
-
-				//отклонение растяжки спины если бы мы пошли по ранее расчитанному курсу для этого пояса
-				float errorLplus = (ToAG+Offset).SizeSquared() - FMath::Square(LimbLength);
-
-				//наверстывание отклонения
-				if (errorLplus >  FMath::Square(MyrOwner()->SpineLength*0.05))
-				{
-					Offset -= ToAG.GetSafeNormal() * LimbLength * 0.01;
-				}
-				else if (errorLplus < -FMath::Square(MyrOwner()->SpineLength*0.05))
-				{
-					Offset += ToAG.GetSafeNormal() * LimbLength * 0.01;
-				}
-
-			}
-
-			if((FrameCounter&3)==0) LINEWT(ELimbDebug::MainDirs, L, Offset, 1, 0.5);
-			L += Offset;
-		}
-
-		//оси вращения = посчитанным предпочтительным для пояса (уже ортонормированы)
-		F = GuidedMoveDir;
-		U = CentralLimb.ImpactNormal;
-	}
-	//в режиме свободного перемещения в пространстве
-	else
-	{
-		//оси вращения - по абсолютному азимуту
-		F = MyrOwner()->MoveDirection;
-		U = FVector::UpVector;
-
-		// если не ортогонален - ортонормировать его
-		if (MyrOwner()->BehaveCurrentData->bOrientIn3D)		
-		{	F.Z = 0;
-			F.Normalize();
-		}
-	}
-
-	//отобразить базис курса в центре якоря пояса
-	LINE(ELimbDebug::GirdleGuideDir, L, GuidedMoveDir * 50);
-
-	//кинематически переместить якорь в нужное место с нужным углом повотора
-	SetWorldTransform(FTransform(F, F ^ U, U, L));
-	*/
 	//////////////////////////////////////////////////////////////////////////////
 	//сверху от туловище рисуем тестовые индикаторы
 	if (LDBG(ELimbDebug::ConstrPri))
@@ -973,4 +885,17 @@ void UMyrGirdle::PhyPrance(FVector HorDir, float HorVel, float UpVel)
 
 	//явно, не дожидаясь ProcessLimb, обнулить жесткость стояния, чтобы в автомате состояний поведения не переклинивало
 	StandHardness = 0;
+}
+
+//==============================================================================================================
+//выдать все уроны частей тела в одной связки - для блюпринта обновления худа
+//==============================================================================================================
+FLinearColor UMyrGirdle::GetDamage() const
+{
+	return FLinearColor 
+		(	CLMB(Spine) .Damage + CLMB(Center).Damage,
+			CLMB(Left)  .Damage,
+			CLMB(Right) .Damage,
+			CLMB(Tail)  .Damage
+		);
 }

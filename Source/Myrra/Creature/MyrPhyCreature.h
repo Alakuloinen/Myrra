@@ -362,6 +362,10 @@ public:
 	//подправить курс по триггер-объёму
 	bool ModifyMoveDirByOverlap(FVector& INMoveDir, bool AI);
 
+	//вывод в блюпринт для редкого тика, чтобы добавлять действия специфичные для конкретного существа
+	UFUNCTION(BlueprintImplementableEvent)	void RareTickInBlueprint(float DeltaTime);
+
+
 //свои возвращуны
 public:	
 

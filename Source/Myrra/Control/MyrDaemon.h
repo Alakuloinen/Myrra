@@ -227,9 +227,6 @@ public:
 	//пост-процесс материал для экрана ухудшения здоровья, достаётся из настроек камеры
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HealthReactionScreen = nullptr;
 
-	//пост-процесс материал для экрана ухудшения здоровья, достаётся из настроек камеры
-	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HealthReactionScreen = nullptr;
-
 	//материал для копирования рендер цели отпечатка шагов в историю
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HistorifyTrailsMat = nullptr;
 

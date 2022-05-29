@@ -49,15 +49,17 @@ private:
     TSharedPtr<IPropertyHandle> MainHandle;
     TSharedPtr<IPropertyUtilities> PropertyUtilities;
     TSharedPtr<SBorder> Me;
-    FLinearColor GetColorForMe();
+    FLinearColor GetColorForMe() const;
     UEnum* Typicals;
 
     //обработчик события
     void OnChanged();
 
-    int GetEnumVal() const { return (int)EEmotio::Peace;  }
+	//когда редактируется цветом, и из цвета выбирается список архетипов
+    int GetEnumVal() const;
 
-    void ChangeEnumVal(int Nv, ESelectInfo::Type Hz) {}
+	//когда редактируется выбором из списка архетипов
+    void ChangeEnumVal(int Nv, ESelectInfo::Type Hz);
 };
 
 //#######################################################################################################

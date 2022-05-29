@@ -1214,11 +1214,11 @@ void AMyrDaemon::MouseWheel(float value)
 	//режим выбора варианта что сказать
 	if(bExpress || bRelaxChoose)
 	{
-		if (value > 0 && CurrentExpressAction < AvailableExpressActions.Num() - 1)
+		if (value < 0 && CurrentExpressAction < AvailableExpressActions.Num() - 1)
 		{	CurrentExpressAction++;
 			HUDOfThisPlayer()->OnExpressionSelect(bRelaxChoose, CurrentExpressAction);
 		}
-		if (value < 0 && CurrentExpressAction > 0)
+		if (value > 0 && CurrentExpressAction > 0)
 		{	CurrentExpressAction--;
 			HUDOfThisPlayer()->OnExpressionSelect(bRelaxChoose, CurrentExpressAction);
 		}
@@ -1276,7 +1276,7 @@ float AMyrDaemon::GetLightingAtVector(FVector V)
 	float Accum = 0.0f;
 	TArray<FFloat16Color> ColorBuffer;
 	FTextureRenderTargetCubeResource* textureResource = 
-		(FTextureRenderTargetCubeResource*)CaptureLighting->TextureTarget->Resource;
+		(FTextureRenderTargetCubeResource*)CaptureLighting->TextureTarget->GetResource();
 
 	//если вектор нулевой, то ищется средняя освещенность по всем сторонам, хз, нужно ли так брутфорсно
 	if(V.X == 0 && V.Z == 0)

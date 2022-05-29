@@ -34,6 +34,7 @@ public:	// общие характеристики / кэши вычисляем
 public:	// функции
 //---------------------------------------------------------------------
 
+
 	//для блюпринта меню, сделанного на этом классе, обработчика нажатия клавиш, чтобы выходить по нажатию
 	UFUNCTION(BlueprintCallable) bool KeyToEscape(FKey KeyHappened, FName ActionMap, bool EscapeToo = true);
 
@@ -47,6 +48,9 @@ public:	// функции
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrraGameInstance() const { return (UMyrraGameInstance*)GetGameInstance(); }
 	UFUNCTION(BlueprintCallable) class AMyrraGameModeBase* GetMyrraGameMode() const { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }
 	UFUNCTION(BlueprintCallable) class AMyrPlayerController* GetMyrPlayerController() const { return (AMyrPlayerController*)GetOwningPlayer<APlayerController>(); }
+
+	UFUNCTION(BlueprintImplementableEvent)	void OnSetOwnerCreature(AMyrPhyCreature* Creature);
+	UFUNCTION(BlueprintCallable)	void SetOwnerCreature(AMyrPhyCreature* Creature) { MyrOwner = Creature; OnSetOwnerCreature(Creature); }
 
 	//// показан
 	UFUNCTION(BlueprintImplementableEvent)	void OnJustShowed();
