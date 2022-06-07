@@ -98,7 +98,6 @@ public:
 	// насколько выражать позу, соответствующую эмоции, при данном состоянии, например при стоянии максимуму, при беге нуль
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float ExpressEmotionPower = 1.0f;
 
-
 	// расслабить все моторы в теле, чтобы был рэгдол (при смерти и т.п.)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") bool MakeAllBodyLax = false;
 
@@ -108,6 +107,8 @@ public:
 	//поддерживать жесткую вертикаль даже когда ноги оторвались от земли - например в полете
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") bool KeepVerticalEvenInAir = false;
 
+	// полностью кинематическое движение без физического взаимодействия с окружением
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") uint8 FullyKinematicSinceLOD = 255;
 
 	//список условий и реакций на разные по силе и безнадеге затыки в движении
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") TArray<FBumpReaction> BumpReactions;

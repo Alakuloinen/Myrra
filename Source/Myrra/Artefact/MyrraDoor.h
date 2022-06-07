@@ -17,6 +17,50 @@ UENUM(BlueprintType) enum class EDoorState : uint8
 };
 
 //№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+UCLASS() class MYRRA_API UMyrDoorProfile : public UDataAsset
+{
+	GENERATED_BODY()
+
+public:
+
+	//восприимчивость двери к ударам, лёгкость открывания
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float Sensibility = 0.5f;
+
+	//коэффициент затухания вращения двери
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float Friction = 0.01f;
+
+	//насколько дверь сама пытается закрыться
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float SelfClosingForce = 0.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float SelfClosingOpenness = 0.0f;
+
+	//лимиты на открытие в разные стороны, если между интервалом, то просто туже движется
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") FFloatRange PositiveLimit;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") FFloatRange NegativeLimit;
+
+	//максимальные скорости, к сожалению, зависимость от DeltaTime послана, эти числа вводятся в граничные кватернионы и затем лерпится по безразмерному коэффициенту скорости
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float MaxRotVelPositive = 0.01f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float MaxRotVelNegative = 0.01f;
+
+	//стартовый угол открытия двери, в радианах, плюс или минус
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") float StartAngle = 0.0f;
+
+	//звук, или сборка звуков, при прохождении или закрывании двери
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") class USoundBase* SoundAtClosing;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") class USoundBase* SoundAtLocking;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Door") class USoundBase* SoundAtUnLocking;
+
+
+	UMyrDoorProfile()
+	{
+		PositiveLimit = FFloatRange(0.5f, 0.6f);
+		NegativeLimit = FFloatRange(0.5f, 0.6f);
+	}
+
+};
+
+
+//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 //новый вариант двери, теперь встраиваемый компонентов в любой класс в любом количестве
 //№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -30,7 +74,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) AActor* LastMover;	
 
 	//данные по типу артефакта
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrArtefactInfo* Archetype;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrDoorProfile* Profile;
+
+	//вероятностные параметры для массового внедрения вариаций в сцену
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 ProbabilityOfBeingAbsent = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 ProbabilityOfBeingLocked = 0;
 
 	//объект, который, будучи дотронутым или пересечённым, открывает или закрывает дверь
 	//пока неясно, как сделать это универсально, возможно, придётся заводить особый класс, даже отдельного актора

@@ -359,7 +359,7 @@ void AMyrAI::Tick(float DeltaTime)
 	////////////////////////////////////////////////////////////////////////////////////
 
 	//если вошли в триггер-объём с установленными векторами движения - отклонить ранее посчитанный вектор в соответствии
-	if(me()->ModifyMoveDirByOverlap(Drive.MoveDir, true))
+	if(me()->ModifyMoveDirByOverlap(Drive.MoveDir, EWhoCame::Creature))
 	{	
 		UE_LOG(LogMyrAI, Warning, TEXT("AI %s ModifyMoveDirByOverlap %s"), *me()->GetName(), *Drive.MoveDir.ToString());
 		Drive.MoveDir.Normalize();

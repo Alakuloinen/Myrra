@@ -136,10 +136,12 @@ public:
 	//вывести наэкран некую инфу относительно содержимого актора, к которому приадлежит этот триггер объём
 	bool ReactNotify(FTriggerReason& R, class AMyrPhyCreature* C);
 
+
 	//найти в этом триггере нужную реакцию
 	FTriggerReason* HasReaction(EWhyTrigger T)									{ for (auto& R : Reactions) if (R.Why == T) return &R; return nullptr; }
 	FTriggerReason* HasReaction(EWhyTrigger T, EWhyTrigger T2, EWhyTrigger T3)	{ for (auto& R : Reactions) if (R.Why == T || R.Why == T2 || R.Why == T3) return &R; return nullptr; }
 	FTriggerReason* HasReaction(EWhyTrigger Tmin, EWhyTrigger Tmax)				{ for (auto& R : Reactions) if ((int)R.Why >= (int)Tmin && (int)R.Why <= (int)Tmax) return &R; return nullptr; }
+	FTriggerReason* HasReaction(EWhyTrigger T, EWhoCame W)						{ for (auto& R : Reactions) if (R.Why == T) if(R.MayIt(W)) return &R; return nullptr; }
 
 	///////////////////////////////////////
 

@@ -55,7 +55,7 @@ public:
 	//кривизна опоры, считается по нормалям двух ног
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Curvature = 0.0f;
 
-	//длина ноги, для расчётов подогнутия ног на рельефе
+	//нормальная длина ноги, для расчётов подогнутия ног на рельефе
 	//устанавливается вычислением, может быть разной из-за масштаба меша
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float LimbLength = 0.0f;
 
@@ -90,6 +90,23 @@ public:
 	FConstraintInstance* GetGirdleSpineConstraint();
 	FConstraintInstance* GetGirdleArchSpineConstraint();
 
+	//включены ли ноги в виде твердых колес
+	bool AreLegsSolid() const;
+
+	//скаляр скорости в направлении движения
+	float SpeedAlongFront() { return (VelocityAgainstFloor | Forward); }
+
+	//вовне, главным образом в анимацию AnimInst - радиус колеса представлющего конечность
+	float GetLegRadius();
+
+	//вычислить ориентировочное абсолютное положение конца ноги по геометрии скелета
+	FVector GetFootTipLoc(ELimb eL);
+
+	//насколько ноги подгибаются
+	float GetLegAmplitude();
+
+	//актуальное расстояние от плеча до пятки с учётом пригнутости
+	float GetTargetLegLength() { return LimbLength - 2 * GetLegAmplitude() * Crouch; }
 
 //методы
 public:
@@ -105,6 +122,7 @@ public:
 
 	//пересчитать реальную длину ног
 	float GetFeetLengthSq(bool Right = true);
+	float GetFeetLengthSq(ELimb Lmb);
 
 	//пересчитать базис длины ног через расстояние от сокета-кончика для кости-плечевогосустава
 	//вызывается в конце BeginPlay, когда поза инициализована
@@ -116,10 +134,6 @@ public:
 	//задать правильное число - и домножить на масштаб всего компонента, который может рандомно меняться
 	//если же 0, значит пользователь не захотел вводить число и доверяет несовершенному алгоритму
 	void UpdateLegLength() { LimbLength = (LimbLength == 0) ? FMath::Sqrt(GetFeetLengthSq()) : LimbLength * GetComponentScale().Z; }
-	
-
-	//вовне, главным образом в анимацию AnimInst - радиус колеса представлющего конечность
-	float GetLegRadius();
 
 	//включить или отключить проворот спинной части относительно ног (мах ногами вперед-назад)
 	void SetSpineLock(bool Set);
@@ -128,23 +142,28 @@ public:
 	void AdoptDynModel(FGirdleDynModels& Models);
 
 	//непосредственно кинематически сдвинуть в нужное место
-	void KineMove(FVector Location, FVector CentralNormal, float DeltaTime);
+	void KineMove(FVector Location, FVector CentralNormal, float CurLegLength, float DeltaTime);
 
 	//явным образом получить для ноги опору через трассировку, вне зависимости от столкновений
-	bool ExplicitTraceFoot(FLimb& Foot, float HowDeep);
-	bool ExplicitTraceFeet(float HowDeep) { if (HasLegs) return ExplicitTraceFoot(GetLimb(EGirdleRay::Right),HowDeep) || ExplicitTraceFoot(GetLimb(EGirdleRay::Left),HowDeep); else return false; }
+	FVector TraceFootHitPoint(FLimb& Foot, float HowDeep);
+	FVector TraceGirdle();
+	float ExplicitTraceFoot(FLimb& Foot, float HowDeep, FVector* OutHitPoint = nullptr);
+	float ExplicitTraceFeet(float HowDeep) { if (HasLegs) return 0.5*(ExplicitTraceFoot(GetLimb(EGirdleRay::Right),HowDeep) + ExplicitTraceFoot(GetLimb(EGirdleRay::Left),HowDeep)); else return false; }
 
 	//обработать одну конкретную конечность пояса
-	float ProcedeFoot(FLimb& Foot, FLimb& OppFoot, float FootDamping, float& Asideness, float &WeightAccum, float DeltaTime);
+	float ProcedeFoot(FLimb& Foot, FLimb& OppFoot, float FootDamping, float& Asideness, float &WeightAccum, float& FootLength, float DeltaTime);
 
 	//покадрово сдвигать и вращать
 	void Procede(float DeltaTime);
 
+	//обработать весь пояс конечностей простым образом, без физики, и выдать направление приращения
+	FVector ProcedeFastGetDelta(float DeltaTime, FVector* OutHitPoint);
+
 	//физически подпрыгнуть этим поясом конечностей
 	void PhyPrance(FVector HorDir, float HorVel, float UpVel);
 
-	//скаляр скорости в направлении движения
-	float SpeedAlongFront() { return (VelocityAgainstFloor | Forward);  }
+	//включить или выключить столкновения для шариков ног
+	void SetSolidLegs(bool Set);
 
 	//выдать все уроны частей тела в одной связки - для блюпринта обновления худа
 	UFUNCTION(BlueprintCallable) FLinearColor GetDamage() const;

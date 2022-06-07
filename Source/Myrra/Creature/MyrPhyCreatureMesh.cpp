@@ -568,6 +568,7 @@ void UMyrPhyCreatureMesh::Move(FBodyInstance* BodyInst, FLimb& Limb)
 
 //==============================================================================================================
 //телепортировать всё тело на седло ветки - пока вызывается в HitLimb, что, возможно, плохо, ибо не среагирует при застывании
+//что-то старое, не используется, возможно, удалить
 //==============================================================================================================
 void UMyrPhyCreatureMesh::TeleportOntoBranch(FBodyInstance* CapsuleBranch)
 {
@@ -684,10 +685,9 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 	}
 
 	//странно большое значение скорости - попытка найти причину улёта
-	if (BumpSpeed > 1000)
-		Log(Limb, TEXT("HitLimb WTF BumpSpeed "), BumpSpeed);
-	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+	if (BumpSpeed > 1000) Log(Limb, TEXT("HitLimb WTF BumpSpeed "), BumpSpeed);
 
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//воспроизвести звук, если контакт от падения (не дребезг и не качение) и если скорость соударения... откуда эта цифра?
 	//в вертикальность ноль так как звук цепляния здесь не нужен, только тупое соударение
 	if (BumpSpeed > 10 && Limb.Stepped == 0)
@@ -710,6 +710,7 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 		}
 	}
 
+	//отобразить отладку, место контакта с опорой
 	LINEW(ELimbDebug::GirdleStepped, Hit.ImpactPoint, FVector(0), 3);
 	//UE_LOG(LogTemp, Log, TEXT("%s: HitLimb %s part %d"), *GetOwner()->GetName(), *TXTENUM(ELimb, Limb.WhatAmI), DistFromLeaf);
 
@@ -736,16 +737,32 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 	//если даже 1/10 порога не достигнута, дальше вообще не считать
 	if (InjureAtHit && BumpSpeed > Thresh * 0.1)
 	{
-		//убиваться можно только об твердые неподвижные предметы, чтоб не впускать косяков физдвижка при взаимодействии подвижных с подвижными
-		if(Hit.Component->GetCollisionObjectType() == ECollisionChannel::ECC_WorldStatic 
-			/* || Hit.Component->GetCollisionObjectType() == ECollisionChannel::ECC_Pawn*/)
+		//костыль ad hoc, типа если стояли, то крепко на земле, а сильно ударили - не устояли и начали смещаться
+		if(MyrOwner()->CurrentState == EBehaveState::stand)
+			MyrOwner()->AdoptBehaveState(EBehaveState::walk);
+
+		//удельная сила, через деление - для мягких диапазонов и неразрывности, может быть меньше 0, посему через Макс
+		switch(Hit.Component->GetCollisionObjectType())
 		{
-			//удельная сила, через деление - для мягких диапазонов и неразрывности, может быть меньше 0, посему через Макс
-			Severity += FMath::Max(0.0f, BumpSpeed / Thresh - 1);
-			if (Severity > 0.0f)
-			{	Limb.Damage += Severity;
-				MyrOwner()->Hurt(Severity, Hit.ImpactPoint, Hit.ImpactNormal, Limb.Surface, SurfInfo);
-			}
+			//неподвижные глыбы - самый низкий порог, ибо минимум глюков
+			case ECC_WorldStatic:
+				Severity += FMath::Max(0.0f, BumpSpeed / Thresh - 1);
+				break;
+
+			//столкновение с другим существом, могут быть глюки физдвижка, поэтому коэффициент десятикратный
+			case ECC_Pawn:
+				Severity += FMath::Max(0.0f, BumpSpeed / (Thresh*10) - 1);
+				break;
+		}
+
+		//больше нуля значит импульс был больше порогового
+		if (Severity > 0.0f)
+		{	
+			//увеличиваем урон
+			Limb.Damage += Severity;
+
+			//поднимаем сигнал боли наверх, где будет сыгран звук удара и крик
+			MyrOwner()->Hurt(Severity, Hit.ImpactPoint, Hit.ImpactNormal, Limb.Surface, SurfInfo);
 		}
 	}
 	//обработка кусачих поверхностей, типа раскалённых или крапивы, для этого нужно влезть в список данных по поверхностям
@@ -1039,6 +1056,12 @@ int UMyrPhyCreatureMesh::ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, F
 					return -1;
 				}
 		}
+		//произошло касание ранее находящейся в воздухе части тела
+		else
+		{
+			//для не ног сообщить наверх, что произошёл импакт
+		}
+
 		//если тело уже не контачило, но старый пол схранился - отбросить его по умолчанию
 		//также эта ветка, если при сравнении нормалей новая опора всё же нужнее
 		Limb.Floor = NewFloor;
@@ -1060,9 +1083,6 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 	//общая инфа по конечности для данного вида существ
 	const auto& LimbGene = *MachineGene(Limb.WhatAmI);
 
-	//пояс, к которому принадлежит эта нога
-	//auto& G = GetGirdle(Limb);
-
 	//сбросить флаг больности, допускающий лишь один удар по членику за один кадр
 	Limb.LastlyHurt = false;
 
@@ -1072,64 +1092,69 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 		//тело
 		auto BI = GetMachineBody(Limb);
 
-		//запускаем на этот кадр доп-физику исключительно для членика-поддержки
-		//специально до обработки счетчиков и до ее избегания, чтобы держащий ношу членик тоже обрабатывался
-		BI->AddCustomPhysics(OnCalculateCustomPhysics);
-
-		if (HasFlesh(Limb.WhatAmI))
+		//если включена физика (для кинематического режима это все скипнуть)
+		if(BI->bSimulatePhysics)
 		{
-			BI = GetFleshBody(Limb, 0);
+			//запускаем на этот кадр доп-физику исключительно для членика-поддержки
+			//специально до обработки счетчиков и до ее избегания, чтобы держащий ношу членик тоже обрабатывался
 			BI->AddCustomPhysics(OnCalculateCustomPhysics);
-		}
 
-		//пока жесткая заглушка - если этот членик несёт физически кого-то, то он не принимает сигналы о касаниях
-		//это чтобы сохранить неизменным значение Floor, в котором всё время ношения ссылка на несомый объект
-		if (Limb.Grabs) return;		
-
-		//идеальный образ настроек этого тела из ассета
-		auto ABI = GetArchMachineBody(Limb);
-
-		//если ранее быз щафиксирован шаг/касание к этой части тела
-		//иначе данная куча фигни не нужна
-		if (Limb.Stepped)
-		{
-			//относительная скорость нужна здесь только для детекции потери опоры
-			FVector RelativeVelocity = GetMachineBody(Limb)->GetUnrealWorldVelocity();
-			if (Limb.Floor)
-			{ 	
-				//особый случай, выглядит как ошибка, но такое может быть при съеденной добыче
-				if (!Limb.Floor->OwnerComponent.Get())
-				{	Limb.EraseFloor();
-					return;
-				}
-				//относительную скорость вычисляем только при контакте с мобильным предметом
-				else if (Limb.Floor->OwnerComponent.Get()->Mobility == EComponentMobility::Movable)
-					RelativeVelocity -= Limb.Floor->GetUnrealWorldVelocityAtPoint(GetMachineBody(Limb)->GetCOMPosition());
-
+			//нужно только для хвоста
+			if (HasFlesh(Limb.WhatAmI))
+			{	BI = GetFleshBody(Limb, 0);
+				if(BI->BodySetup->PhysicsType != EPhysicsType::PhysType_Kinematic)
+					BI->AddCustomPhysics(OnCalculateCustomPhysics);
 			}
-			else Log(Limb, TEXT("ProcessLimb WTF no floor component! "), (float)Limb.Stepped);
 
-			//вектор сдвига в пространстве
-			FVector Shift = RelativeVelocity * DeltaTime;
-			float Drift = Shift.SizeSquared();
+			//пока жесткая заглушка - если этот членик несёт физически кого-то, то он не принимает сигналы о касаниях
+			//это чтобы сохранить неизменным значение Floor, в котором всё время ношения ссылка на несомый объект
+			if (Limb.Grabs) return;		
 
-			//для ног делается еще ступень
-			bool IsFoot = ((int)Limb.WhatAmI >= (int)ELimb::L_ARM && (int)Limb.WhatAmI < (int)ELimb::TAIL);
+			//идеальный образ настроек этого тела из ассета
+			auto ABI = GetArchMachineBody(Limb);
 
-			//плавное снижение желания отдернуться от препятствия (зависит от скорости - стоит ли извлекать корень или оставить бешенные нули?)
-			//возможно, брать только проекцию скорости на нормаль
-			int NewStepped = Limb.Stepped;
-			if (Drift > 100)	{ NewStepped -= 3; } else
-			if (Drift > 10)		{ NewStepped -= 2; } else
-			if (Drift > 0.1)	{ NewStepped -= 1; } else
+			//если ранее быз щафиксирован шаг/касание к этой части тела
+			//иначе данная куча фигни не нужна
+			if (Limb.Stepped)
+			{
+				//относительная скорость нужна здесь только для детекции потери опоры
+				FVector RelativeVelocity = GetMachineBody(Limb)->GetUnrealWorldVelocity();
+				if (Limb.Floor)
+				{ 	
+					//особый случай, выглядит как ошибка, но такое может быть при съеденной добыче
+					if (!Limb.Floor->OwnerComponent.Get())
+					{	Limb.EraseFloor();
+						return;
+					}
+					//относительную скорость вычисляем только при контакте с мобильным предметом
+					else if (Limb.Floor->OwnerComponent.Get()->Mobility == EComponentMobility::Movable)
+						RelativeVelocity -= Limb.Floor->GetUnrealWorldVelocityAtPoint(GetMachineBody(Limb)->GetCOMPosition());
+
+				}
+				else Log(Limb, TEXT("ProcessLimb WTF no floor component! "), (float)Limb.Stepped);
+
+				//вектор сдвига в пространстве
+				FVector Shift = RelativeVelocity * DeltaTime;
+				float Drift = Shift.SizeSquared();
+
+				//для ног делается еще ступень
+				bool IsFoot = ((int)Limb.WhatAmI >= (int)ELimb::L_ARM && (int)Limb.WhatAmI < (int)ELimb::TAIL);
+
+				//плавное снижение желания отдернуться от препятствия (зависит от скорости - стоит ли извлекать корень или оставить бешенные нули?)
+				//возможно, брать только проекцию скорости на нормаль
+				int NewStepped = Limb.Stepped;
+				if (Drift > 100)	{ NewStepped -= 3; } else
+				if (Drift > 10)		{ NewStepped -= 2; } else
+				if (Drift > 0.1)	{ NewStepped -= 1; } else
 			
-			//для ног - при любой скорости минусовать (но до 1), поправка трассировкой все исправит
-			if(IsFoot) NewStepped -= 1; 
-			if (NewStepped > 0)	Limb.Stepped = NewStepped;
-			else if (IsFoot) Limb.Stepped = 1;
+				//для ног - при любой скорости минусовать (но до 1), поправка трассировкой все исправит
+				if(IsFoot) NewStepped -= 1; 
+				if (NewStepped > 0)	Limb.Stepped = NewStepped;
+				else if (IsFoot) Limb.Stepped = 1;
 
-			//если тело не нога в этот момент будет в воздухе - полностью отдернуть его от поверхности, забыть данные о ней
-			else Limb.EraseFloor();
+				//если тело не нога в этот момент будет в воздухе - полностью отдернуть его от поверхности, забыть данные о ней
+				else Limb.EraseFloor();
+			}
 		}
 
 		//постепенное исцеление от урона (за счёт сокращения здоровья)
@@ -1387,6 +1412,23 @@ void UMyrPhyCreatureMesh::SetPhyBodiesBumpable(bool Set)
 		}
 	}
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s SetPhyBodiesBumpable %d"), *GetOwner()->GetName(), Set);
+}
+
+//==============================================================================================================
+//включить или выключить физику у всех костей, которые могут быть физическими
+//==============================================================================================================
+void UMyrPhyCreatureMesh::SetMachineSimulatePhysics(bool Set)
+{
+	if (Set)
+	{	for (int i = 0; i < Bodies.Num(); i++)
+		{
+			FBODY_BIO_DATA bbd = MyrOwner()->GetGenePool()->BodyBioData[i];
+			if (bbd.DistFromLeaf == 255)		Bodies[i]->SetInstanceSimulatePhysics(true);	// машина
+			else if (bbd.eLimb == ELimb::TAIL)	Bodies[i]->SetInstanceSimulatePhysics(true);	// мясо кинематическое
+		}
+
+	}
+	else SetAllBodiesSimulatePhysics(false);
 }
 
 

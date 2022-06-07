@@ -30,17 +30,17 @@ UMyrDoorLeaf::UMyrDoorLeaf(const FObjectInitializer& ObjectInitializer) :Super(O
 void UMyrDoorLeaf::BeginPlay()
 {
 	Super::BeginPlay();
-	if (!Archetype) return;
+	if (!Profile) return;
 
 	//полагая, что дверь в начале игры открыта, сохраняем позицию закрытости
 	StartAlongDir = DoorAlong();
-	RotVelBaseP = FQuat(DoorUp(), Archetype->DoorMaxRotVelPositive);
-	RotVelBaseN = FQuat(DoorUp(), -Archetype->DoorMaxRotVelNegative);
+	RotVelBaseP = FQuat(DoorUp(), Profile->MaxRotVelPositive);
+	RotVelBaseN = FQuat(DoorUp(), -Profile->MaxRotVelNegative);
 
 	//после фиксации нулоевого положения можно поставить дверь в открытое положение, если нужно
-	if (Archetype->StartAngle != 0 || Archetype->DoorSelfClosingForce != 0.0f)
+	if (Profile->StartAngle != 0 || Profile->SelfClosingForce != 0.0f)
 	{
-		SetOpenness(Archetype->StartAngle);
+		SetOpenness(Profile->StartAngle);
 		PrimaryComponentTick.TickInterval = 0.0f;
 	}
 
@@ -56,20 +56,20 @@ void UMyrDoorLeaf::BeginPlay()
 void UMyrDoorLeaf::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (!Archetype) return; 
+	if (!Profile) return; 
 
 	//только если так покадрово (хотя нах проверять, просто обнулить дельту
 	if (PrimaryComponentTick.TickInterval == 0.0f)
 	{
 		//затухание
-		RotVel = RotVel * (1 - Archetype->DoorFriction);
+		RotVel = RotVel * (1 - Profile->Friction);
 
 		//самозакрывание (есди введена такая сила)
-		if (Archetype->DoorSelfClosingForce > 0.0f)
+		if (Profile->SelfClosingForce > 0.0f)
 		{
 			RotVel = FMath::Lerp(RotVel,
-				FMath::Clamp(50*(Archetype->DoorSelfClosingOpenness - GetSideOpenness()), -1.0f, 1.0f),
-				Archetype->DoorSelfClosingForce);
+				FMath::Clamp(50*(Profile->SelfClosingOpenness - GetSideOpenness()), -1.0f, 1.0f),
+				Profile->SelfClosingForce);
 		}
 
 		//пересечение порога, события установки открытости и закрытости
@@ -85,7 +85,7 @@ void UMyrDoorLeaf::TickComponent(float DeltaTime, ELevelTick TickType, FActorCom
 			{
 				//вызывести флаг и прозвучать
 				Closed = true;
-				DoorSound(Archetype->SoundAtClosing, RotVel);
+				DoorSound(Profile->SoundAtClosing, RotVel);
 			}
 		}
 		//открытие
@@ -111,8 +111,8 @@ void UMyrDoorLeaf::TickComponent(float DeltaTime, ELevelTick TickType, FActorCom
 		if (RotVel > 0)
 		{
 			//применение диапазона ограничений на косинус угла открытия в плюсовую сторону
-			if (GetSideOpenness() >= Archetype->DoorPositiveLimit.GetLowerBoundValue())
-			{	if (GetSideOpenness() < Archetype->DoorPositiveLimit.GetUpperBoundValue()) RotVel *= 0.9;	else RotVel = 0;
+			if (GetSideOpenness() >= Profile->PositiveLimit.GetLowerBoundValue())
+			{	if (GetSideOpenness() < Profile->PositiveLimit.GetUpperBoundValue()) RotVel *= 0.9;	else RotVel = 0;
 			}
 			AddLocalRotation(FQuat::Slerp(FQuat::Identity, RotVelBaseP, RotVel), true);
 		}
@@ -120,8 +120,8 @@ void UMyrDoorLeaf::TickComponent(float DeltaTime, ELevelTick TickType, FActorCom
 		else
 		{
 			//применение диапазона ограничений на косинус угла открытия в минусовую сторону
-			if (-GetSideOpenness() >= Archetype->DoorNegativeLimit.GetLowerBoundValue())
-			{	if (-GetSideOpenness() < Archetype->DoorNegativeLimit.GetUpperBoundValue()) RotVel *= 0.9;	else RotVel = 0;
+			if (-GetSideOpenness() >= Profile->NegativeLimit.GetLowerBoundValue())
+			{	if (-GetSideOpenness() < Profile->NegativeLimit.GetUpperBoundValue()) RotVel *= 0.9;	else RotVel = 0;
 			}
 			AddLocalRotation(FQuat::Slerp(FQuat::Identity, RotVelBaseN, -RotVel), true);
 		}
@@ -146,7 +146,7 @@ void UMyrDoorLeaf::TickComponent(float DeltaTime, ELevelTick TickType, FActorCom
 //==============================================================================================================
 void UMyrDoorLeaf::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (!Archetype) return;
+	if (!Profile) return;
 	if (Locked) return;
 
 	//сонаправленность точки приложения силы и полотна двери, обычно всегда 1 для толкания, но если касются торца, открывается туже
@@ -162,7 +162,7 @@ void UMyrDoorLeaf::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrim
 	if (ByVel < 0) return;
 
 	//изменить текущий модуль скорости вращения
-	RotVel = RotVel + Archetype->DoorSensibility * ByNormal * (ByVel + 1.0f) * Shoulder;
+	RotVel = RotVel + Profile->Sensibility * ByNormal * (ByVel + 1.0f) * Shoulder;
 	RotVel = FMath::Clamp(RotVel, -1.0f, 1.0f);
 	UE_LOG(LogTemp, Log, TEXT("%s: OnHit, Shoulder %g? byvel=%g, bynormal=%gб RotVel=%g"), *GetName(), Shoulder, ByVel, ByNormal, RotVel);
 
@@ -215,13 +215,13 @@ void UMyrDoorLeaf::Unlock()
 	{
 		//перевести петли в состояние ограниченной, но свободы перемещения, ранее установленные лимиты не перезаписывать
 		Locked = false;
-		DoorSound(Archetype->SoundAtUnLocking);
+		DoorSound(Profile->SoundAtUnLocking);
 
 		//включить тик, дверь оживлена и может двигаться
 		PrimaryComponentTick.SetTickFunctionEnable(true);
 
 		//если включена сила самозакрытия или открытия - включить максимальный тик, чтобы сразу пошла двигаться
-		if (Archetype->DoorSelfClosingForce > 0.0f)
+		if (Profile->SelfClosingForce > 0.0f)
 			PrimaryComponentTick.TickInterval = 0.0;
 		UE_LOG(LogTemp, Log, TEXT("%s: Unlock"), *GetName());
 	}
@@ -243,7 +243,7 @@ void UMyrDoorLeaf::Lock()
 	PrimaryComponentTick.SetTickFunctionEnable(false);
 
 	//проиграть характерный звук
-	DoorSound(Archetype->SoundAtLocking);
+	DoorSound(Profile->SoundAtLocking);
 }
 
 //==============================================================================================================
@@ -251,9 +251,9 @@ void UMyrDoorLeaf::Lock()
 //==============================================================================================================
 void UMyrDoorLeaf::VaryOnStart()
 {
-	if (!Archetype) return;
+	if (!Profile) return;
 	uint8 Die = FMath::RandRange(0, 254);
-	if (Die <= Archetype->ProbabilityOfBeingAbsent) this->SetVisibility(false);
-	if (Die <= Archetype->ProbabilityOfBeingLocked) this->Lock();
+	if (Die <= ProbabilityOfBeingAbsent) this->SetVisibility(false);
+	if (Die <= ProbabilityOfBeingLocked) this->Lock();
 }
 

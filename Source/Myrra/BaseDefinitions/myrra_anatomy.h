@@ -300,6 +300,7 @@ USTRUCT(BlueprintType) struct FLimb
 
 	void EraseFloor() { Stepped = 0; Floor = nullptr; Surface = EMyrSurface::Surface_0; }
 	void GetFloorOf(const FLimb& Oth) { Floor = Oth.Floor; Surface = Oth.Surface; }
+	void TransferFrom(const FLimb& Oth) { Stepped = Oth.Stepped; GetFloorOf(Oth); }
 
 	////////////////////////////////////////////////////////////
 
@@ -349,6 +350,14 @@ USTRUCT(BlueprintType) struct FLimb
 UENUM(BlueprintType) enum class EGirdleRay : uint8 { Center, Left, Right, Spine, Tail, MAXRAYS };
 ENUM_CLASS_FLAGS(EGirdleRay);
 
+UENUM() enum class EStepDetect : uint8
+{
+	None,
+	TraceRare,
+	TraceEveryFrame,
+	Hit,
+	HitAndRetrace
+};
 //###################################################################################################################
 // сборка моделей динамики для всех частей пояса конечностей - для структур состояний и самодействий, чтобы
 // иметь компактную переменную для всех частей тела, содержащую только вот это необходимое добро
@@ -432,81 +441,6 @@ inline bool operator<(EClung A, EClung B) { return (int)A < (int)B; }
 inline bool operator==(EClung A, EClung B) { return (int)A == (int)B; }
 inline bool operator>=(EClung A, EClung B) { return (int)A >= (int)B; }
 inline bool operator<=(EClung A, EClung B) { return (int)A <= (int)B; }
-
-
-//###################################################################################################################
-// пояс конечностей - хаб, объединяющий несколько частей тела с единой моторикой; у позвоночных их два (грудь и таз)
-//###################################################################################################################
-USTRUCT(BlueprintType) struct FGirdle
-{
-	GENERATED_BODY()
-
-	//этот пояс - локомотив движения (за ноги или непосредственно за туловище)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Leading:1;
-
-	//этот пояс - хочет сам или своими конечностями зацепиться, если нащупанная поверхность подойдёт
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 SeekingToCling:1;
-
-	//переход в сторону вертикали (если Vertical, то и TransToVertical тоже) когда прохисходит плавный переход через силы
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 TransToVertical : 1;
-
-	//если этот пояс (его центр) ограничен констрейнтом так, что поддерживается вертикальным
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Vertical:1;
-
-	//если этот пояс (его центр) ограничен констрейнтом так, что не может вращаться в стороны, для стабилизации и взбирания в вертикаль
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 NoTurnAround:1;
-
-	//замена Clung
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 FixedOnFloor : 1;
-
-
-	//для простых существ физ-модель = ползок на брюхе и полностью кинематические ноги, для бипедалов руки тоже ни к чему
-	//нахрена, неясно, это статический показатель, вытекающий из всей структуры
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 HasLegs:1;
-
-	//вектор "вперед" нужен отдельный, поскольку спина может встать вверх, а ноги подкоситься вперед-назад
-	//возможно, не нужен
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector Forward;
-
-	//вектор предпочтительного направления движения с учётом ограничений типа хождения по веткам
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector GuidedMoveDir;
-
-	//кэш предыдущей позиции в абсолютных координатах, для честного и универсального вычисления скорости
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector LastPosition;
-
-	// кэш скорости ОТНОСИТЕЛЬНО опоры ног, принадлежащих этому поясу
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector VelocityAgainstFloor;
-
-	//степень пригнутости обеих ног (кэш с гистерезисом)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Crouch = 0.0f;
-
-	//кривизна опоры, считается по нормалям двух ног
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Curvature = 0.0f;
-
-	//насколько мы уверенно стоим на опоре (детекция поднятия и стойки на крутом уклоне или одной ногой)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float StandHardness = 0.0f;
-
-	//длина ноги, для расчётов подогнутия ног на рельефе
-	//устанавливается вычислением, может быть разной из-за масштаба меша
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float LimbLength = 0.0f;
-
-	//указатель на сборку настроек динамики/ориентации для этого пояса
-	//прилетает с разных ветвей иерархии - из состояния BehaveState, далее из настроек (само)действия 
-	//посему нужно сохранять указатель, чтоб не разбираться, кто влияет, но всегда иметь доступ
-	FGirdleDynModels* CurrentDynModel = nullptr;
-
-	//битовые поля приходится ручками, так как в объявлении их нельзя
-	FGirdle()
-	{	Leading=0;
-		SeekingToCling=0;
-		Vertical=0;
-		HasLegs=1;
-		NoTurnAround=0;
-		FixedOnFloor = 0;
-	}
-
-	float VelocityFront() const { return VelocityAgainstFloor | Forward;  }
-};
 
 
 //###################################################################################################################

@@ -305,7 +305,17 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 	NONE
 };
 
-UENUM(BlueprintType) enum class EWhoCame : uint8 { Creature, Artefact, Daemon, NONE };
+//###################################################################################################################
+//фильтр участника для триггер-события, кто потревожил оверлап-объём
+//###################################################################################################################
+UENUM(BlueprintType) enum class EWhoCame : uint8
+{ 
+	Artefact,		//артефакт, ну типа в зубах принесли или закатился
+	Creature,		//существо, только непись
+	Player,			//существо, подконтрольное игроку, но лишь само тельце
+	PlayerBubble,	//пузырь игрока, для включения херни при близости и выключения при дальности - возможно нах, лодами, но так хоть событийно
+	NONE
+};
 
 
 //###################################################################################################################
@@ -319,6 +329,8 @@ USTRUCT(BlueprintType) struct FTriggerReason
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = EWhoCame)) uint8 Filter = 3;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ExactContextObj;		//где выполняется, обычно триггер-объём
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FString Value;				//аргумент зависящий от команды
+
+	bool MayIt(EWhoCame W) const { return (Filter & (1 << ((uint8)W))); }
 };
 
 

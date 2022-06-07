@@ -194,6 +194,7 @@ public:
 
 	//кинематически телепортировать в новое место
 	void TeleportToPlace(FTransform Dst);
+	void KinematicMove(FTransform Dst);
 
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
 	void SetWannaClimb(bool Set);
@@ -262,9 +263,9 @@ public:
 	//проверить на опору под ногами
 	bool BewareGround(float thr = 0.01)
 	{	if (!GotUntouched(thr))							//если хоть одна конечность теперь контачит с опорой
-		{	if (Attacking())							//если в это время происходит какая-то атака
-				if (GetAttackActionVictim().JumpPhase <= CurrentAttackPhase)
-					NewAttackEnd();						//прыжковая атака должна быть экстренно завершена при окончании прыжка
+		{	//if (Attacking())							//если в это время происходит какая-то атака
+			//	if (GetAttackActionVictim().JumpPhase <= CurrentAttackPhase)
+			//		NewAttackEnd();						//прыжковая атака должна быть экстренно завершена при окончании прыжка
 			AdoptBehaveState(EBehaveState::walk);		//walk - это по умолчанию, затем оно быстро переведется в нужное состояние
 			return true;								//критерий выхода со сменой запрашиваемого состояния
 		} else return false;							//продолжить исследовать другие возможности
@@ -360,7 +361,7 @@ public:
 	bool DelOverlap(class UMyrTriggerComponent* Ov);
 
 	//подправить курс по триггер-объёму
-	bool ModifyMoveDirByOverlap(FVector& INMoveDir, bool AI);
+	bool ModifyMoveDirByOverlap(FVector& INMoveDir, EWhoCame WhoAmI);
 
 	//вывод в блюпринт для редкого тика, чтобы добавлять действия специфичные для конкретного существа
 	UFUNCTION(BlueprintImplementableEvent)	void RareTickInBlueprint(float DeltaTime);
@@ -374,6 +375,7 @@ public:
 
 	//найти объём, в котором есть интересующая реакция, если нет выдать нуль
 	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR);
+	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR, EWhoCame WhoAmI);
 	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger rmin, EWhyTrigger rmax, FTriggerReason*& TR);
 
 	//доступ к глобальным вещам

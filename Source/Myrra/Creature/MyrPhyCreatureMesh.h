@@ -239,6 +239,8 @@ public:
 	//тело в режиме восприимчивости к столкновениям, то есть непрозрачно
 	bool IsBumpable() { return GetCollisionObjectType() != ECollisionChannel::ECC_Vehicle; }
 
+	//касания верхних частей тела
+	bool HasNonFeetImpacts() const { return (Head.Stepped || Pectus.Stepped || Lumbus.Stepped || Thorax.Stepped || Pelvis.Stepped); }
 
 //свои методы - процедуры
 public:
@@ -307,6 +309,9 @@ public:
 
 	//прописать в членики профили стокновений чтобы они были либо сталкивались с другими существами, либо нет
 	void SetPhyBodiesBumpable(bool Set);
+
+	//включить или выключить физику у всех костей, которые могут быть физическими
+	void SetMachineSimulatePhysics(bool Set);
 
 	UFUNCTION(BlueprintCallable) float GetDamage(ELimb eLimb) const { return ((FLimb*)(&Pelvis))[(int)(eLimb)].Damage; }
 

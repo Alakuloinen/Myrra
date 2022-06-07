@@ -49,8 +49,29 @@ UENUM(BlueprintType) enum class EEmotio : uint8
 //A - 
 // * уровень эмоций потребляет энергию, при низкой энергии и низком запасе сил накал эмоций проседает
 // * уровень эмоций увеличивает сонность, чем возбужденнее, тем больше захочется спать
-
 // * дисперсия эмоций потребляет запас сил, чем более резкие различия у эмоций, тем быстрее организм выдыхается
+
+//пока неясно, добавлять ли сюда полную причину с указателем объекта, или оставить безликой лептой воздействия
+USTRUCT(BlueprintType) struct MYRRA_API FEmoStimulus
+{
+	GENERATED_USTRUCT_BODY()
+
+	//эмоция, в сторону которой действует
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0", ClampMax = "255", UIMin = "0", UIMax = "255")) uint8 R;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0", ClampMax = "255", UIMin = "0", UIMax = "255")) uint8 G;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0", ClampMax = "255", UIMin = "0", UIMax = "255")) uint8 B;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0", ClampMax = "255", UIMin = "0", UIMax = "255")) uint8 A;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0", ClampMax = "255", UIMin = "0", UIMax = "255")) uint8 Aftershocks;
+
+	//базовые компоненты: ярость(красный), любовь(зеленый), страх(синий) - 
+	float Rage()		const { return (float)R/255.0f; }		//тяга приблизиться
+	float Love()		const { return (float)G/255.0f; }		//тяга приблизиться 
+	float Fear()		const { return (float)B/255.0f; }		//тяга отдалиться 
+	float Sure()		const { return (float)A/255.0f; }
+
+};
+
+//возможно, сделать с шаблоном
 USTRUCT(BlueprintType) struct MYRRA_API FEmotio
 {
 	GENERATED_USTRUCT_BODY()
@@ -86,6 +107,16 @@ USTRUCT(BlueprintType) struct MYRRA_API FEmotio
 	FEmotio StepTo		(FEmotio New, float Step, bool SureToo=false)	{ return FEmotio ( ::StepTo(R,New.R,Step), ::StepTo(G,New.G,Step), ::StepTo(B,New.B,Step), SureToo?(::StepTo(A,New.A,Step)):A ); }
 	FEmotio Combine		(FEmotio N, bool SureToo=false)					{ return FEmotio ( FMath::Lerp(R, N.R, N.A), FMath::Lerp(G, N.G, N.A), FMath::Lerp(B, N.B, N.A), SureToo?FMath::Lerp(A,N.A,N.A):A); }
 	FEmotio Mix			(FEmotio N, float E, bool SureToo=false)		{ return FEmotio ( FMath::Lerp(R, N.R, E), FMath::Lerp(G, N.G, E), FMath::Lerp(B, N.B, E), SureToo?FMath::Lerp(A,N.A,E):A); }
+
+	bool ApplyStimulus(FEmoStimulus& S)
+	{	if(S.Aftershocks==0) return false;
+		float a = S.Sure();
+		R = FMath::Lerp(R, S.Rage(), a);
+		G = FMath::Lerp(G, S.Love(), a);
+		B = FMath::Lerp(B, S.Fear(), a);
+		S.Aftershocks = FMath::Max(S.Aftershocks-1, 0);
+		return (S.Aftershocks!=0);
+	}		
 
 	float DistSquared3D (FEmotio& O) const { return FVector::DistSquared(ToFVector(), O.ToFVector()); }
 	float Dist3D (FEmotio& O)		const { return FVector::Dist(ToFVector(), O.ToFVector()); }
@@ -133,9 +164,15 @@ USTRUCT(BlueprintType) struct MYRRA_API FEmotio
 		};
 		return archetypes[(int)Arch];
 	}
-
-
 };
+
+
+
+
+
+
+
+
 
 //надо вычищать этот класс, слишком много хни, особенно значений альфы
 USTRUCT(BlueprintType) struct FEmotion

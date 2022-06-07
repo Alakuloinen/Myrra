@@ -335,7 +335,7 @@ bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreatur
 	if(!S) S = this;
 	if (C)
 	{	
-		//извлечение режима (полностью, только позиция, позиция плюс ориентация без знака) из базового режима (сразу или постепенно)
+		//извлечение режима трансформации (полностью, только позиция, позиция плюс ориентация без знака) из базового режима (сразу или постепенно)
 		int ExactReason = Deferred ? ((int)R.Why - (int)EWhyTrigger::KinematicLerpToCenter) : ((int)R.Why - (int)EWhyTrigger::Teleport);
 
 		//основное различие режимов - как вращать существо, поэтому сюда будут сваливаться все случаи
@@ -525,18 +525,22 @@ FVector UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCrea
 	//существо в пределах сферы
 	else
 	{
-		//явный радиус, с которого начинать тягу
-		//ибо в середине ямы должна быть полностью свободная область 
-		float RadiusToStart = FCString::Atof(*R.Value);
-		if (RadiusToStart <= 0 || RadiusToStart >= Bounds.SphereRadius)
-			RadiusToStart = Bounds.SphereRadius / 2;
+		//в параметре указывается или мягкость перехода (отрицательное) или точный радуус начала (положительное)
+		//в противных случаях радиус равен половине габаритов, а мягкость единице
+		float RadiusToStart = Bounds.SphereRadius / 2;
+		float Smoothness = -FCString::Atof(*R.Value);
+		if (Smoothness < 0)
+		{	Smoothness = 1.0f;
+			if(-Smoothness < Bounds.SphereRadius)
+				RadiusToStart = -Smoothness;
+		}
 		
 		//если внутри области свободного движения, то вектор нулевой
 		if (RaDist2 <= FMath::Square(RadiusToStart))
 			return FVector(0);
 
 		//при выходе за область вектор начинает расти 
-		else return Ra * (FMath::Sqrt(RaDist2) - RadiusToStart) / (Bounds.SphereRadius - RadiusToStart);
+		else return Ra * Smoothness * (FMath::Sqrt(RaDist2) - RadiusToStart) / (Bounds.SphereRadius - RadiusToStart);
 		
 	}
 }
@@ -649,16 +653,6 @@ void UMyrTriggerComponent::React(class AMyrPhyCreature* C, class AMyrArtefact* A
 	{ if (!CheckTimeInterval(SecondsToHold, TEXT("SecondsToHold"))) return;	}
 	else if(!CheckTimeInterval(SecondsToRest, TEXT("SecondsToRest"))) return;
 
-	//если ожидаем существо, то у него есть встроенный стек охваченных объемов
-	if (Who == EWhoCame::Creature)
-	{
-		//зарегистрировать, если на входе
-		if (!Release) C->AddOverlap(this);
-
-		//на выходе, проверить, не вышли ли заранее, если вышли, то ничего не делать
-		else if (!C->HasOverlap(this))
-			return;
-	}
 
 	//включенность объекта проверяется внутри и влияет на выдачу уведомлений
 	//важно, чтобы правильное значение сформировалось раньше, чем стоит реакция, для которой она важна
@@ -667,12 +661,28 @@ void UMyrTriggerComponent::React(class AMyrPhyCreature* C, class AMyrArtefact* A
 	//если тру, то этой функцией считать завершенным пересечение,
 	bool EndChain = true;
 
+	//чтобы покрыть ситуацию, когда пересеченный объект не подходит ни под одну реакцию, и его не надо добавлять
+	bool Matters = false;
+
 	//перебор реакций, важна правильная последовательность
 	for(auto& Reaction : Reactions)
 	{
 		//только если задетектирован тот объект, который нужен
-		if(Reaction.Filter & (1 << ((uint8)Who)))
-			ItemTurnedOn = ReactSingle(Reaction, C, A, Release, &EndChain);
+		if (Reaction.MayIt(Who))
+		{	ItemTurnedOn = ReactSingle(Reaction, C, A, Release, &EndChain);
+			Matters = true;
+		}
+	}
+
+	//если существо, то у него есть встроенный стек охваченных объемов
+	if (C && Matters)
+	{
+		//зарегистрировать, если на входе
+		if (!Release) C->AddOverlap(this);
+
+		//на выходе, проверить, не вышли ли заранее, если вышли, то ничего не делать
+		else if (!C->HasOverlap(this))
+			return;
 	}
 
 	//если по итогам исполнения больше от этого объёма ничего не нужно, удалить его из стека
@@ -721,24 +731,24 @@ void UMyrTriggerComponent::OverlapEvent(AActor* OtherActor, UPrimitiveComponent*
 	AMyrDaemon* D = nullptr;
 
 	if (OtherActor->IsA<AMyrPhyCreature>())
-	{	WhoCame = EWhoCame::Creature;
-		C = (AMyrPhyCreature*)OtherActor;
+	{	C = (AMyrPhyCreature*)OtherActor;
+		D = C->Daemon;
+		if(C->IsUnderDaemon()) WhoCame = EWhoCame::Player;
+		else WhoCame = EWhoCame::Creature;
 	}
-	else if (OtherActor->IsA<AMyrPhyCreature>())
+	else if (OtherActor->IsA<AMyrArtefact>())
 	{	WhoCame = EWhoCame::Artefact;
 		A = (AMyrArtefact*)OtherActor;
 	}
 	else if(OtherActor->IsA<AMyrDaemon>())
-	{	WhoCame = EWhoCame::Daemon;
+	{	WhoCame = EWhoCame::PlayerBubble;
 		D = (AMyrDaemon*)OtherActor;
+		C = D->OwnedCreature;
 	}
 
 	//если пересечение произошло с одним из важных для игры акторов
 	if (WhoCame != EWhoCame::NONE)
 	{
-		//если пересечение словлено не телом, а пузырем протагониста, тело надо расчехлить из него
-		if (!C) if (D) C = D->OwnedCreature;
-
 		//вызывать начяальную стадию реакции
 		if (!ComingOut) React(C, A, D, ComingOut, WhoCame);
 
@@ -761,47 +771,8 @@ void UMyrTriggerComponent::OverlapEvent(AActor* OtherActor, UPrimitiveComponent*
 //==============================================================================================================
 UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-/*	//пересечение поясов не должно срабатывать, чтоб не получать множественные
-	if (OtherComp->IsA<UMyrGirdle>()) return;
-
-	//только если пересекло существо или артефакт (артефакт, например, перенесся в зубах на место)
-	EWhoCame WhoCame = EWhoCame::NONE;
-	AMyrPhyCreature* C = nullptr;
-	AMyrArtefact* A = nullptr;
-	AMyrDaemon* D = nullptr;
-
-	if (OtherActor->IsA<AMyrPhyCreature>())
-	{	WhoCame = EWhoCame::Creature;
-		C = (AMyrPhyCreature*)OtherActor;
-	}
-	else if (OtherActor->IsA<AMyrPhyCreature>())
-	{	WhoCame = EWhoCame::Artefact;
-		A = (AMyrArtefact*)OtherActor;
-	}
-	else if(OtherActor->IsA<AMyrDaemon>())
-	{	WhoCame = EWhoCame::Daemon;
-		D = (AMyrDaemon*)OtherActor;
-	}
-	
-	if (WhoCame != EWhoCame::NONE)
-	{
-		//если пересечение словлено не телом, а пузырем протагониста, тело надо расчехлить из него
-		if (!C) if (D) C = D->OwnedCreature;
-
-		//вызывать начяальную стадию реакции
-		React(C, A, D, false, WhoCame);
-
-		//только пересеклись с существом, а оно уже заранее успело активировать атаку, по которой этот триггер должен срабатывать
-		if (PerformOnlyByApprovalFromCreature)
-			if (C->CouldSendApprovalToTrigger(this))
-			{
-				UE_LOG(LogTemp, Log, TEXT("%s React by deferred approval"), *GetOwner()->GetName());
-				React(C, A, D, true, WhoCame);
-			}
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("%s.%s: OverlapBegin %s.%s.%d"),
-		*GetOwner()->GetName(), *GetName(), *OtherActor->GetName(), *OtherComp->GetName(), OtherBodyIndex);*/
+	UE_LOG(LogTemp, Verbose, TEXT("%s.%s: OverlapBegin %s.%s.%d"),
+		*GetOwner()->GetName(), *GetName(), *OtherActor->GetName(), *OtherComp->GetName(), OtherBodyIndex);
 	OverlapEvent(OtherActor, OtherComp, false);
 }
 
@@ -810,44 +781,8 @@ UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* Overlap
 //==============================================================================================================
 UFUNCTION() void UMyrTriggerComponent::OverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-/*	//пересечение поясов не должно срабатывать, чтоб не получать множественные
-	if (OtherComp->IsA<UMyrGirdle>()) return;
-
-	//только если пересекло существо
-	EWhoCame WhoCame = EWhoCame::NONE;
-	AMyrPhyCreature* C = nullptr;
-	AMyrArtefact* A = nullptr;
-	AMyrDaemon* D = nullptr;
-
-	if (OtherActor->IsA<AMyrPhyCreature>())
-	{	WhoCame = EWhoCame::Creature;
-		C = (AMyrPhyCreature*)OtherActor;
-	}
-	else if (OtherActor->IsA<AMyrPhyCreature>())
-	{	WhoCame = EWhoCame::Artefact;
-		A = (AMyrArtefact*)OtherActor;
-	}
-	else if(OtherActor->IsA<AMyrDaemon>())
-	{	WhoCame = EWhoCame::Daemon;
-		D = (AMyrDaemon*)OtherActor;
-	}
-
-	//похоже, эти фрагменты надо вынести в отдельную функцию
-	if (WhoCame != EWhoCame::NONE)
-	{
-		//если пересечение словлено не телом, а пузырем протагониста, тело надо расчехлить из него
-		if (!C) if (D) C = D->OwnedCreature;
-
-		//автоматически по выходу из объёма применять функцию только в том случае, если не включено применение по действию
-		if (!PerformOnlyByApprovalFromCreature)
-		React(C, A, D, true, WhoCame);
-
-		//повторно вызывается если в реакте так и не вызвалось
-		C->DelOverlap(this);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("%s.%s: OverlapEnd %s"),
-		*GetOwner()->GetName(), *GetName(), *OtherActor->GetName());*/
+	UE_LOG(LogTemp, Verbose, TEXT("%s.%s: OverlapEnd %s"),
+		*GetOwner()->GetName(), *GetName(), *OtherActor->GetName());
 	OverlapEvent(OtherActor, OtherComp, true);
 }
 

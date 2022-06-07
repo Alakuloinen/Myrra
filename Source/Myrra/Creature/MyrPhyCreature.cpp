@@ -226,7 +226,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		auto RightOv = HasSuchOverlap(EWhyTrigger::KinematicLerpToCenter, EWhyTrigger::KinematicLerpToCenterLocationOrientation, FoundTR);
 		if (RightOv)
 		{
-			//выполнить шаг перемещения, тру = доводка/телепорт доведена до конца
+			//выполнить шаг перемещения (здесь происходит реальное движение), тру = доводка/телепорт доведена до конца
 			if (RightOv->ReactTeleport(*FoundTR, this, nullptr, true))
 			{
 				//здесь же есть дополнительная реакция удерживать на объекте пока игрок не включит атаку
@@ -241,8 +241,8 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 					else
 					{
 						//обработать пояса конечностей
-						Thorax->ExplicitTraceFeet(0.5);
-						Pelvis->ExplicitTraceFeet(0.5);
+						Thorax->ExplicitTraceFeet(0);
+						Pelvis->ExplicitTraceFeet(0);
 						Thorax->Procede(DeltaTime);
 						Pelvis->Procede(DeltaTime);
 					}
@@ -250,6 +250,32 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 				//нет дополнительных реакций - выйти из кинематики по достижению цели
 				else bKinematic = false;
 
+			}
+		}
+		//другие причины кинематического перемещения
+		else
+		{
+			//простое кинематическое движение велит состояние для текущего уровня детализации
+			if (GetBehaveCurrentData()->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel())
+			{
+				FVector	Touch2 = Pelvis->TraceGirdle();
+				FVector Touch1 = Thorax->TraceGirdle();
+
+				Thorax->ProcedeFastGetDelta(DeltaTime, &Touch1);
+				Pelvis->ProcedeFastGetDelta(DeltaTime, &Touch2);
+
+				FVector GlobalGuide = Touch1 - Touch2;
+				GlobalGuide.Normalize();
+				GlobalGuide = FMath::Lerp(Mesh->GetComponentTransform().GetUnitAxis(EAxis::X), GlobalGuide, 0.1f);
+				FVector Lateral = GlobalGuide ^ (Mesh->Thorax.ImpactNormal + Mesh->Pelvis.ImpactNormal);
+				Lateral.Normalize();
+
+				//приращение при движении
+				Touch1 = GetDesiredVelocity() * GlobalGuide * DeltaTime;
+
+				Mesh->SetWorldTransform(FTransform(GlobalGuide, -Lateral, -GlobalGuide^Lateral,
+					Mesh->GetComponentLocation() + Touch1),
+					false, nullptr, ETeleportType::None);
 			}
 		}
 	}
@@ -452,7 +478,7 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 	}
 
 	//если есть объём, понуждающий к жесткому курсу, он искажает вектор и точно надо нормализовать
-	NeedNormalizing |= ModifyMoveDirByOverlap(MoveDirection, false);
+	NeedNormalizing |= ModifyMoveDirByOverlap (MoveDirection, EWhoCame::Player);
 	if(NeedNormalizing)
 		MoveDirection.Normalize();
 
@@ -623,17 +649,23 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 }
 
 //==============================================================================================================
-//кинематически телепортировать в новое место
+//кинематически двигать в новое место
 //==============================================================================================================
+void AMyrPhyCreature::KinematicMove(FTransform Dst)
+{
+	//здесь предполагается, что все настро
+	FHitResult Hit;
+	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
+}
+
+//телепортировать на место - разовая акция
 void AMyrPhyCreature::TeleportToPlace(FTransform Dst)
 {
-	//непосредственно поместить это существо в заданное место
-	FHitResult Hit;
 	Mesh->SetSimulatePhysics(false);
-	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
+	KinematicMove(Dst);
 	Mesh->SetSimulatePhysics(true);
-	if (Daemon)	Daemon->PoseInsideCreature();
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TeleportToPlace %s"), *GetName(),  *Dst.GetLocation().ToString());
+	if (Daemon)	Daemon->PoseInsideCreature();
 }
 
 //==============================================================================================================
@@ -859,9 +891,10 @@ void AMyrPhyCreature::CeaseActionsOnHit()
 	if(!NoSelfAction())
 		if(GetSelfAction()->CeaseAtHit)
 			SelfActionCease();
-	if (!NoAttack())
+	if (DoesAttackAction())
 	{	if (GetAttackAction()->CeaseAtHit)
-			NewAttackEnd();
+			if(!(bClimb && NowPhaseToJump())) //если прыгаем из лазанья, нельзя, иначе снова притянет к опоре
+				NewAttackEnd();
 	}
 }
 
@@ -996,7 +1029,7 @@ void AMyrPhyCreature::SoundOfImpact(FSurfaceInfluence* StepSurfInfo, EMyrSurface
 		}
 		else UE_LOG(LogMyrPhyCreature, Error, TEXT("%s SoundOfImpact WTF no noiser type:%s, surf:%s"), *GetName(), *TXTENUM(EBodyImpact, ImpactType), *TXTENUM(EMyrSurface, Surface));
 	}
-	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s SoundOfImpact type:%s, surf:%s"), *GetName(), *TXTENUM(EBodyImpact,ImpactType), *TXTENUM(EMyrSurface, Surface));
+	UE_LOG(LogMyrPhyCreature, Verbose, TEXT("%s SoundOfImpact type:%s, surf:%s"), *GetName(), *TXTENUM(EBodyImpact,ImpactType), *TXTENUM(EMyrSurface, Surface));
 }
 
 //==============================================================================================================
@@ -1089,6 +1122,17 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	if((*BehaveNewData)->MakeAllBodyLax != BehaveCurrentData->MakeAllBodyLax)
 	Mesh->SetFullBodyLax((*BehaveNewData)->MakeAllBodyLax);
 
+	//если текущий лод (не) подходит под условие полной кинематичности, и при этом текущие параметры не соответствуют новым
+	bool NeedKin = (*BehaveNewData)->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel();
+	if (NeedKin == Mesh->IsSimulatingPhysics())
+	{	Mesh->SetPhyBodiesBumpable(!NeedKin);
+		Mesh->SetSimulatePhysics(!NeedKin);
+		Mesh->SetMachineSimulatePhysics(!NeedKin);
+		bKinematic = NeedKin;
+		Thorax->SetAbsolute(!NeedKin, !NeedKin, false);
+		Pelvis->SetAbsolute(!NeedKin, !NeedKin, false);
+	}
+
 	//пока для теста, вообще неясно - на этот раз увязчаем корень тела, чтоб не болталось при лазаньи
 	if (NewState == EBehaveState::climb) Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 100;
 	else Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 0;
@@ -1106,11 +1150,14 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	Mesh->InjureAtHit = BehaveCurrentData->HurtAtImpacts;
 
 	//если самодействие может только в отдельных состояниях и новое состояние в таковые не входит - тут же запустить выход
+	if (DoesSelfAction())
+	{	if (GetSelfAction()->Condition.States.Contains(NewState) == GetSelfAction()->Condition.StatesForbidden)
+			SelfActionCease();
+	}
 	if (!NoRelaxAction())
 	{	if (GetRelaxAction()->Condition.States.Contains(NewState) == GetRelaxAction()->Condition.StatesForbidden)
 			RelaxActionStartGetOut();
 	}
-
 
 	//применить новые настройки динамики движения/поддержки для частей тела поясов
 	//ВНИМАНИЕ, только когда нет атаки, в атаках свои дин-модели по фазам, если применить, эти фазы не отработают
@@ -1152,7 +1199,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		case EBehaveState::walk:
 			if(BewareDying()) break;
 			BEWARE(GotUntouched(), fall);
-			BEWARE(ExternalGain==0 && GotSlow(), stand);
+			BEWARE(ExternalGain==0 && GotSlow(10), stand);
 			BEWARE(Stuck > 0.5 || Thorax->GuidedMoveDir.Z>0.7, mount);
 			BEWARE(bCrouch, crouch);
 			BEWARE(bSoar && Stamina > 0.1f, soar);
@@ -1305,6 +1352,7 @@ bool AMyrPhyCreature::BewareDying()
 	{	AdoptBehaveState(EBehaveState::dying);
 		ActionFindStart(ECreatureAction::SELF_DYING1);
 		CatchMyrLogicEvent(EMyrLogicEvent::SelfDied, 1.0f, nullptr);
+		bClimb = 0;
 		MyrAI()->LetOthersNotice(EHowSensed::DIED);
 		Health = 0.0f;
 		return true;
@@ -1652,12 +1700,13 @@ bool AMyrPhyCreature::JumpAsAttack()
 	//отключить удержание, чтобы прыжок состоялся
 	if (bKinematic) bKinematic = false;
 
+	//переход в состояние вознесения нужен для фиксации анимации, а не для новой дин-модели, которая всё равно затрётся дальше по ходу атакой
+	AdoptBehaveState(EBehaveState::fall);
+
 	//техническая часть прыжка - одновременное гарцевание обоими поясами
 	Thorax->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
 	Pelvis->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
 
-	//переход в состояние вознесения нужен для фиксации анимации, а не для новой дин-модели, которая всё равно затрётся дальше по ходу атакой
-	AdoptBehaveState(EBehaveState::fall);
 	AttackForceAccum = 0;
 	return false;
 }
@@ -2301,6 +2350,16 @@ UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger r, FTriggerRea
 	if (Overlap2) { TR = Overlap2->HasReaction(r); if (TR) return Overlap2; }
 	return nullptr;
 }
+
+//найти объём, в котором есть интересующая реакция, если нет выдать нуль
+UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR, EWhoCame WhoAmI)
+{
+	if (!&TR) return nullptr;
+	if (Overlap0) { TR = Overlap0->HasReaction(r, WhoAmI); if (TR) return Overlap0; }
+	if (Overlap1) { TR = Overlap1->HasReaction(r, WhoAmI); if (TR) return Overlap1; }
+	if (Overlap2) { TR = Overlap2->HasReaction(r, WhoAmI); if (TR) return Overlap2; }
+	return nullptr;
+}
 UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger rmin, EWhyTrigger rmax, FTriggerReason*& TR)
 {
 	if (!&TR) return nullptr;
@@ -2312,34 +2371,22 @@ UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger rmin, EWhyTrig
 //==============================================================================================================
 //извлечь вектор из триггера и направить тело по нему - внимание, здесь нет нормализации!
 //==============================================================================================================
-bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, bool AI)
+bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, EWhoCame WhoAmI)
 {
 	//проверить есть ли заданный триггер вокруг нас
 	FTriggerReason *TR = nullptr;
 	UMyrTriggerComponent* UsedOv = nullptr;
 	FVector Force(0);
-	if (AI)
-	{
-		UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMover, EWhyTrigger::VectorFieldMoverMeToo, TR);
-		if(UsedOv) 	Force = UsedOv->ReactVectorFieldMove(*TR, this);
-		else UsedOv = HasSuchOverlap(EWhyTrigger::GravityPit, TR);
-		if (UsedOv) Force = UsedOv->ReactGravityPitMove(*TR, this);
-		else return false;
 
-	}
-	else
-	{
-		UsedOv = HasSuchOverlap(EWhyTrigger::VectorFieldMoverMeToo, TR);
-		if (UsedOv) Force = UsedOv->ReactVectorFieldMove(*TR, this);
-		else return false;
-	}
-
-	DrawDebugLine(GetWorld(), GetHeadLocation(), GetHeadLocation() + Force, FColor(100, 100, 200), false, 1, 100, 3);
+	UsedOv = HasSuchOverlap ( EWhyTrigger::VectorFieldMover, TR, WhoAmI);
+	if(UsedOv) 	Force = UsedOv->ReactVectorFieldMove(*TR, this);
+	else UsedOv = HasSuchOverlap  ( EWhyTrigger::GravityPit, TR, WhoAmI);
+	if (UsedOv) Force = UsedOv->ReactGravityPitMove(*TR, this);
+	else return false;
 
 	InMoveDir += Force;
 	return true;
 }
-
 
 
 //==============================================================================================================
