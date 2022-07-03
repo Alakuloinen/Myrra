@@ -24,10 +24,13 @@
 TSharedRef<IPropertyTypeCustomization> FEmotionTypeCustomization::MakeInstance()
 {	return MakeShareable(new FEmotionTypeCustomization);	}
 
+//расцветить строку заголовка
 void FEmotionTypeCustomization::CustomizeHeader(TSharedRef<class IPropertyHandle> StructPropertyHandle, FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils)
 {
+	//головнойдескрипторсохранить для других функций
 	MainHandle = StructPropertyHandle;
 
+	//объектперечислитель опорных эмоций
 	Typicals = FindObject<UEnum>(ANY_PACKAGE, TEXT("EEmotio"), true);
 
 	//сохранить указатель на это нечто, чтобы с помощью него перериосвывать при изменении значений
@@ -35,10 +38,13 @@ void FEmotionTypeCustomization::CustomizeHeader(TSharedRef<class IPropertyHandle
 
 	//вроде как подвязка обработчика события изменения значения свойства
 	auto D = FSimpleDelegate::CreateSP(SharedThis(this), &FEmotionTypeCustomization::OnChanged);
-	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->SetOnPropertyValueChanged(D);
-	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->SetOnPropertyValueChanged(D);
-	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->SetOnPropertyValueChanged(D);
-	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, A))->SetOnPropertyValueChanged(D);
+	GetR()->SetOnPropertyValueChanged(D);
+	GetG()->SetOnPropertyValueChanged(D);
+	GetB()->SetOnPropertyValueChanged(D);
+	GetA()->SetOnPropertyValueChanged(D);
+
+	//сразу отобразить правильный цвет
+	OnChanged();
 
 	//столбец заголовка (левый)
 	HeaderRow.NameContent()
@@ -57,40 +63,77 @@ void FEmotionTypeCustomization::CustomizeHeader(TSharedRef<class IPropertyHandle
 		+ SHorizontalBox::Slot().FillWidth(2).MaxWidth(100)
 		[	
 			SNew(SEnumComboBox, Typicals)
-				.CurrentValue(this, &FEmotionTypeCustomization::GetEnumVal)
-				.OnEnumSelectionChanged(SEnumComboBox::FOnEnumSelectionChanged::CreateSP(this, &FEmotionTypeCustomization::ChangeEnumVal))
+			.CurrentValue(this, &FEmoStimulusTypeCustomization::GetEnumVal)
+			.OnEnumSelectionChanged(SEnumComboBox::FOnEnumSelectionChanged::CreateSP(this, &FEmoStimulusTypeCustomization::ChangeEnumVal))
 		]
 
+		//в строчку разместить численные поля всех компонентов
 		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[SNew(STextBlock).Text(FText::FromString("Rage"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[ GetR()->CreatePropertyValueWidget()		]
 		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Love"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[ GetG()->CreatePropertyValueWidget()		]
 		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Fear"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[ GetB()->CreatePropertyValueWidget()		]
 		+ SHorizontalBox::Slot().FillWidth(0.5).VAlign(VAlign_Center).HAlign(HAlign_Right)[	SNew(STextBlock).Text(FText::FromString("Sure"))]
-		+ SHorizontalBox::Slot().MaxWidth(50)						[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, A))->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().MaxWidth(50)						[ GetA()->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(1.5)						[ Get5thWidget() ]
 
 	];
 
 }
 
+//расцветить строки под заголовком при раскрытии, их тут не будет, все в заголовке умещается
 void FEmotionTypeCustomization::CustomizeChildren(TSharedRef<class IPropertyHandle> StructPropertyHandle, IDetailChildrenBuilder& StructBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils)
 {
 }
 
+//конструктор
 FEmotionTypeCustomization::FEmotionTypeCustomization():EquiColorBrush(FLinearColor::White)
 {
 	Typicals = FindObject<UEnum>(ANY_PACKAGE, TEXT("EEmotio"), true);
 }
 
+//универсальные возвращуны хэндлов компонентов
+TSharedPtr<class IPropertyHandle> FEmotionTypeCustomization::GetR() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R));	}
+TSharedPtr<class IPropertyHandle> FEmotionTypeCustomization::GetG() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G));	}
+TSharedPtr<class IPropertyHandle> FEmotionTypeCustomization::GetB() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B));	}
+TSharedPtr<class IPropertyHandle> FEmotionTypeCustomization::GetA() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, A));	}
+TSharedRef<SWidget> FEmotionTypeCustomization::Get5thWidget()
+{	return SNew(SBorder);	}
+
+TSharedRef<SWidget> FEmotionTypeCustomization::WidgetForEmoList()
+{
+	return SNew(SEnumComboBox, Typicals)
+		.CurrentValue(this, &FEmotionTypeCustomization::GetEnumVal)
+		.OnEnumSelectionChanged(SEnumComboBox::FOnEnumSelectionChanged::CreateSP(this, &FEmotionTypeCustomization::ChangeEnumVal));
+}
+
+
+//получить данные компонентов в виде цвета
 FLinearColor FEmotionTypeCustomization::GetColorForMe() const
 {	FLinearColor Re(0,0,0,1);
-	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->GetValue(Re.R);
-	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->GetValue(Re.G);
-	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->GetValue(Re.B);
+	GetR()->GetValue(Re.R);
+	GetG()->GetValue(Re.G);
+	GetB()->GetValue(Re.B);
+	UE_LOG(LogTemp, Log, TEXT("FEmotionTypeCustomization::GetColorForMe %g, %g %g"), Re.R, Re.G, Re.B);
 	return Re;
 }
 
+//внедрить значение из внешней эмоции по хэндлам
+void FEmotionTypeCustomization::SetValue(FEmotio E)
+{	GetR()->SetValue(E.R);
+	GetG()->SetValue(E.G);
+	GetB()->SetValue(E.B);
+	GetA()->SetValue(E.A);
+	UE_LOG(LogTemp, Log, TEXT("FEmotionTypeCustomization::SetValue %g, %g %g"), E.R, E.G, E.B);
+
+}
+
+//обработчик изменения чисел перекрашивающий квадратик получившегося цвета
 void FEmotionTypeCustomization::OnChanged()
 {
 	EquiColorBrush.TintColor = GetColorForMe();
@@ -98,29 +141,59 @@ void FEmotionTypeCustomization::OnChanged()
 }
 
 //когда редактируется выбором из списка архетипов
+void FEmotionTypeCustomization::ChangeEnumVal(int Nv, ESelectInfo::Type Hz)
+{
+	SetValue(FEmotio::As((EEmotio)Nv));
+}
+
+//когда редактируется выбором из списка архетипов
 int FEmotionTypeCustomization::GetEnumVal() const
 {
 	FEmotio Mee(GetColorForMe());
 	int RightArch = 0;
-	float RightDist = 10;
-	for (int i = 0; i < (int)EEmotio::MAX; i++)
-	{
-		float NuDist = Mee.DistAxial3D(FEmotio::As((EEmotio)i));
-		if (NuDist < RightDist)
-		{
-			RightDist = NuDist;
-			RightArch = i;
-		}
-	}
+	Mee.GetArch((EEmotio*) & RightArch);
 	return RightArch;
 }
 
-//когда редактируется выбором из списка архетипов
- void FEmotionTypeCustomization::ChangeEnumVal(int Nv, ESelectInfo::Type Hz)
- {
-	FEmotio Result = FEmotio::As((EEmotio)Nv);
-	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, R))->SetValue(Result.R);
-	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, G))->SetValue(Result.G);
-	MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmotio, B))->SetValue(Result.B);
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////
 
- }
+ TSharedRef<IPropertyTypeCustomization> FEmoStimulusTypeCustomization::MakeInstance()
+{	return MakeShareable(new FEmoStimulusTypeCustomization);	}
+
+ //универсальные возвращуны хэндлов компонентов
+TSharedPtr<class IPropertyHandle> FEmoStimulusTypeCustomization::GetR() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmoStimulus, R));	}
+TSharedPtr<class IPropertyHandle> FEmoStimulusTypeCustomization::GetG() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmoStimulus, G));	}
+TSharedPtr<class IPropertyHandle> FEmoStimulusTypeCustomization::GetB() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmoStimulus, B));	}
+TSharedPtr<class IPropertyHandle> FEmoStimulusTypeCustomization::GetA() const
+{	return MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmoStimulus, A));	}
+TSharedRef<SWidget> FEmoStimulusTypeCustomization::Get5thWidget()
+{	return SNew(SProperty, MainHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FEmoStimulus, Aftershocks))).ShouldDisplayName(true); }
+
+FLinearColor FEmoStimulusTypeCustomization::GetColorForMe() const
+{	FLinearColor Co(0, 0, 0, 1);
+	uint8 Ret = 0;
+	GetR()->GetValue(Ret); Co.R = Ret / 255.0f;
+	GetG()->GetValue(Ret); Co.G = Ret / 255.0f;
+	GetB()->GetValue(Ret); Co.B = Ret / 255.0f;
+	UE_LOG(LogTemp, Log, TEXT("FEmoStimulusTypeCustomization::GetColorForMe %g, %g %g"), Co.R, Co.G, Co.B);
+	return Co;
+}
+
+//внедрить значение из внешней эмоции по хэндлам
+void FEmoStimulusTypeCustomization::SetValue(FEmotio E)
+{	GetR()->SetValue((uint8)(E.R * 255));
+	GetG()->SetValue((uint8)(E.G * 255));
+	GetB()->SetValue((uint8)(E.B * 255));
+	GetA()->SetValue((uint8)(E.A * 255));
+	UE_LOG(LogTemp, Log, TEXT("FEmoStimulusTypeCustomization::SetValue %g, %g %g"), E.R, E.G, E.B);
+}
+
+TSharedRef<SWidget> FEmoStimulusTypeCustomization::WidgetForEmoList()
+{	return SNew(SEnumComboBox, Typicals)
+		.CurrentValue(this, &FEmoStimulusTypeCustomization::GetEnumVal)
+		.OnEnumSelectionChanged(SEnumComboBox::FOnEnumSelectionChanged::CreateSP(this, &FEmoStimulusTypeCustomization::ChangeEnumVal));
+}

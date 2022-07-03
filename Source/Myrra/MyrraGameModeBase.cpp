@@ -9,6 +9,7 @@
 #include "Sky/MyrKingdomOfHeaven.h"					// небо
 #include "Materials/MaterialParameterCollectionInstance.h"	// для подводки материала неба
 #include "Kismet/GameplayStatics.h"						// для вызова GetAllActorsOfClass
+#include "AssetStructures/MyrLogicEmotionReactions.h"					// для выкоревывания эмоциональных стимулов
 
 //вызывается, когда очередной трек музыки подходит к концу
 void AMyrraGameModeBase::OnAudioFinished()
@@ -90,6 +91,13 @@ void AMyrraGameModeBase::BeginPlay()
 			Protagonist->ClingToCreature(Creatures[0]);
 	}
 
+	//если небо себя добавило или уже было довалено
+	if (Sky)
+	{
+		//связать напрямую игрока и небо
+		if (!Sky->Protagonist) Sky->Protagonist = Protagonist;
+		if (!Protagonist->Sky) Protagonist->Sky = Sky;
+	}
 	//ВНИМАНИЕ, это включает отображение всех форм коллизий, наглядно но медленно
 	//GetWorld()->Exec(GetWorld(), TEXT("pxvis collision"));
 }
@@ -170,9 +178,38 @@ bool AMyrraGameModeBase::ProtagonistFirstPerson() const
 	return (Protagonist->MyrCameraMode == EMyrCameraMode::FirstPerson);
 }
 
+//====================================================================================================
+//для списка воздействий в интерфейсе выдать вот это вот воздействие для главного героя
+//====================================================================================================
+FEmoStimulus AMyrraGameModeBase::GetMyStimulus(EEmoCause Cause) const
+{
+	if (Protagonist)
+		if (Protagonist->OwnedCreature)
+		{
+			if (Protagonist->OwnedCreature->EmoReactions.Map.Num() > 0)
+			{
+				if (auto R = Protagonist->OwnedCreature->EmoReactions.Map.Find(Cause))
+					return *R;
+			}
+			else
+			{
+				if (Protagonist->OwnedCreature->GetGenePool())
+					if (Protagonist->OwnedCreature->GetGenePool()->EmoReactions)
+						if (auto R = Protagonist->OwnedCreature->GetGenePool()->EmoReactions->List.Map.Find(Cause))
+							return *R;
+			}
+		}
+	return FEmoStimulus();
+}
 //направление ветра (теперь лежит в другом классе, посему доступ через функцию)
 FVector2D* AMyrraGameModeBase::WindDir()
-{
-	return Protagonist ? &Protagonist->WindDir : nullptr;
-}
+{	return Sky ? &Sky->WindDir : nullptr; }
+
+//абсолютная позиция массы воздуха, для сдвига карты вета, облаков и погоды
+FVector2D* AMyrraGameModeBase::AirMassPosition()
+{	return Sky ? &Sky->AirMassPosition : nullptr; }
+
+//абсолютная позиция массы воздуха, для сдвига карты вета, облаков и погоды
+double* AMyrraGameModeBase::WeatherMapPosition()
+{	return Sky ? Sky->WeatherMapPosition : nullptr; }
 

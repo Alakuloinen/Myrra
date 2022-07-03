@@ -37,7 +37,8 @@ public class Myrra : ModuleRules
                 "AIModule",
                 "GameplayTasks",
                 "MoviePlayer",
-                "Niagara"
+                "Niagara",
+                "Paper2D"
             }
             );
 

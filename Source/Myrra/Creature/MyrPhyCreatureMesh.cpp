@@ -20,6 +20,15 @@ uint8 UMyrPhyCreatureMesh::Section[(int)ELimb::NOLIMB] = {0,0,1,1,1,1,1,0,0,0};
 ELimb UMyrPhyCreatureMesh::Parent[(int)ELimb::NOLIMB] = { ELimb::PELVIS, ELimb::PELVIS, ELimb::LUMBUS, ELimb::PECTUS, ELimb::THORAX, ELimb::THORAX, ELimb::THORAX, ELimb::PELVIS, ELimb::PELVIS, ELimb::PELVIS };
 ELimb UMyrPhyCreatureMesh::DirectOpposite[(int)ELimb::NOLIMB] = { ELimb::THORAX, ELimb::PECTUS, ELimb::LUMBUS, ELimb::PELVIS, ELimb::TAIL, ELimb::R_ARM, ELimb::L_ARM, ELimb::R_LEG, ELimb::L_LEG, ELimb::HEAD };
 
+//таблица доступа для кодов эмоциональных стимулов при повреждении определенной части тела
+EEmoCause UMyrPhyCreatureMesh::FeelLimbDamaged[(int)ELimb::NOLIMB] = {
+	EEmoCause::DamagedCorpus, EEmoCause::DamagedCorpus,EEmoCause::DamagedCorpus, EEmoCause::DamagedCorpus,
+	EEmoCause::DamagedHead,
+	EEmoCause::DamagedArm, EEmoCause::DamagedArm,
+	EEmoCause::DamagedLeg, EEmoCause::DamagedLeg,
+	EEmoCause::DamagedTail
+};
+
 //рисовалки отладжочных линий
 #if WITH_EDITOR
 #define LINE(C, A, AB) MyrOwner()->Line(C, A, AB)
@@ -762,7 +771,7 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 			Limb.Damage += Severity;
 
 			//поднимаем сигнал боли наверх, где будет сыгран звук удара и крик
-			MyrOwner()->Hurt(Severity, Hit.ImpactPoint, Hit.ImpactNormal, Limb.Surface, SurfInfo);
+			MyrOwner()->Hurt(Limb.WhatAmI, Severity, Hit.ImpactPoint, Hit.ImpactNormal, Limb.Surface, SurfInfo);
 		}
 	}
 	//обработка кусачих поверхностей, типа раскалённых или крапивы, для этого нужно влезть в список данных по поверхностям
@@ -774,7 +783,7 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 	//по сумме от силового удара и от кусачести поверхности поднимаем на уровень всего существа инфу, что больно
 	if(Severity > 0.01)
 	{	Limb.Damage += Severity;
-		MyrOwner()->Hurt (Severity, Hit.ImpactPoint, Hit.ImpactNormal, Limb.Surface, SurfInfo);
+		MyrOwner()->Hurt (Limb.WhatAmI, Severity, Hit.ImpactPoint, Hit.ImpactNormal, Limb.Surface, SurfInfo);
 	}
 
 	//если данный удар призошлел из состояния полета или падения, то 
@@ -828,7 +837,7 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 						//сопутствующие действия
 						TheirLimb->LastlyHurt = true;
 						TheirMesh->MyrOwner()->SufferFromEnemy(dD, MyrOwner());									// ментально, ИИ, только насилие
-						TheirMesh->MyrOwner()->Hurt(dD, Hit.ImpactPoint, Hit.ImpactNormal, TheirLimb->Surface);	// визуально, звуково, общий урон
+						TheirMesh->MyrOwner()->Hurt(TheirLimb->WhatAmI, dD, Hit.ImpactPoint, Hit.ImpactNormal, TheirLimb->Surface);	// визуально, звуково, общий урон
 					}
 				}
 				//жертва мертва - пинание трупа
@@ -1419,6 +1428,7 @@ void UMyrPhyCreatureMesh::SetPhyBodiesBumpable(bool Set)
 //==============================================================================================================
 void UMyrPhyCreatureMesh::SetMachineSimulatePhysics(bool Set)
 {
+	SetSimulatePhysics(Set);
 	if (Set)
 	{	for (int i = 0; i < Bodies.Num(); i++)
 		{

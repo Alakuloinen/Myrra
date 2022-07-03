@@ -44,22 +44,47 @@ public:
 
     FEmotionTypeCustomization();
 
-private:
+	//когда редактируется цветом, и из цвета выбирается список архетипов
+    int GetEnumVal() const;
+
+    //когда редактируется выбором из списка архетипов
+    virtual void ChangeEnumVal(int Nv, ESelectInfo::Type Hz);
+
+protected:
+
+    virtual TSharedPtr<class IPropertyHandle> GetR() const;
+    virtual TSharedPtr<class IPropertyHandle> GetG() const;
+    virtual TSharedPtr<class IPropertyHandle> GetB() const;
+    virtual TSharedPtr<class IPropertyHandle> GetA() const;
+    virtual TSharedRef<SWidget> Get5thWidget();
+    virtual TSharedRef<SWidget> WidgetForEmoList();
+    virtual FLinearColor GetColorForMe() const;
+    virtual void SetValue(FEmotio E);
 
     TSharedPtr<IPropertyHandle> MainHandle;
     TSharedPtr<IPropertyUtilities> PropertyUtilities;
     TSharedPtr<SBorder> Me;
-    FLinearColor GetColorForMe() const;
     UEnum* Typicals;
 
     //обработчик события
     void OnChanged();
 
-	//когда редактируется цветом, и из цвета выбирается список архетипов
-    int GetEnumVal() const;
+};
 
-	//когда редактируется выбором из списка архетипов
-    void ChangeEnumVal(int Nv, ESelectInfo::Type Hz);
+class FEmoStimulusTypeCustomization : public FEmotionTypeCustomization
+{
+public:
+    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
+protected:
+    virtual TSharedPtr<class IPropertyHandle> GetR() const;
+    virtual TSharedPtr<class IPropertyHandle> GetG() const;
+    virtual TSharedPtr<class IPropertyHandle> GetB() const;
+    virtual TSharedPtr<class IPropertyHandle> GetA() const;
+    virtual TSharedRef<SWidget> Get5thWidget();
+    virtual TSharedRef<SWidget> WidgetForEmoList();
+    virtual FLinearColor GetColorForMe() const;
+    virtual void SetValue(FEmotio E);
+
 };
 
 //#######################################################################################################

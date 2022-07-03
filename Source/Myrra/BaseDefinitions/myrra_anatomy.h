@@ -172,15 +172,6 @@ USTRUCT(BlueprintType) struct FMachineLimbAnatomy
 	//может ли этот членик физ-привязью привязываться к окружению (лазанье) или к другому существу (хватание) - разделить эти фичи?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) bool CanCling = false;
 
-	//ось кости (см. как скелет загружен в UE), которая вытягивается вверх, если тело нужно держать вертикальным
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) EMyrAxis StandUpAxis = EMyrAxis::Zn;
-
-	//ось кости (см. как скелет загружен в UE), которая вытягивается вверх, если тело должно быть повалено на блок
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) EMyrAxis LieAsideAxis = EMyrAxis::Xp;
-
-	//ось кости (см. как скелет загружен в UE), которая вытягивается вверх, если тело должно быть повалено плашмя
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) EMyrAxis LieForthAxis = EMyrAxis::Yn;
-
 	//насколько здоровье в этом сегменте тела влияет на способность двигаться
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) float AffectMobility = 0.0f;
 

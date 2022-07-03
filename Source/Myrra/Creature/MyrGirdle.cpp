@@ -408,8 +408,9 @@ FVector UMyrGirdle::TraceFootHitPoint(FLimb& FootLimb, float HowDeep)
 	//физическое тело ноги
 	FBodyInstance* FootBody = me()->GetMachineBody(FootLimb);
 
-	//направление и глубина трэйса - указано или явно, или ноль, тогда по умолчанию на радиус колеса с гаком
-	FVector StepDst = -FootLimb.ImpactNormal * (HowDeep > 0 ? HowDeep : GetLegRadius() * 1.3);
+	//направление - текущая нормаль плюс направление движения, типа наклон чтобы детектировать еще и стены 
+	//глубина трэйса - указано или явно, или ноль, тогда по умолчанию на радиус колеса с гаком
+	FVector StepDst = (-FootLimb.ImpactNormal + 0.1*GuidedMoveDir) * (HowDeep > 0 ? HowDeep : GetLegRadius() * 1.3);
 	const FVector Start = FootBody->GetCOMPosition();
 
 	//параметры: фолс - не трассировать по полигонам, последний параметр - игнрорить себя
@@ -448,7 +449,7 @@ FVector UMyrGirdle::TraceFootHitPoint(FLimb& FootLimb, float HowDeep)
 //==============================================================================================================
 FVector UMyrGirdle::TraceGirdle()
 {
-	FVector HitPo = TraceFootHitPoint(LMB(Center), LimbLength);
+	FVector HitPo = TraceFootHitPoint(LMB(Center), LimbLength*1.3);
 	if (LMB(Center).Stepped)
 	{
 		if (HasLegs)

@@ -21,6 +21,8 @@
 #include "Components/WidgetComponent.h"					// ярлык с инфой
 #include "Engine/TextureRenderTargetCube.h"
 
+#include "Sky/MyrKingdomOfHeaven.h"						//небо отдаёт свои дрючки на тик этому классу, потому что он существует вне игры
+
 //системные дополнения
 #include "Engine/Classes/Kismet/GameplayStatics.h"		// замедление времени
 #include "Materials/MaterialInstanceDynamic.h"			// для управления материалами эффектов камеры
@@ -351,17 +353,14 @@ void AMyrDaemon::Tick(float DeltaTime)
 	//совсем базовое
 	Super::Tick(DeltaTime);
 
+	//проделать для неба покадрово самые интерактивные вещи
+	//чтобы в небе не заводить 2 тика, покадровый и медленный
+	if (Sky) Sky->PerFrameRoutine(DeltaTime);
 
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
 	if (!EnvMatParam) return;
 	auto MPC = GetWorld()->GetParameterCollectionInstance(EnvMatParam);
-
-	//собственно, подвижка массы воздуха, по предварительно вычисленной скорости
-	CurrentAirMassPosition += WindDir * DeltaTime;
-
-	//отправка нового значения в коллекцию параметров
-	MPC->SetVectorParameterValue(TEXT("AirMassPosition"), FLinearColor(CurrentAirMassPosition.X, CurrentAirMassPosition.Y, 0, 0));
 
 	if(!GetMyrGameMode()) return;
 	if(!OwnedCreature) return;
@@ -1292,7 +1291,7 @@ float AMyrDaemon::GetLightingAtVector(FVector V)
 	//если вектор единичный, то берется один квадрат куба в нужной стороне
 	else
 	{
-		ECubeFace Whether;
+		ECubeFace Whether = ECubeFace::CubeFace_PosX;
 		if(V.X >  0.72) Whether = ECubeFace::CubeFace_PosX; else
 		if(V.X < -0.72) Whether = ECubeFace::CubeFace_NegX; else
 		if(V.Y >  0.72) Whether = ECubeFace::CubeFace_PosY; else

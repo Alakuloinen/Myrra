@@ -11,7 +11,9 @@
 #include "../Control/MyrAI.h"							// ИИ
 #include "../UI/MyrBioStatUserWidget.h"					// индикатор над головой
 #include "AssetStructures/MyrCreatureGenePool.h"		// данные генофонда
+#include "AssetStructures/MyrLogicEmotionReactions.h"	// список эмоциональных реакций
 #include "Animation/MyrPhyCreatureAnimInst.h"			// для доступа к кривым и переменным анимации
+#include "Sky/MyrKingdomOfHeaven.h"						// для выяснения погоды и времени суток
 
 #include "Components/WidgetComponent.h"					// ярлык с инфой
 #include "Components/AudioComponent.h"					// звук
@@ -133,6 +135,12 @@ void AMyrPhyCreature::BeginPlay()
 		//сгенерировать человекочитаемое имя по алгоритму из генофонда
 		HumanReadableName = GenerateHumanReadableName();
 
+		//в случае если для данного типа животного не предусмотрен свой список реакций, берется дефолтный из GameInst
+		if (!GenePool->EmoReactions)
+		{	for (auto ER : GetMyrGameInst()->EmoReactionWhatToDisplay)
+				EmoReactions.Map.Add(ER.Key, ER.Value.DefaultStimulus);
+		}
+
 		//задание стартовых, минимальных значений ролевых параметров
 		for (int i = 0; i < (int)EPhene::NUM; i++)
 		{
@@ -191,7 +199,6 @@ void AMyrPhyCreature::BeginPlay()
 //====================================================================================================
 void AMyrPhyCreature::Tick(float DeltaTime)
 {
-	FrameCounter++;
 	if (HasAnyFlags(RF_ClassDefaultObject)) return;
 	if (IsTemplate()) return;
 
@@ -218,74 +225,9 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//обработка движений по режимам поведения 
 	ProcessBehaveState(DeltaTime);
 
-	//фаза кинематической костыльной доводки до места или удержания на объекте
-	if (bKinematic)
-	{
-		//найти триггер, который отвечает за данную фазу
-		FTriggerReason* FoundTR = nullptr;
-		auto RightOv = HasSuchOverlap(EWhyTrigger::KinematicLerpToCenter, EWhyTrigger::KinematicLerpToCenterLocationOrientation, FoundTR);
-		if (RightOv)
-		{
-			//выполнить шаг перемещения (здесь происходит реальное движение), тру = доводка/телепорт доведена до конца
-			if (RightOv->ReactTeleport(*FoundTR, this, nullptr, true))
-			{
-				//здесь же есть дополнительная реакция удерживать на объекте пока игрок не включит атаку
-				if(RightOv->HasReaction(EWhyTrigger::FixUntilAttack))
-				{	
-					//включили атаку - вышли из фриза, забыли про триггер
-					if(DoesAttackAction() && CurrentAttackPhase>=EActionPhase::STRIKE)
-					{   bKinematic = false;
-						DelOverlap(RightOv);
-					}
-					//продолжаем поддерживать фриз на опоре
-					else
-					{
-						//обработать пояса конечностей
-						Thorax->ExplicitTraceFeet(0);
-						Pelvis->ExplicitTraceFeet(0);
-						Thorax->Procede(DeltaTime);
-						Pelvis->Procede(DeltaTime);
-					}
-				}
-				//нет дополнительных реакций - выйти из кинематики по достижению цели
-				else bKinematic = false;
-
-			}
-		}
-		//другие причины кинематического перемещения
-		else
-		{
-			//простое кинематическое движение велит состояние для текущего уровня детализации
-			if (GetBehaveCurrentData()->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel())
-			{
-				FVector	Touch2 = Pelvis->TraceGirdle();
-				FVector Touch1 = Thorax->TraceGirdle();
-
-				Thorax->ProcedeFastGetDelta(DeltaTime, &Touch1);
-				Pelvis->ProcedeFastGetDelta(DeltaTime, &Touch2);
-
-				FVector GlobalGuide = Touch1 - Touch2;
-				GlobalGuide.Normalize();
-				GlobalGuide = FMath::Lerp(Mesh->GetComponentTransform().GetUnitAxis(EAxis::X), GlobalGuide, 0.1f);
-				FVector Lateral = GlobalGuide ^ (Mesh->Thorax.ImpactNormal + Mesh->Pelvis.ImpactNormal);
-				Lateral.Normalize();
-
-				//приращение при движении
-				Touch1 = GetDesiredVelocity() * GlobalGuide * DeltaTime;
-
-				Mesh->SetWorldTransform(FTransform(GlobalGuide, -Lateral, -GlobalGuide^Lateral,
-					Mesh->GetComponentLocation() + Touch1),
-					false, nullptr, ETeleportType::None);
-			}
-		}
-	}
-	//нормальная, физическая фаза
-	else
-	{
-		//обработать пояса конечностей
-		Thorax->Procede(DeltaTime);
-		Pelvis->Procede(DeltaTime);
-	}
+	//включение и выключение режима кинематики может происходить в любой кадр, в зависимости от лода
+	bool needkin =  GetBehaveCurrentData()->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel();
+	if(needkin != bKinematicMove) SetKinematic(needkin);
 
 	//если есть что метаболировать из еды, это надо делать каждый кадр
 	//по всем текущим эффектам от пищи
@@ -309,6 +251,92 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 
 	//по идее здесь тичат компоненты
 	Super::Tick(DeltaTime);
+
+
+	//фаза кинематической костыльной доводки до места или удержания на объекте
+	if (bKinematicRefine)
+	{
+		//найти триггер, который отвечает за данную фазу
+		FTriggerReason* FoundTR = nullptr;
+		auto RightOv = HasSuchOverlap(EWhyTrigger::KinematicLerpToCenter, EWhyTrigger::KinematicLerpToCenterLocationOrientation, FoundTR);
+		if (RightOv)
+		{
+			//выполнить шаг перемещения (здесь происходит реальное движение), тру = доводка/телепорт доведена до конца
+			if (RightOv->ReactTeleport(*FoundTR, this, nullptr, true))
+			{
+				//здесь же есть дополнительная реакция удерживать на объекте пока игрок не включит атаку
+				if (RightOv->HasReaction(EWhyTrigger::FixUntilAttack))
+				{
+					//включили атаку - вышли из фриза, забыли про триггер
+					if (DoesAttackAction() && CurrentAttackPhase >= EActionPhase::STRIKE)
+					{
+						bKinematicRefine = false;
+						DelOverlap(RightOv);
+					}
+					//продолжаем поддерживать фриз на опоре
+					else
+					{
+						//обработать пояса конечностей
+						Thorax->ExplicitTraceFeet(0);
+						Pelvis->ExplicitTraceFeet(0);
+						Thorax->Procede(DeltaTime);
+						Pelvis->Procede(DeltaTime);
+					}
+				}
+				//нет дополнительных реакций - выйти из кинематики по достижению цели
+				else bKinematicRefine = false;
+
+			}
+		}
+	}
+	//другие причины кинематического перемещения
+	else if(bKinematicMove)
+	{
+		//в начале таз, он ближе к началу координат
+		FVector	Touch2 = Pelvis->TraceGirdle();
+		FVector Corr2 = Pelvis->ProcedeFastGetDelta(DeltaTime, &Touch2);
+
+		//новая трансформация тела
+		FTransform T = Mesh->GetComponentTransform();
+
+		//если ведущий всё-таки передний пояс - это четвероногое, и надо более сложно
+		if (Thorax->CurrentDynModel->Leading)
+		{
+			FVector Touch1 = Thorax->TraceGirdle();
+			FVector Corr1 = Thorax->ProcedeFastGetDelta(DeltaTime, &Touch1);
+
+			FVector GlobalGuide = Touch1 - Touch2;
+			GlobalGuide.Normalize();
+
+			//без лерпа почему-то начинаются безумные дрыгания и колебания
+			GlobalGuide = FMath::Lerp(Mesh->GetComponentTransform().GetUnitAxis(EAxis::X), GlobalGuide, 0.1f);
+			FVector Lateral = GlobalGuide ^ (Mesh->Thorax.ImpactNormal + Mesh->Pelvis.ImpactNormal);
+			Lateral.Normalize();
+
+			//полная трансформация, полностью новый угол, а позиция старая + деяние скорости
+			T = FTransform(GlobalGuide, -Lateral, -GlobalGuide ^ Lateral,
+				Mesh->GetComponentLocation() + GetDesiredVelocity() * GlobalGuide * DeltaTime + Corr1 + Corr2);
+
+		}
+		else
+		{
+			//полная трансформация, полностью новый угол, а позиция старая + деяние скорости
+			T = FTransform(Pelvis->GuidedMoveDir, -Pelvis->GuidedMoveDir^Mesh->Pelvis.ImpactNormal, Mesh->Pelvis.ImpactNormal,
+				Mesh->GetComponentLocation() + GetDesiredVelocity() * Pelvis->GuidedMoveDir * DeltaTime);
+
+		}
+
+		//результирующее перемещение
+		Mesh->SetWorldTransform(T, false, nullptr, ETeleportType::ResetPhysics);
+		return;
+		
+	}
+
+	//нормальная, физическая фаза
+	//обработать пояса конечностей
+	Thorax->Procede(DeltaTime);
+	Pelvis->Procede(DeltaTime);
+
 }
 
 
@@ -575,6 +603,8 @@ void AMyrPhyCreature::WhatIfWeBumpedIn()
 	//расчёт сумарной уткнутости - если положительное, то сразу
 	//если перед нами непролазное препятствие (-) то постепенно опомниваться от такой колизии
 	ELimb Bumper = ELimb::NOLIMB;
+
+	//извлечь степень физической уткнутости 
 	Stuck = Mesh->StuckToStepAmount(Bumper);
 
 	//поиск подходящей реакции на затык
@@ -649,7 +679,7 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 }
 
 //==============================================================================================================
-//кинематически двигать в новое место
+//кинематически двигать в новое место - нах отдельная функция, слишком простое
 //==============================================================================================================
 void AMyrPhyCreature::KinematicMove(FTransform Dst)
 {
@@ -658,7 +688,9 @@ void AMyrPhyCreature::KinematicMove(FTransform Dst)
 	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
 }
 
+//==============================================================================================================
 //телепортировать на место - разовая акция
+//==============================================================================================================
 void AMyrPhyCreature::TeleportToPlace(FTransform Dst)
 {
 	Mesh->SetSimulatePhysics(false);
@@ -667,6 +699,21 @@ void AMyrPhyCreature::TeleportToPlace(FTransform Dst)
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TeleportToPlace %s"), *GetName(),  *Dst.GetLocation().ToString());
 	if (Daemon)	Daemon->PoseInsideCreature();
 }
+
+//==============================================================================================================
+//перейти в кинематическое состояние или вернуться в детальную физическую симуляцию
+//==============================================================================================================
+void AMyrPhyCreature::SetKinematic(bool Set)
+{
+	Mesh->SetPhyBodiesBumpable(!Set);
+	Mesh->SetMachineSimulatePhysics(!Set);
+	bKinematicMove = Set;
+	Thorax->SetAbsolute(!Set, !Set, false);
+	Pelvis->SetAbsolute(!Set, !Set, false);
+	if (!Set && Daemon)	Daemon->PoseInsideCreature();
+
+}
+
 
 //==============================================================================================================
 //включить или выключить желание при подходящей поверхности зацепиться за нее
@@ -747,7 +794,7 @@ void AMyrPhyCreature::StaminaChange(float delta)
 }
 
 //==============================================================================================================
-//после перемещения на ветку - здесь выравнивается камера
+//после перемещения на ветку - здесь выравнивается камера - возможно, уже не нужен
 //==============================================================================================================
 void AMyrPhyCreature::PostTeleport()
 {
@@ -781,6 +828,7 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 {
 	//исключить метаболизм параметров в мертвом состоянии
 	if (Health <= 0) return;
+	FrameCounter++;
 
 	//учёт воздействия поверхности, к которой мы прикасаемся любой частью тела, на здоровье
 	EMyrSurface CurSu = EMyrSurface::Surface_0;
@@ -803,6 +851,10 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	//восстановление здоровья (стамина перенесена в основной тик, чтоб реагировать на быструю смену фаз атаки)
 	HealthChange ((Mesh->DynModel->HealthAdd + SurfaceHealthModifier ) * DeltaTime	);	
 
+	//█▄▌внести эмоциональный стимул по данному каналу
+	if(Health < 0.25) AddEmotionStimulus(EEmoCause::LowHealth, 1 - 4 * Health, this);
+	if(Stamina < 0.25) AddEmotionStimulus(EEmoCause::LowStamina, 1 - 4 * Stamina, this);
+
 	//энергия пищевая тратится на эмоции, чем возбужденнее, тем сильнее
 	//здесь нужен какой-то коэффициент, нагруженный параметром фенотипа
 	Energy -= 0.001*DeltaTime*MyrAI()->IntegralEmotionPower;
@@ -812,6 +864,25 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 
 	//возраст здесь, а не в основном тике, ибо по накоплению большого числа мелкие приращения могут быть меньше разрядной сетки
 	Age += DeltaTime;
+
+	//очень редко + если на уровне присутствует небо и смена дня и ночи
+	if ((FrameCounter & 16) == 0 && GetMyrGameMode()->Sky)
+	{
+		//разделка суток по периодам
+		auto TimesOfDay = GetMyrGameMode()->Sky->MorningDayEveningNight();
+
+		//█▄▌внести эмоциональный стимул по данному каналу
+		AddEmotionStimulus(EEmoCause::TimeMorning, TimesOfDay.R);
+		AddEmotionStimulus(EEmoCause::TimeDay, TimesOfDay.G);
+		AddEmotionStimulus(EEmoCause::TimeEvening, TimesOfDay.B);
+		AddEmotionStimulus(EEmoCause::TimeNight, TimesOfDay.A);
+		AddEmotionStimulus(EEmoCause::Moon, GetMyrGameMode()->Sky->MoonIntensity());
+		AddEmotionStimulus(EEmoCause::WeatherCloudy, FMath::Max(0.0f, 2 * GetMyrGameMode()->Sky->Cloudiness() - 1.0f));
+		AddEmotionStimulus(EEmoCause::TooCold, FMath::Max(0.0f, 5.0f * (0.2f - GetMyrGameMode()->Sky->WeatherDerived.Temperature)));
+		AddEmotionStimulus(EEmoCause::TooHot, FMath::Max(0.0f, 5.0f * (GetMyrGameMode()->Sky->WeatherDerived.Temperature - 0.9f)));
+
+	}
+
 
 	//если повезёт, здесь высосется код связанный в блюпринтах
 	RareTickInBlueprint(DeltaTime);
@@ -837,13 +908,17 @@ int AMyrPhyCreature::FindObjectInFocus(const float Devia2D, const float Devia3D,
 //==============================================================================================================
 //полный спектр действий от (достаточно сильного) удара между этим существом и некой поверхностью
 //==============================================================================================================
-void AMyrPhyCreature::Hurt(float Amount, FVector ExactHitLoc, FVector Normal, EMyrSurface ExactSurface, FSurfaceInfluence* ExactSurfInfo)
+void AMyrPhyCreature::Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector Normal, EMyrSurface ExactSurface, FSurfaceInfluence* ExactSurfInfo)
 {
 	//для простоты вводится нормаль, а уже тут переводится в кватернион, для позиционирования источника частиц
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g"), *GetName(), Amount);
 	FQuat ExactHitRot = FRotationMatrix::MakeFromX(Normal).ToQuat();
 
 	Pain += Amount;
+
+	//█▄▌внести эмоциональный стимул по данному каналу
+	AddEmotionStimulus(EEmoCause::Pain, Pain, this);											
+	AddEmotionStimulus(Mesh->GetDamageEmotionCode(ExactLimb), Mesh->GetDamage(ExactLimb), this);
 
 	//если выполняется самодействие или действие-период, но указано его отменять при ударе
 	CeaseActionsOnHit();
@@ -1124,14 +1199,7 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 
 	//если текущий лод (не) подходит под условие полной кинематичности, и при этом текущие параметры не соответствуют новым
 	bool NeedKin = (*BehaveNewData)->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel();
-	if (NeedKin == Mesh->IsSimulatingPhysics())
-	{	Mesh->SetPhyBodiesBumpable(!NeedKin);
-		Mesh->SetSimulatePhysics(!NeedKin);
-		Mesh->SetMachineSimulatePhysics(!NeedKin);
-		bKinematic = NeedKin;
-		Thorax->SetAbsolute(!NeedKin, !NeedKin, false);
-		Pelvis->SetAbsolute(!NeedKin, !NeedKin, false);
-	}
+	if (NeedKin != bKinematicMove) SetKinematic(NeedKin);
 
 	//пока для теста, вообще неясно - на этот раз увязчаем корень тела, чтоб не болталось при лазаньи
 	if (NewState == EBehaveState::climb) Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 100;
@@ -1394,6 +1462,9 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStart(int SlotNum, int VictimType
 		//если ИИ детектирует рядом объект точного нацеливания, точно нацелиться на него
 		if (MyrAI()->AimBetter(AttackDirection, 0.5)) Daemon->UseActDirFromAI = true;
 
+		//показать в худе имя начатой атаки
+		Daemon->HUDOfThisPlayer()->OnAction(0, true);
+
 		//если эта фаза такаи подразумевает эффектное размытие резкого движения, то врубить его
 		Daemon->SetMotionBlur(Action->MotionBlurBeginToStrike);
 	}
@@ -1592,10 +1663,15 @@ void AMyrPhyCreature::NewAttackEnd()
 	//тут некорректно, если выполняется еще и самодействие, но пуская пока так
 	AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
 
-	//если атака сопровождалась эффектами размытия в движении, сейчас она по любому законсилась и надо вернуть старое состояниеспецифичное значение
+	//если атака сопровождалась эффектами размытия в движении, 
 	if (Daemon)
-	{	Daemon->SetMotionBlur(BehaveCurrentData->MotionBlurAmount);
+	{
+		//сейчас она по любому законсилась и надо вернуть старое состояниеспецифичное значение
+		Daemon->SetMotionBlur(BehaveCurrentData->MotionBlurAmount);
 		Daemon->SetTimeDilation(BehaveCurrentData->TimeDilation);
+
+		//удалить в худе имя начатой атаки
+		Daemon->HUDOfThisPlayer()->OnAction(0, false);
 	}
 
 	//финально сбросить все переменные режима
@@ -1696,9 +1772,12 @@ bool AMyrPhyCreature::JumpAsAttack()
 
 	//прыжок - важное сильновое упражнение, регистрируется 
 	CatchMyrLogicEvent(EMyrLogicEvent::SelfJump, AttackForceAccum, nullptr);
+
+	//█▄▌добавить эмоциональный отклик от данного действия
+	AddEmotionStimulus(EEmoCause::MeJumped, AttackForceAccum, this);
 	
 	//отключить удержание, чтобы прыжок состоялся
-	if (bKinematic) bKinematic = false;
+	bKinematicRefine = false;
 
 	//переход в состояние вознесения нужен для фиксации анимации, а не для новой дин-модели, которая всё равно затрётся дальше по ходу атакой
 	AdoptBehaveState(EBehaveState::fall);
@@ -1855,6 +1934,30 @@ void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObj
 
 }
 
+//==============================================================================================================
+//внести в душу новое эмоциональное переживание, внутри логика отбора значений и сил, если нестандарт, то можно подать извне
+//==============================================================================================================
+void AMyrPhyCreature::AddEmotionStimulus(EEmoCause Cause, float ExplicitStrength, UObject* Responsible, FEmoStimulus* ExplicitStimulus)
+{
+	FEmoStimulus Stimulus;
+	if (!ExplicitStimulus) ExplicitStimulus = GetEmoReaction(Cause);
+	if (ExplicitStimulus) Stimulus = *ExplicitStimulus;
+
+	switch (Cause)
+	{
+	case EEmoCause::LowHealth:
+		break;
+	}
+
+	//применить масштабирование стимула по внешнему параметру
+	if (ExplicitStrength >= 0 && ExplicitStrength < 1)
+		Stimulus.Attenuate(ExplicitStrength);
+
+	//если после аттенюации стимул не ушел в ноль - финальное вливание
+	if(Stimulus.Valid())
+		MyrAI()->EmoMemory.AddEmoFactor(Cause, Responsible, Stimulus);
+}
+
 //◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘
 //==============================================================================================================
 //подали на вход только идентификатор действия, а что это за действие неизвестно, так что нужно его поискать во всех списках и запустить по своему
@@ -2005,6 +2108,10 @@ void AMyrPhyCreature::SelfActionStart(int SlotNum)
 		//отправить символический звук выражения, чтобы очевидцы приняли во внимание и эмоционально пережили
 		MyrAI()->LetOthersNotice(EHowSensed::EXPRESSED); 
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s SelfActionStart OK %s"), *GetName(), *GetCurrentSelfActionName());
+
+		//показать в худе имя начатого действия
+		if(Daemon) Daemon->HUDOfThisPlayer()->OnAction(1, true);
+
 	}
 }
 
@@ -2045,6 +2152,9 @@ void AMyrPhyCreature::SelfActionCease()
 
 		//применить новые настройки динамики движения/поддержки для частей тела поясов
 		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
+
+		//удалить в худе имя начатого действия
+		if (Daemon) Daemon->HUDOfThisPlayer()->OnAction(1, false);
 	}
 }
 
@@ -2280,8 +2390,6 @@ void AMyrPhyCreature::WidgetOnUnGrab(AActor* Victim)
 
 //==============================================================================================================
 //показать на виджете худа то, что пересечённый григгер-волюм имел нам сообщить
-
-
 void AMyrPhyCreature::WigdetOnTriggerNotify(EWhyTrigger ExactReaction, AActor* What, USceneComponent* WhatIn, bool On)
 {
 	if (Daemon)
@@ -2341,6 +2449,20 @@ bool AMyrPhyCreature::DelOverlap(UMyrTriggerComponent* Ov)
 	return false;
 }
 
+//==============================================================================================================
+//выдать сборку эмоциональной реакции для данной причины, в основном будет вызываться из ИИ
+//==============================================================================================================
+FEmoStimulus* AMyrPhyCreature::GetEmoReaction(EEmoCause Cause)
+{
+	if (EmoReactions.Map.Num() == 0)
+		return GenePool->EmoReactions->List.Map.Find(Cause);
+	else return EmoReactions.Map.Find(Cause);
+}
+
+//выдать вовне память эмоциональных стимулов, которая лежит в ИИ
+FEmoMemory* AMyrPhyCreature::GetMyEmoMemory() { if(MyrAI()) return &MyrAI()->EmoMemory; else return nullptr; }
+
+
 //найти объём, в котором есть интересующая реакция, если нет выдать нуль
 UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR)
 {
@@ -2384,6 +2506,8 @@ bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, EWhoCame WhoAmI
 	if (UsedOv) Force = UsedOv->ReactGravityPitMove(*TR, this);
 	else return false;
 
+	//исключить вертикальную составляющую если текущий профиль поведения двигает только в плоскости
+	if (!GetBehaveCurrentData()->bOrientIn3D) Force.Z = 0;
 	InMoveDir += Force;
 	return true;
 }

@@ -28,7 +28,9 @@ template<> struct TStructOpsTypeTraits<FDaemonOtherTickFunc> : public TStructOps
 
 //###################################################################################################################
 // бестелесное метасущество, прослойка, чтоб смешивать PlayerController и ИИ,
-// также здесь камера и абсолютная точка зрения в игре, поэтому сюда перенесена куча уникальных задач
+// также здесь камера и абсолютная точка зрения в игре,
+// поскольку этот объект существует в сцене даже тогда, когда нет GameInstance и GameMode
+// сюда перенесена куча уникальных задач
 // - - выбор пользователем, что "сказать"
 // - - протагонист обплёвывается эффектом дождя, другим дождь не нужен видным, поэтому дождь правится через этот класс
 // - - здесь звучат звуки среды как целого, возможно, и музыку сюда перенести
@@ -133,16 +135,12 @@ protected:
 //свойства
 public:
 
+	//прямая ссылка на сборку небес для кореляции параметров наблюдателя напрямую в обход GameInst GameMode
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class AMyrKingdomOfHeaven* Sky;
+
 	//ссылка на коллекцию параметров материала для множества материалов типа позиция солнца и т.п.
 	//эту штуку задать в редакторе, пусть она будет одна на всё, так проще, чем плодить разные тематические коллекции
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialParameterCollection* EnvMatParam;
-
-	// позиция "воздуха" сейчас, смещение текстуры облаков и шелеста травы
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FVector2D CurrentAirMassPosition;
-
-	//текущее направление ветра
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FVector2D WindDir;
-
 
 	//предыдущая позиция демона, для расчёта сдвига следов
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector PreviousPosition;
@@ -240,7 +238,7 @@ public:
 	//степень воздействия психоделического шейдера, включается при потреблении травы и при смерти
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Psychedelic = 0.0f;
 
-	// сонность, накапливается при бодрствовании
+	// сонность, накапливается при бодрствовании (возможно, убрать, использовать А у эмоции)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Sleepiness = 0.0f;	
 
 	// 

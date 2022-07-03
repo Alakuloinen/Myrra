@@ -41,7 +41,8 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bClimb : 1;		//лазать по деревьям
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bFly : 1;			//летать
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bSoar : 1;		//активно набирать высоту
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematic : 1;	//кинематически перемещать/доводить
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematicRefine : 1;	//кинематически доводить
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematicMove : 1;//кинематически перемещать
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bMoveBack : 1;	//пятиться назад, сохраняя поворот вперед
 
@@ -94,7 +95,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float LightingAtView = 0.0f;			// уровень освещенности в направлении взгляда
 
 	// набор данных воздействия последней съеденной пищи			
-	UPROPERTY(EditAnywhere, BlueprintReadOnly) FDigestiveEffects DigestiveEffects;			
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) FDigestiveEffects DigestiveEffects;	
+
+	//эмоциональная идентичность данного существа, копируется из генофонда и прокачивается по ходу игры
+	//для неважных существ может оставаться нулём, и тогда эмоции будут постоянные, браться из генофонда
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) FEmoReactionList EmoReactions;
 
 	//кэш расстояния между центрами поясов, для позиционирования ведомого пояса
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;			
@@ -195,6 +200,7 @@ public:
 	//кинематически телепортировать в новое место
 	void TeleportToPlace(FTransform Dst);
 	void KinematicMove(FTransform Dst);
+	void SetKinematic(bool Set);
 
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
 	void SetWannaClimb(bool Set);
@@ -216,7 +222,7 @@ public:
 	void MakeStep(ELimb WhatFoot, bool Raise);
 
 	//пострадать от физических повреждений (всплывает из меша)
-	void Hurt(float Amount, FVector ExactHitLoc, FVector Normal, EMyrSurface ExactSurface, FSurfaceInfluence* ExactSurfInfo = nullptr);
+	void Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector Normal, EMyrSurface ExactSurface, FSurfaceInfluence* ExactSurfInfo = nullptr);
 
 	//ментально осознать, что пострадали от действий другого существа или наоборот были им обласканы
 	void SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker);
@@ -353,7 +359,11 @@ public:
 	//возможно, вместо AActor следует ввести UObject, чтобы адресовать и компоненты, и всё прочее
 	void CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObject* Patient, FMyrLogicEventData* ExplicitEmo = nullptr);
 
+	//внести в душу новое эмоциональное переживание, внутри логика отбора значений и сил, если нестандарт, то можно подать извне
+	void AddEmotionStimulus(EEmoCause Cause, float ExplicitStrength = -1, UObject* Responsible = nullptr, FEmoStimulus *ExplicitStimulus = nullptr);
+
 	//передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)
+	//старое, возможно, переделать
 	void TransferIntegralEmotion(float& Rage, float& Fear, float& Power, float& Amount);
 
 	//зарегистрировать пересекаемый объём с функционалом
@@ -367,8 +377,15 @@ public:
 	UFUNCTION(BlueprintImplementableEvent)	void RareTickInBlueprint(float DeltaTime);
 
 
+
 //свои возвращуны
 public:	
+
+	//выдать сборку эмоциональной реакции для данной причины, в основном будет вызываться из ИИ
+	FEmoStimulus* GetEmoReaction(EEmoCause Cause);
+
+	//выдать вовне память эмоциональных стимулов, которая лежит в ИИ
+	FEmoMemory* GetMyEmoMemory();
 
 	//проверить извне, пересекает ли существо выбранный триггер
 	bool HasOverlap(class UMyrTriggerComponent* Ov) const { return (Overlap0 == Ov || Overlap1 == Ov || Overlap2 == Ov); }

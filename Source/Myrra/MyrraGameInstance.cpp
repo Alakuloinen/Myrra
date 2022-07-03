@@ -74,6 +74,56 @@ void UMyrraGameInstance::Init()
 
 	//подцепить все квесты - точки срабатывания
 	InitializeQuests();
+
+}
+
+void UMyrraGameInstance::PostLoad()
+{
+	EmoReactionWhatToDisplay.Add(EEmoCause::Pain,
+		FEmoReactionsUI(TEXT("Pain"), TEXT("Emotional reaction to acute pain from damage"), EEmotio::Insanity, 10, 200));
+	EmoReactionWhatToDisplay.Add(EEmoCause::MeJumped,
+		FEmoReactionsUI(TEXT("Me Jumped"), TEXT("Feeling after a successful jump, scaled by jump accumulated force"), EEmotio::Pride, 1, 10));
+	EmoReactionWhatToDisplay.Add(EEmoCause::VoiceOfRatio,
+		FEmoReactionsUI(TEXT("Ratio"), TEXT("Tendency to balance emotions to rational sober state"), EEmotio::Peace, 2, 150));
+	EmoReactionWhatToDisplay.Add(EEmoCause::Burnout,
+		FEmoReactionsUI(TEXT("Burnout"), TEXT("Lightening all emotions to the void due to emotional overload"), EEmotio::Void, 3, 100));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::TimeDay,
+		FEmoReactionsUI(TEXT("Time: Day"), TEXT("Daytime induced vibe, no scale, can be rejected at overload"), FEmoStimulus(90, 120, 60, 1, 100)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::TimeEvening,
+		FEmoReactionsUI(TEXT("Time: Evening"), TEXT("Evening induced vibe, no scale, can be rejected at overload"), FEmoStimulus(70, 100, 100, 1, 100)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::TimeMorning,
+		FEmoReactionsUI(TEXT("Time: Morning"), TEXT("Morning induced vibe, no scale, can be rejected at overload"), FEmoStimulus(50, 120, 40, 1, 100)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::TimeNight,
+		FEmoReactionsUI(TEXT("Time: Night"), TEXT("Nighttime induced vibe, no scale, can be rejected at overload"), FEmoStimulus(70, 120, 120, 1, 100)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::Moon,
+		FEmoReactionsUI(TEXT("Moon"), TEXT("Emotion towards the visible moon, the brighter and upper the stronger"), FEmoStimulus(100, 90, 130, 2, 100)));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherSunny,
+		FEmoReactionsUI(TEXT("Sunny weather"), TEXT("Attitude towards sunshine, the stronger the less clouds and the higher the sun"), FEmoStimulus(90, 130, 20, 3, 100)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherCloudy,
+		FEmoReactionsUI(TEXT("Cloudy weather"), TEXT("Attitude towards daily clouds and overcast, scaled by blue sky shortage"), EEmotio::Peace, 1, 30));
+	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherFoggy,
+		FEmoReactionsUI(TEXT("Foggy weather"), TEXT("Attitude towards considerable amount of fog, scaled by fog density"), FEmoStimulus(130, 90, 150, 3, 100)));
+
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::LowHealth,
+		FEmoReactionsUI(TEXT("Low Health"), TEXT("Emotional reaction to severe heath lowering, scaled by zero proximity"), EEmotio::Horror, 50, 100));
+	EmoReactionWhatToDisplay.Add(EEmoCause::LowStamina,
+		FEmoReactionsUI(TEXT("Low Stamina"), TEXT("Feeling physically exhausted, scaled by zero proximity"), EEmotio::Void, 1, 20));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedArm,
+		FEmoReactionsUI(TEXT("Damaged Arm"), TEXT("Emotion scaled by arm / hinder paw damage"), FEmoStimulus(150, 0, 150, 4, 30)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedLeg,
+		FEmoReactionsUI(TEXT("Damaged Leg"), TEXT("Emotion scaled by leg / yonder paw damage"), FEmoStimulus(120, 0, 180, 3, 50)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedTail,
+		FEmoReactionsUI(TEXT("Damaged Tail"), TEXT("Emotion scaled by tail physical damage"), FEmoStimulus(180, 0, 50, 1, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedHead,
+		FEmoReactionsUI(TEXT("Damaged Head"), TEXT("Emotion scaled by head physical damage"), EEmotio::Insanity, 4, 70));
+	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedCorpus,
+		FEmoReactionsUI(TEXT("Damaged Body"), TEXT("Emotion scaled by chest, spine, belly physical damage"), FEmoStimulus(180, 20, 150, 1, 60)));
+
+	Super::PostLoad();
 }
 
 
@@ -500,6 +550,8 @@ UMaterialParameterCollectionInstance* UMyrraGameInstance::MakeMPCInst()
 {
 	return GetWorld()->GetParameterCollectionInstance(GetMatParams());
 }
+
+
 
 //====================================================================================================
 //передать инфу о событии на головной уровень - это может стать причиной продвижения истории и квеста

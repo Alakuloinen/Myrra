@@ -31,6 +31,9 @@ public: // диапазоны умений
 	//комплексная реакция на разные элементарные действия - теперь отдельным дата-ассетом
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") class UMyrLogicEmotionReactions* MyrLogicReactions;
 
+	//новое воплощение эмоциональной идентичности - список эмоциональных реакций
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") class UMyrEmoReactionList* EmoReactions;
+
 	//базис для рассчёта терминальной скорости, с которой соударяясь, не получаешь травм
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") float MaxSafeShock = 600;
 

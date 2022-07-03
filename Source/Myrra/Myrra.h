@@ -21,6 +21,7 @@
 
 //эмоции/цвета + отношения к объектам
 #include "BaseDefinitions/myrra_emotions.h"
+#include "BaseDefinitions/myrra_emotio.h"
 
 //анатомия - членики и сегменты тела
 #include "BaseDefinitions/myrra_anatomy.h"

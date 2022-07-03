@@ -515,8 +515,8 @@ FVector UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AMyr
 //==============================================================================================================
 FVector UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCreature* C)
 {
-	//вектор к центру, полноразмерный
-	FVector Ra =  (GetComponentLocation() - C->GetHeadLocation());
+	//вектор от существа к центру, полноразмерный
+	FVector Ra =  (GetComponentLocation() - C->GetActorLocation());
 	float RaDist2 = Ra.SizeSquared();
 
 	//такого не случится, потому что пересёк с существом пропадёт, но вдруг...
@@ -529,15 +529,21 @@ FVector UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCrea
 		//в противных случаях радиус равен половине габаритов, а мягкость единице
 		float RadiusToStart = Bounds.SphereRadius / 2;
 		float Smoothness = -FCString::Atof(*R.Value);
+
+		//меньше нуля значит исходно было больше нуля, значит это был введен радиус
 		if (Smoothness < 0)
-		{	Smoothness = 1.0f;
+		{	
+			//радиус должен быть меньше общего, иначе не будет области тяги
 			if(-Smoothness < Bounds.SphereRadius)
 				RadiusToStart = -Smoothness;
+
+			//убрать плавность в дефолт
+			Smoothness = 1.0f;
 		}
 		
 		//если внутри области свободного движения, то вектор нулевой
 		if (RaDist2 <= FMath::Square(RadiusToStart))
-			return FVector(0);
+			return FVector::ZeroVector;
 
 		//при выходе за область вектор начинает расти 
 		else return Ra * Smoothness * (FMath::Sqrt(RaDist2) - RadiusToStart) / (Bounds.SphereRadius - RadiusToStart);
@@ -598,8 +604,8 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 		case EWhyTrigger::KinematicLerpToCenter:
 		case EWhyTrigger::KinematicLerpToCenterLocationOnly:
 		case EWhyTrigger::KinematicLerpToCenterLocationOrientation:
-			C->bKinematic = !Release;
-			if (C->bKinematic)
+			C->bKinematicRefine = !Release;
+			if (C->bKinematicRefine)
 			{	C->GetMesh()->SetPhyBodiesBumpable(false);
 				if (C->Daemon)
 					C->Daemon->SetMotionBlur(10.0f);

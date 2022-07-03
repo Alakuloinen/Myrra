@@ -431,3 +431,13 @@ UMyrLogicEmotionReactions::UMyrLogicEmotionReactions()
 	}
 
 }
+
+#define ADD(C,V,S,D) Add(EEmoCause::##C, EEmotio::##V, S, D)
+
+UMyrEmoReactionList::UMyrEmoReactionList()
+{
+	ADD ( VoiceOfRatio,		Peace,			2,		255);		//движение к спокойному бодрствованию
+	ADD ( Burnout,			Void,			2,		120);		//движение к полному эмоциональному выгоранию
+	ADD ( Pain,				Insanity,		10,		120);		//реакция на боль - сумасшествие
+	ADD ( MeJumped,			Pride,			2,		30);		//ПРЫГНУЛИ И НА ДУШЕ ХОРОШО, но не надолго
+}

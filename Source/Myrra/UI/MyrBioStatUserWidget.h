@@ -70,13 +70,12 @@ public:	// функции
 	UFUNCTION(BlueprintImplementableEvent)	void OnExpressionRelease(bool Relax);// начало самовыражения - вывести меню
 	UFUNCTION(BlueprintImplementableEvent)	void OnExpressionSelect(bool Relax, int i);// начало самовыражения - вывести меню
 
-	//нотификации, выдаваемые триггерами-объёмами
-	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerCanEat(AActor* Obj, bool Can);
-	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerCanClimb(AActor* Obj, bool Can);
-	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerCanSleep(AActor* Obj, bool Can);
-
 	//новый универсальный вариант
 	UFUNCTION(BlueprintImplementableEvent)	void OnTriggerNotify(EWhyTrigger ExactReaction, AActor* Obj, bool Can);
+
+	// события старта действий, чтоб отображать названия и не делать это в тике
+	UFUNCTION(BlueprintImplementableEvent)	void OnAction(int WhatKind, bool Start);
+
 
 
 };

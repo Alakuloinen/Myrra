@@ -6,8 +6,39 @@
 #include "Engine/GameInstance.h" 
 #include "Containers/Map.h"
 #include "MyrQuest.h"
-//#include "Camera/CameraShake.h"
+#include "Paper2D/Classes/PaperSprite.h"
 #include "MyrraGameInstance.generated.h"
+
+//структура для вынесения эмоциональных реакций в интерфейс, иконка, описание
+USTRUCT(BlueprintType) struct MYRRA_API FEmoReactionsUI
+{
+	GENERATED_USTRUCT_BODY()
+
+	//иконка из нарезки, показывающая суть эмоционального испытания
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TWeakObjectPtr<UPaperSprite> Icon;
+
+	//человековаримый текст, как называется это событие
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText Name;
+
+	//дополнительный текст, разъясняющий, когда и как событие происходит
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText Description;
+
+	//само значение стимула, сюда будет подсасываться реальное значение при открытии экрана
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEmoStimulus DefaultStimulus;
+
+	FEmoReactionsUI() {}
+	FEmoReactionsUI(FString inName, FString inDesc, FEmoStimulus inSt = FEmoStimulus())
+	{	Name = FText::FromString(inName);
+		Description = FText::FromString(inDesc);
+		DefaultStimulus = inSt;
+	}
+	FEmoReactionsUI(FString inName, FString inDesc, EEmotio Arch, uint8 A = 2, uint8 Dur = 10)
+	{	Name = FText::FromString(inName);
+		Description = FText::FromString(inDesc);
+		DefaultStimulus = FEmoStimulus(FEmotio::As(Arch).ToFLinearColor(), A, Dur);
+	}
+
+};
 
 class URoleParameter;
 //###################################################################################################################
@@ -52,7 +83,9 @@ public: // супер глобальные свойства
 	//материал (видимо тупой простой) для копирования следов (забить в редакторе конкретный материал)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialInterface* MaterialToHistorifyTrails;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FEmotio Emotio;
+	//настройки отображения эмоциональных реакций в меню самой игры
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  TMap<EEmoCause, FEmoReactionsUI> EmoReactionWhatToDisplay;
+
 
 //--------------------------------------------------------------------------------
 public: // квесты
@@ -95,9 +128,11 @@ public: // квесты
 public: // стандартные методы и переопределения виртуальных
 //--------------------------------------------------------------------------------
 
-	//совсем общая функция для начальной инициализации
+	//это типа BeginPlay
 	virtual void Init() override;
 
+	//после загрузки
+	virtual void PostLoad() override;
 
 	//при изменении свойств при редактированни класса потомка в редакторе
 #if WITH_EDITOR
@@ -172,5 +207,11 @@ public: //возвращуны
 
 	//создать для текущей функции локальную инстанцию коллекции параметров материала
 	class UMaterialParameterCollectionInstance* MakeMPCInst();
+
+	//выдать ближайшую эмоцию словесную
+	UFUNCTION(BlueprintCallable) float EmotionToMnemo    (const FEmotio& In,	  EEmotio& Out1, EEmotio& Out2) const { return          In.GetArch(&Out1, &Out2); }
+	UFUNCTION(BlueprintCallable) float EmoStimulusToMnemo(const FEmoStimulus& In, EEmotio& Out1, EEmotio& Out2) const { return FEmotio(In).GetArch(&Out1, &Out2); }
+	UFUNCTION(BlueprintCallable) FLinearColor EmoStimulusToColor(const FEmoStimulus& In) const { return FEmotio(In).ToFLinearColor(); }
+
 
 };

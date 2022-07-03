@@ -76,9 +76,6 @@ public: //свои уникальные методы
 	//модифицировать параметры звука по части призвука плохого самочувствия
 	void SetSoundLowHealth(float Health, float Metabolism, float Pain);
 
-	//что внутри пока неясно, оставлять на блюпринт или набирать списком данных
-	//void GameplayTriggerEvent(AActor* Subject, AActor *Object, EMyrLogicEvent WhatHappened);
-
 	//сменить на этом уровне протагониста
 	void ChangeProtagonist(FTriggerReason R, AMyrPhyCreature* Former);
 
@@ -94,6 +91,9 @@ public: //возвращуны
 	//протагониста в виде конесного существа
 	UFUNCTION(BlueprintCallable) class AMyrPhyCreature* GetProtagonist();
 
+	//для списка воздействий в интерфейсе выдать вот это вот воздействие для главного героя
+	UFUNCTION(BlueprintCallable) FEmoStimulus GetMyStimulus(EEmoCause Cause) const;
+
 	//тип восприятия протагониста - нормальное, чутьё на одних, чутьё на других
 	//от этого зависит, что рисовать на экране
 	//эта функция раздаётся всем остальным классам
@@ -102,5 +102,9 @@ public: //возвращуны
 
 	//направление ветра (теперь лежит в другом классе, посему доступ через функцию)
 	FVector2D* WindDir();
+
+	//абсолютная позиция массы воздуха, для сдвига карты вета, облаков и погоды
+	FVector2D* AirMassPosition();
+	double* WeatherMapPosition();
 
 };

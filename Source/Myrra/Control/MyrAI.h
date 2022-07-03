@@ -11,6 +11,21 @@
 //свои дебаг записи
 DECLARE_LOG_CATEGORY_EXTERN(LogMyrAI, Log, All);
 
+//###################################################################################################################
+// ◘ дополнительный тик
+//###################################################################################################################
+//возможно, сделать с шаблоном
+USTRUCT(BlueprintType) struct MYRRA_API FEmoStimulEntry
+{
+	GENERATED_USTRUCT_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EMyrLogicEvent Why;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEmoStimulus How;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TWeakObjectPtr<UObject> Whence;
+};
+
+//###################################################################################################################
+// ◘ искусственный интеллект
+//###################################################################################################################
 UCLASS() class MYRRA_API AMyrAI : public AAIController
 {
 	GENERATED_BODY()
@@ -23,7 +38,8 @@ UCLASS() class MYRRA_API AMyrAI : public AAIController
 	//самое главное - генерирует сообщения при замечании и упускании актера по зрению, слуху и т.п.
 	UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true")) class UAIPerceptionComponent* AIPerception = nullptr;
 		
-	uint32 Counter = 0;		// последовательно увеличивается каждый такт, для генерации циклов
+	// последовательно увеличивается каждый такт, для генерации циклов и ультра редких событий
+	uint32 Counter = 0;		
 
 //свойства
 public:
@@ -39,6 +55,11 @@ public:
 
 	//память о предыдуще сделанных действиях - точно прошедшее только последнее, остальные перемешаны, но позволяют оценить частотность разных акций
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FEmotionMemory EventMemory;
+
+	//◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘
+	//новая форма учёта эмоциональных воздействий, просто добавляется и оставляет пустую ячейку, когда исчезает
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEmoMemory EmoMemory;
+
 
 	//оперативные цели (ложатся как попало, старшинство варьируется индексами)
 	FGoal Goals[2];	/////////////////////////////////////////////////////////
@@ -147,6 +168,9 @@ public:
 
 //метаболизм эмоциональных откликов на события
 public:
+
+	//новая функция по добавлению эмоционального стимула 
+	void AddEmotionStimulus(FEmoStimulEntry New);
 
 	//зарегистрировать событие, влияющее на жизнь существа - в рамках ИИ
 	void RecordMyrLogicEvent(EMyrLogicEvent Event, float Mult, UPrimitiveComponent* Obj, FMyrLogicEventData* EventInfo);

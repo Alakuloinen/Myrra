@@ -66,6 +66,9 @@ private:
 	//номер такого же, но с другой стороны, для лап это лево-право, для спины \то перед-назад
 	static ELimb DirectOpposite[(int)ELimb::NOLIMB];
 
+	//таблица доступа для кодов эмоциональных стимулов при повреждении определенной части тела
+	static EEmoCause FeelLimbDamaged[(int)ELimb::NOLIMB];
+
 //стандартные методы и переопределения
 public: 
 
@@ -358,6 +361,9 @@ public:
 	{	auto DirAlong = Branch->GetUnrealWorldTransform().GetUnitAxis(EAxis::Y);
 		if (DirAlong.Z < 0) DirAlong = -DirAlong; return DirAlong;
 	}
+
+	//выдать вовне номер эмо-стимула при повреждении части тела
+	static EEmoCause GetDamageEmotionCode(ELimb eL) { return FeelLimbDamaged[(int)eL]; }
 
 	//точка нижнего седла сегмента ветки - пока неясно, в каком классе стоит эту функцию оставлять: меша, веткаи или какого другого
 	//она просто вычисляет коррдинаты, куда телепортировать точку отсчёта кошки (низ-зад)
