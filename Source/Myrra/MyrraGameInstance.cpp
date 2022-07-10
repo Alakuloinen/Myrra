@@ -123,6 +123,15 @@ void UMyrraGameInstance::PostLoad()
 	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedCorpus,
 		FEmoReactionsUI(TEXT("Damaged Body"), TEXT("Emotion scaled by chest, spine, belly physical damage"), FEmoStimulus(180, 20, 150, 1, 60)));
 
+	EmoReactionWhatToDisplay.Add(EEmoCause::HearYouUnknown,
+		FEmoReactionsUI(TEXT("Hearing Unknown Creature"), TEXT("Emotion of hearing a creature that was never met (perveived, attacked) before. Scaled by loudness, defined by a general attitude to that creature's species, if present"), EEmotio::Worry, 1, 100));
+	EmoReactionWhatToDisplay.Add(EEmoCause::SeeYouUnknown,
+		FEmoReactionsUI(TEXT("Seeing Unknown Creature"), TEXT("Emotion of visually perceiving a creature that was never met (perveived, attacked) before. Scaled by visibility, defined by a general attitude to that creature's species, if present"), EEmotio::Anxiety, 2, 10));
+	EmoReactionWhatToDisplay.Add(EEmoCause::HearYouKnown,
+		FEmoReactionsUI(TEXT("Hearing Known Creature"), TEXT("Emotion of hearing a creature that was already met before and stays defined by a unique attitude in our memory. Scaled by loudness."), EEmotio::Worry, 1, 10));
+	EmoReactionWhatToDisplay.Add(EEmoCause::SeeYouKnown,
+		FEmoReactionsUI(TEXT("Seeing Known Creature"), TEXT("Emotion of visually preceiving a creature that was already met before and stays defined by a unique attitude in our memory. Scaled by visibility."), EEmotio::Anxiety, 1, 1));
+
 	Super::PostLoad();
 }
 

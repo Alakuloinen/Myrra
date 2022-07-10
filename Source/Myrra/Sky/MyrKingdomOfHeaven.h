@@ -54,6 +54,36 @@ UENUM(BlueprintType) enum class ETimeZone : uint8
 	UTCp14 UMETA(DisplayName = "UTC+14:00"),
 };
 
+//###################################################################################################################
+// сборка для интерполяции поворота неба и светила
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FCelestRotInterp
+{
+	GENERATED_USTRUCT_BODY()
+
+	float Time0 = 0.0f;
+	float DiffInv = 0.0f;
+	FQuat Rotations[6];
+
+	FQuat& B(int C) { return Rotations[C]; }		// минувший сэмпл
+	FQuat& F(int C) { return Rotations[C+3]; }		//следующий сэмпл
+
+	//здесь учитывается, что часть дня посреди интерполяции может перегнуться с 0.99 -> 0.01, в этом случае просто
+	//прибавляется единица и делается, что часть дня 0.99 -> 1.01, на следующем Time0 перешьется в 0.01, и все снова будет правильно
+	float MixAmount(float DayFrac) const { return DayFrac >= Time0 ? (DayFrac - Time0)*DiffInv : (DayFrac + 1 - Time0)*DiffInv; }
+
+	FQuat Current(int Ch, float A) {  return FQuat::Slerp(B(Ch), F(Ch), A);   }
+	FQuat Get(int Ch, float DayFra) { return Current(Ch, MixAmount(DayFra)); }
+
+	void AddTime() { Time0 += 1/DiffInv; }
+	void LoadTimeAndInterval(float T0, float Interval)  { Time0 = T0; DiffInv = 1/Interval; }
+	void Load(int Ch, FQuat Back, FQuat Fore) { B(Ch) = Back; F(Ch) = Fore; }
+
+	void Shift(int Ch) { B(Ch) = F(Ch); }
+	void ShiftAll() { Time0 += 1 / DiffInv; if (Time0 > 1) Time0 -= 1; Shift(0); Shift(1); Shift(2); }
+	void LoadNextAndShift(int Ch, FQuat Next) { B(Ch) = F(Ch); F(Ch) = Next; }
+	void LoadNextAndShift(FQuat q1, FQuat q2, FQuat q3) { LoadNextAndShift(0,q1); LoadNextAndShift(1,q2); LoadNextAndShift(2,q3); Time0 += 1/DiffInv; }
+};
 
 //###################################################################################################################
 // "геном" погоды, который считывается с карты, пока неясно, что в альфу и насколько привязывать этот базис к
@@ -104,6 +134,7 @@ USTRUCT(BlueprintType) struct FWeatherBase
 	void Add(FWeatherBase O) { AsV4() = AsV4() + O.AsV4(); }
 
 };
+
 
 //###################################################################################################################
 // сборка вторичных параметров погоды, вычисляемых из базовых, кэшируемых чтобы плавно подводились
@@ -198,6 +229,7 @@ USTRUCT(BlueprintType) struct FWeatherDerived
 };
 
 //###################################################################################################################
+//внешняя сборка погоды - пока не нужно, возможно, ждя катсцен, чтобы получить определенную погоду
 //###################################################################################################################
 UCLASS(Blueprintable, BlueprintType) class MYRRA_API UWeatherAsset : public UDataAsset
 {
@@ -231,11 +263,12 @@ public:
 //###################################################################################################################
 //сборка всего, что нужно для неба и погоды
 //###################################################################################################################
-UCLASS(HideCategories = (Mesh, Material, Shape, Physics, Navigation, Collision, Animation)) class MYRRA_API AMyrKingdomOfHeaven : public AActor
+UCLASS(HideCategories = (Mesh, Material, Shape, Physics, Navigation, Collision, Animation))
+class MYRRA_API AMyrKingdomOfHeaven : public AActor
 {
 	GENERATED_BODY()
 
-		//▄▀ - обязательные компоненты - 
+	//▄▀ - обязательные компоненты - 
 
 	//небесная сфера, ссюда проецируются облака, неподвижна, возможно, двигать вместе с игроком
 	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
@@ -279,7 +312,6 @@ public:
 	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly) UWorld* EditorWorld = nullptr;
 #endif
 
-
 	//место действия на земле
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Latitude = 53.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Longitude = 37.0f;
@@ -293,62 +325,19 @@ public:
 	//начальная дата действия во внутреннем формате, сюда скидываются отдельные поля свыше
 	UPROPERTY()	FDateTime Inception;
 
-	//ссылка на коллекцию параметров материала для множества материалов типа позиция солнца и т.п.
-	//эта общая коллекция для всей игры, и хорошо было бы запрятать ее во что-то глобальное, вроде gameinst, gamemode
-	//но эти объекты существуют только при живой игре, и попытка обратиться к ним в редакторе = краш
-	//приходится костылём дублировать эту штуку здесь для нужд токм этого класса
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialParameterCollection* EnvMatParam;
-
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float ZenithSunIntensity = 60;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float ZenithMoonIntensity = 1;
-
-	//коэффициент астрономического времени, например 100 - это сто секунд в реальную секунду 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float GameTimeDilation = 100.0f;
-
-	//скорость рассчёта погоды в стабильном режиме и в режиме смены погод (нафиг здесь, можно константами)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float TickIntervalStable = 0.5f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float TickIntervalWeatherChange = 0.1f;
-
-
-	//распределение цветов солнца и луны от времени дня
-	//для упрощения, можно использовать физ-модель, но почему-то так быстрее
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* SunIntensitiesPerZ;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* MoonIntensitiesPerZ;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* GroundColorsPerSunZ;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* ZenithColorsPerSunZ;
-
-
-	//посчитанные времена восхода, заката, полдня в долях суток - нужны для мнемонического определения времени (утро, вечер..)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float SunriseFrac;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float SunsetFrac;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float NoonFrac;
-
-	//набор текстур для освещения общего, по времени суток
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 NumberOfCubemaps = 0;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FAmbients SkyAmbients;
-
-	//протагонист на этой стороне нужен, чтоб брать позицию
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) class AMyrDaemon* Protagonist = nullptr;
-
-	//▄▀ - текущие параметры, меняются в реальном времени
+	//▄▀ - погода в реальном времени
 
 	//время дня, или нескольких дней, которое реально изменяется в игре, солнце отсчитывается от DateOfPrecalculatedDays + TimeOfDay
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FTimespan TimeOfDay;
 
 	//время суток в виде скаляра (0-1), например полдень=0.5, можно конечно вычислятьь, но как-то убого/длинно это делается
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float CurrentDayFraction;
-
-	uint16 FrameCunter = 0;
-
-	//▄▀ - погода в реальном времени
-
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CurrentDayFraction;
 	//абсолютная позиция точки отсчёта всей массы воздуха
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector2D AirMassPosition;
 	UPROPERTY() double WeatherMapPosition[2];
 
 	//направление ветра (теперь лежит в другом классе, посему доступ через функцию)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector2D WindDir;		
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector2D WindDir;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector2D WindDirTarget;
 
 	//явный модификатор погоды, аддитивный, для перекрытия естественного течения
@@ -362,7 +351,7 @@ public:
 
 	//новый способ определения погоды, глобальная бесшовная текстура облачности/ясности, 
 	//на ЦПУ берется тексель текущем месте для определения погоды, в ГПУ модифицирует облачность 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TWeakObjectPtr<UTexture> GlobalWeatherMap;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	UTexture* GlobalWeatherMap = nullptr;
 
 	//коэффициент, превращающий координаты массы воздуха в сантиметрах в координаты текстуры облаков
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float MultCloudPosition = 0.000003;
@@ -378,11 +367,54 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 MinTemperatureC = 10;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 MaxTemperatureC = 30;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TWeakObjectPtr<UWeatherAsset> WeatherCurrent;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TWeakObjectPtr<UWeatherAsset> WeatherUpcoming;
+	//▄▀ - ресурсы и глубокие настройки
+
+	//ссылка на коллекцию параметров материала для множества материалов типа позиция солнца и т.п.
+	//эта общая коллекция для всей игры, и хорошо было бы запрятать ее во что-то глобальное, вроде gameinst, gamemode
+	//но эти объекты существуют только при живой игре, и попытка обратиться к ним в редакторе = краш
+	//приходится костылём дублировать эту штуку здесь для нужд токм этого класса
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialParameterCollection* EnvMatParam;
+
+	//интенсивности звезд, возможно, уже не нужны
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float ZenithSunIntensity = 60;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float ZenithMoonIntensity = 1;
+
+	//коэффициент астрономического времени, например 100 - это сто секунд в реальную секунду 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float GameTimeDilation = 100.0f;
+
+	//скорость рассчёта погоды в стабильном режиме и в режиме смены погод (нафиг здесь, можно константами)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float TickIntervalStable = 0.5f;
+
+
+	//распределение цветов солнца и луны от времени дня
+	//для упрощения, можно использовать физ-модель, но почему-то так быстрее
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* SunIntensitiesPerZ;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* MoonIntensitiesPerZ;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* GroundColorsPerSunZ;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveLinearColor* ZenithColorsPerSunZ;
+
+
+	//посчитанные времена восхода, заката, полдня в долях суток - нужны для мнемонического определения времени (утро, вечер..)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float SunriseFrac = 0.3;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float SunsetFrac = 0.7;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float NoonFrac = 0.5;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float MaxSunZ = 0.5;
+
+	//кэш опорных точек вращения светил, для быстрой интерполяции
+	UPROPERTY() FCelestRotInterp Ephemerides;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float DayFractionQuantumForSampling = 0.01;
+
+	//набор текстур для освещения общего, по времени суток
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 NumberOfCubemaps = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FAmbients SkyAmbients;
+
+	//протагонист на этой стороне нужен, чтоб брать позицию
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class AMyrDaemon* Protagonist = nullptr;
+
 
 	//таймер в редакторе используется для генерации карт окружения не отрываясь от процесса
 	FTimerHandle Timer;
+	uint16 FrameCunter = 0;
 
 public:
 
@@ -401,7 +433,7 @@ public:
 
 #endif
 
-	//-----------------------------------------------------
+//-----------------------------------------------------
 public:	//▄▀ - генерация текстур оружения для данного режима движения солнца, и кривых траекторий солнца
 //-----------------------------------------------------
 
@@ -416,6 +448,21 @@ public:	//▄▀ - генерация текстур оружения для д�
 //-----------------------------------------------------
 public:	//▄▀ - общие процедуры
 //-----------------------------------------------------
+
+	//посчитать время суток в виде дроби из текущей даты/времени
+	void RecalcDayFraction() { CurrentDayFraction = ((Inception + TimeOfDay).GetTicks() % ETimespan::TicksPerDay) / (double)ETimespan::TicksPerDay; }
+
+	//сбросить и заново наполнить интерполяторы позиций светил
+	void ResetEphemerides()
+	{	Inception = FDateTime(Year, Month, Day);
+		RecalcDayFraction();
+		Ephemerides.LoadTimeAndInterval(CurrentDayFraction, DayFractionQuantumForSampling);
+		EvaluateSkyForTime(CurrentDayFraction + DayFractionQuantumForSampling * 0, Ephemerides.B(0), Ephemerides.B(1), Ephemerides.B(2));
+		EvaluateSkyForTime(CurrentDayFraction + DayFractionQuantumForSampling * 1, Ephemerides.F(0), Ephemerides.F(1), Ephemerides.F(2));
+	}
+
+	//полностью пересчитать небесную механику для определенных даты и времени
+	void EvaluateSkyForTime(double JulianDate, FQuat& Sun, FQuat& Moon, FQuat& Sky);
 
 	//изменить наклон солнца
 	void ChangeTimeOfDay();
@@ -451,6 +498,7 @@ public:	//▄▀ - возвращуны
 
 	//направление света
 	FVector SunDir() const;
+	float SunZ() const { return -SunDir().Z; }
 	FVector MoonDir() const;
 
 	//единица - разгар данной части дня, ноль - сейчас какая-то другая часть дня
@@ -463,13 +511,31 @@ public:	//▄▀ - возвращуны
 	FLinearColor MorningDayEveningNight() const { return FLinearColor(MorningAmount(), NoonAmount(), EveningAmount(), NightAmount()); }
 
 	//униполярная фаза луны, если вектора строго разнонаправлены, это полная луна, нуль это нет луны, растущая/стареющая не различаются ибо нах
-	float MoonPhase() const { return 0.5f + 0.5f * FVector::DotProduct(-SunDir(), MoonDir()); }
+	float MoonPhase() const { return 0.5f * FVector::DotProduct(-SunDir(), MoonDir()); }
 
 	//интенсивность, сила вклада луны
 	float MoonIntensity() const { return MoonPhase() * NightAmount() * (-MoonDir().Z); }
 
 	//текущий уровень облачности
 	float Cloudiness() const { return WeatherBase.Cloudiness(WeatherDerived.DryFog); }
+
+	// астрономия
+	//-----------------------------------------------------
+
+	//очень часто требуется для расчётов
+	double JulianCentury(FDateTime DT) const { return (DT.GetJulianDay() - 2451545.0) / 36525.0; }
+
+	//странный способ привести угол к одному обороту
+	double ReduceAngleTo360(double A) { while (A < 0.f || A > 360.f) A = A - FMath::Sign(A) * 360.f; return A; }
+
+	//среднее звездное время в гринвиче в градусах
+	double GreenwitchMeanSideralAngle(FDateTime UTC)
+	{	const double NowMinusJ2000 = (UTC.GetTicks() - FDateTime::FromUnixTimestamp(946728000).GetTicks()) / static_cast<double>(ETimespan::TicksPerDay);
+		return ReduceAngleTo360 (280.46061837 + 360.98564736629 * NowMinusJ2000);
+	}
+	//среднее звездное время на текущей долготе в градусах
+	double LocalSideralAngleFromGMST(double GMST) {	return ReduceAngleTo360 (GMST + Longitude); }
+
 
 protected:
 	// Called when the game starts or when spawned
@@ -481,30 +547,6 @@ public:
 
 	//после инициализации компонентов - важно, чтобы до любых BeginPlay на уровне
 	virtual void PostInitializeComponents() override;
-
-	//стырено/courtesy  MarScaper/ephemeris
-public:
-
-
-
-//стырено/courtesy jonimake/CelestialSphere - расчёт вращения звёздного неба
-public:
-
-	UFUNCTION(BlueprintCallable)
-	static float GetGreenwichMeanSiderealAngle(const FDateTime& GregorianDateTime);
-
-	UFUNCTION(BlueprintCallable)
-	static float GetLocalMeanSiderealAngle(float InGreenwichMeanSiderealAngle, float Longitudo);
-
-
-//стырено/courtesy @verycollective verycollective/Sundial - расчёт позиции солнца
-private:
-
-
-	//Get the sun's position data based on position, date and time 
-	UFUNCTION(BlueprintCallable) static void GetSunPosition(float Latitudo, float Longitudo, const FDateTime date, float& altitude, float& azimuth);
-
-	UFUNCTION(BlueprintCallable) static void GetSunRiseSet(float Latitudo, float Longitudo, const FDateTime date, float& Rise, float& Set, float &Noon);
 
 
 };

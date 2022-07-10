@@ -85,6 +85,7 @@ void AMyrAI::OnTargetPerceptionUpdated (AActor * Actor, FAIStimulus Stimulus)
 			Strength = Strength - (int)Stimulus.Strength;
 		}
 
+
 		//проталкиваем стимул глубже - на уровень замечания и рассовывания по ячейкам целей
 		//UE_LOG(LogTemp, Error, TEXT("%s AI Notices %s result %s"), *me()->GetName(), *Actor->GetName(), *TXTENUM(EGoalAcceptResult, NotRes));
 		auto NotRes = Notice (ExactObj, HowSensed, Strength, nullptr);

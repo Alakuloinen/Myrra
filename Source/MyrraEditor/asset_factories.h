@@ -9,8 +9,6 @@
 #include "../Myrra/AssetStructures/MyrCreatureBehaveStateInfo.h"
 #include "../Myrra/AssetStructures/MyrDendroInfo.h"
 #include "../Myrra/AssetStructures/MyrArtefactInfo.h"
-#include "../Myrra/AssetStructures/MyrCreatureGenerator.h"
-#include "../Myrra/AssetStructures/MyrKingdomOfHeavenWeather.h"
 #include "asset_factories.generated.h"
 
 //###################################################################################################################
@@ -176,35 +174,4 @@ public:
 	virtual bool HasActions(const TArray<UObject*>& InObjects) const override { return false; }
 	virtual uint32 GetCategories() override { return MyAssetCategory; }
 	EAssetTypeCategories::Type MyAssetCategory;
-};
-//###################################################################################################################
-// фабрика для создания и обслуживания инфы по виду генераторов существ
-//###################################################################################################################
-UCLASS(hidecategories = (Object))
-class MYRRAEDITOR_API UMyrCreatureGeneratorFactory : public UFactory
-{
-	GENERATED_BODY()
-public:
-	UMyrCreatureGeneratorFactory() { bCreateNew = true; bEditAfterNew = true; SupportedClass = UMyrCreatureGenerator::StaticClass(); }
-	virtual uint32 GetMenuCategories() const override { return EAssetTypeCategories::Blueprint; }
-	virtual UObject* FactoryCreateNew(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn) override
-	{
-		return NewObject<UMyrCreatureGenerator>(InParent, InClass, InName, Flags);
-	}
-};
-
-//###################################################################################################################
-// фабрика для создания и обслуживания инфы по виду погоды
-//###################################################################################################################
-UCLASS(hidecategories = (Object))
-class MYRRAEDITOR_API UMyrKingdomOfHeavenWeatherFactory : public UFactory
-{
-	GENERATED_BODY()
-public:
-	UMyrKingdomOfHeavenWeatherFactory() { bCreateNew = true; bEditAfterNew = true; SupportedClass = UMyrKingdomOfHeavenWeather::StaticClass(); }
-	virtual uint32 GetMenuCategories() const override { return EAssetTypeCategories::Blueprint; }
-	virtual UObject* FactoryCreateNew(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn) override
-	{
-		return NewObject<UMyrKingdomOfHeavenWeather>(InParent, InClass, InName, Flags);
-	}
 };

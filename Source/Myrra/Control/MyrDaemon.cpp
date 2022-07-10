@@ -665,19 +665,19 @@ void AMyrDaemon::ReleaseCreature()
 //==============================================================================================================
 //привязаться и разместиться в иерархии подцепленного существа
 //==============================================================================================================
-void AMyrDaemon::PoseInsideCreature()
+void AMyrDaemon::PoseInsideCreature(bool ResetCameraRot)
 {
 	//в скелете должен быть сокет, обычно в районе головы, иначе подвяжет к задним ногам
 	AttachToComponent((USceneComponent*)OwnedCreature->GetMesh(), FAttachmentTransformRules::KeepWorldTransform, TEXT("HeadLook"));
 
 	//соместить позицию с точнкой в голове
-	SetActorRelativeLocation(FVector(0));
+	if(ResetCameraRot) SetActorRelativeLocation(FVector(0));
 
 	//если вызывать из редактора, то контролер будет отсутствовать
 	if (Controller)
 	{
 		//типа обнулить
-		Controller->SetControlRotation(FRotator());
+		if(ResetCameraRot) Controller->SetControlRotation(FRotator());
 
 		//вектор движения сделать правильным до того, как само движение поимеет место
 		Drive.MoveDir = Controller->GetControlRotation().Vector();

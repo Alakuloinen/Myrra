@@ -93,16 +93,24 @@ AMyrKingdomOfHeaven::AMyrKingdomOfHeaven()
 
 }
 
+//==============================================================================================================
+// после загрузки, например, редактора
+//==============================================================================================================
 void AMyrKingdomOfHeaven::PostLoad() {
 	Super::PostLoad();
 
+	//переконвертить дату начала действия в тики
 	Inception = FDateTime(Year, Month, Day);
 
 	//эфемерис: записать место на земле
 	Ephemeris::setLocationOnEarth(Latitude, Longitude);
+	InitUnits();
 
 }
 
+//==============================================================================================================
+// в редакторе привили свойства = обновить модель
+//==============================================================================================================
 #if WITH_EDITOR
 void AMyrKingdomOfHeaven::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
@@ -110,17 +118,15 @@ void AMyrKingdomOfHeaven::PostEditChangeProperty(FPropertyChangedEvent& Property
 	FName PropertyName = (PropertyChangedEvent.Property != nullptr) ? PropertyChangedEvent.Property->GetFName() : NAME_None;
 
 	//дата начала действия
-	if (MUT(Year) || MUT(Month) || MUT(Day)) Inception = FDateTime(Year, Month, Day);
+	if (MUT(Year) || MUT(Month) || MUT(Day)) ResetEphemerides();
 
 	//новую россыпь карт окружения для времен
 	else if(MUT(NumberOfCubemaps))	GenerateCubemaps();
 
 	//изменили время дня - обновить позиции светил
 	else if (MUT(TimeOfDay))
-	{
+	{	ResetEphemerides();
 		ChangeTimeOfDay();
-		FDateTime CurrentDateTime(Inception.GetTicks() + TimeOfDay.GetTicks());
-		UE_LOG(LogTemp, Log, TEXT("SKY %s: time0 = %s %d"), *GetName(), *CurrentDateTime.ToString(), CurrentDateTime.GetTicks());
 	}
 
 	//двигаем позицию воздушной массы
@@ -137,8 +143,6 @@ void AMyrKingdomOfHeaven::PostEditChangeProperty(FPropertyChangedEvent& Property
 
 	//правка размерных коэффициентов - передать новые коэффициенты в шейдера
 	else if(MUT(MultCloudPosition) || MUT(MultCloudsVelocity) || MUT(MultWeatherPosition))	InitUnits();
-
-
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif
@@ -166,21 +170,18 @@ void AMyrKingdomOfHeaven::BeginPlay()
 //==============================================================================================================
 void AMyrKingdomOfHeaven::Tick(float DeltaTime)
 {
-	//соответствующий промежуток времени внутри игры
-	float InGameDelta = DeltaTime * GameTimeDilation;
-
 	//посчитать новое время
-	FTimespan NewTimeOfDay = TimeOfDay + FTimespan(0, 0, 0, InGameDelta, (InGameDelta - FMath::FloorToFloat(InGameDelta)) * 1000000);
-
-	//сменить время
-	TimeOfDay = NewTimeOfDay;
+	uint32 InGameDeltaTicks = (DeltaTime * GameTimeDilation) * (float)ETimespan::TicksPerSecond;
+	TimeOfDay = TimeOfDay + InGameDeltaTicks;
+	RecalcDayFraction();
 
 	//плавный поворот направления ветра к целевому вектору, нах нормировка, точность не нужна
 	WindDir.X = StepTo (WindDir.X, WindDirTarget.X, DeltaTime * 0.1f);
 	WindDir.Y = StepTo (WindDir.Y, WindDirTarget.Y, DeltaTime * 0.1f);
 
+
 	//если определена текстура погоды
-	if (GlobalWeatherMap.IsValid())
+	if (GlobalWeatherMap)
 	{
 		//как-то через жопу процесс добычи данных пикселей
 		//возможно, ну нах, в начале просто скопировать в массив и радоваться
@@ -250,10 +251,7 @@ void AMyrKingdomOfHeaven::Tick(float DeltaTime)
 	FrameCunter++;
 	if ((FrameCunter & 15) == 0) VeryRareAdjustWindDir(DeltaTime * 16);
 
-	//обработать погоду
-	//BewareWeathersChange(DeltaTime);
-
-	//обновить астрономические параметры
+	//обновить позиции светил и неба
 	ChangeTimeOfDay();
 
 	//всё
@@ -272,6 +270,7 @@ void AMyrKingdomOfHeaven::PostInitializeComponents()
 	if (GetWorld())
 		if (GetMyrGameMode())
 		{
+			//зарегистрировать себя на уровне
 			GetMyrGameMode()->Sky = this;
 
 			//добавить прямую ссылку на протагониста
@@ -288,8 +287,8 @@ void AMyrKingdomOfHeaven::PostInitializeComponents()
 //==============================================================================================================
 UTextureCube* AMyrKingdomOfHeaven::CreateTexture(UTextureRenderTargetCube* Source)
 {
-	//получить точную дату/время, в которой береётся проба неба
-	FDateTime CurT(Inception.GetTicks() + TimeOfDay.GetTicks());
+	//получить локальную точную дату/время, в которой береётся проба неба
+	FDateTime CurT(Inception + TimeOfDay);
 
 	//составить имя для ассета текстуры, из имени цели рендера и конкретных часов и минут
 	int h = CurT.GetHour();
@@ -385,54 +384,54 @@ void AMyrKingdomOfHeaven::InitUnits()
 {
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
-	auto MPC = MakeMPCInst();
-	if (!MPC) return;
+	if (GetWorld())
+	{
+		auto MPC = MakeMPCInst();
+		if (MPC)
+		{
 
-	//инициализировать множители перевода координат для облаков и неба: они требуются как минимум в 2 материалах: облаков и сферы, поэтому коллекция
-	MPC->SetVectorParameterValue(TEXT("SkyCanvasMultipliers"), FLinearColor(MultCloudPosition, MultCloudsVelocity, MultWeatherPosition, MultCloudPosition*MultCloudsVelocity));
+			//инициализировать множители перевода координат для облаков и неба: они требуются как минимум в 2 материалах: облаков и сферы, поэтому коллекция
+			MPC->SetVectorParameterValue(TEXT("SkyCanvasMultipliers"), FLinearColor(MultCloudPosition, MultCloudsVelocity, MultWeatherPosition, MultCloudPosition * MultCloudsVelocity));
 
-	//отправка нового значения в коллекцию параметров
-	MPC->SetVectorParameterValue(TEXT("AirMassPosition"), 
-		FLinearColor(
-			AirMassPosition.X, AirMassPosition.Y,				//натуральная позиция в метрических единицах
-			WeatherMapPosition[0], WeatherMapPosition[1]));		//приведенная позиция для полотна облаков и погоды
+			//отправка нового значения в коллекцию параметров
+			MPC->SetVectorParameterValue(TEXT("AirMassPosition"),
+				FLinearColor(
+					AirMassPosition.X, AirMassPosition.Y,				//натуральная позиция в метрических единицах
+					WeatherMapPosition[0], WeatherMapPosition[1]));		//приведенная позиция для полотна облаков и погоды
 
-	//ветер более глобален чем погода и доступ к нему через гейммод
-	MPC->SetVectorParameterValue(TEXT("WindDir"), FLinearColor(WindDir.X, WindDir.Y, 0, WeatherDerived.WindSpeed));
+			//ветер более глобален чем погода и доступ к нему через гейммод
+			MPC->SetVectorParameterValue(TEXT("WindDir"), FLinearColor(WindDir.X, WindDir.Y, 0, WeatherDerived.WindSpeed));
+		}
 
+	}
 
+	//подготовить стартовые опорные точки для интерполяции
+	ResetEphemerides();
 }
 
-
-
 //==============================================================================================================
-//изменить наклон солнца
+//полностью пересчитать небесную механику для определенных даты и времени
 //==============================================================================================================
-void AMyrKingdomOfHeaven::ChangeTimeOfDay()
+void AMyrKingdomOfHeaven::EvaluateSkyForTime(double TargetDayFraction, FQuat& Sun, FQuat& Moon, FQuat& Sky)
 {
-	//получить точную, текущую дату/время
-	FDateTime CurrentDateTime(Inception.GetTicks() + TimeOfDay.GetTicks());
+	//текущее время в тиках, с точностью до полуночи + часть дня явно выводимая из плавающей доли суток
+	FDateTime CurrentDateTime((Inception + FTimespan(TimeOfDay.GetDays(),0,0,0)) + TargetDayFraction*ETimespan::TicksPerDay);
 
 	//для расчёта через библиотеку
 	Ephemeris::setLocationOnEarth(Latitude, Longitude);
-
-	//доля суток - по-разному вычислять можно, здесь не особо нужна, но нужна для выбора карты окружения
-	CurrentDayFraction = (CurrentDateTime.GetTicks() % ETimespan::TicksPerDay) / (float)ETimespan::TicksPerDay;
 
 	//перевести местное время в UTC, ибо юлианский день отсчитывается именно от него
 	FDateTime CurrentDateTimeInLondon = CurrentDateTime.GetTicks() - ((int)TimeZone - 12) * ETimespan::TicksPerHour;
 
 	//вообще где-то сие зовут юлианский век, где-то просто Т
-	double JuCe = (CurrentDateTimeInLondon.GetJulianDay() - 2451545.0) / 36525.0;
+	double JuCe = JulianCentury(CurrentDateTimeInLondon);
 
-	//количество единиц дней с наступления эпохи ж2000
-	const double JulianNowMinusJ2000 = (CurrentDateTimeInLondon.GetTicks() - FDateTime::FromUnixTimestamp(946728000).GetTicks()) / static_cast<double>(ETimespan::TicksPerDay);
+	//среднее звездное время
+	float GreenwitchAngle = GreenwitchMeanSideralAngle(CurrentDateTimeInLondon);
+	float LocalAngle = LocalSideralAngleFromGMST(GreenwitchAngle);
 
-	//неприведенное среднее звездное время в гринвиче в градусах
-	float GreenwitchAngle = 280.46061837 + 360.98564736629 * JulianNowMinusJ2000;
-
-	//приведение к диапазону 0 - 360 градусов
-	while (GreenwitchAngle < 0.f || GreenwitchAngle > 360.f) GreenwitchAngle = GreenwitchAngle - FMath::Sign(GreenwitchAngle) * 360.f;
+	//выплюнуть поворот для небесной сферы
+	Sky = FRotator(Latitude, -LocalAngle, 0.0f).Quaternion();
 
 	//расчёт всякой хуйни, зависящей только от времени и места, но не от конкретного светила
 	TemporalDerivatives TD = Ephemeris::CalcTemporalDerivatives(JuCe, GreenwitchAngle);
@@ -441,21 +440,51 @@ void AMyrKingdomOfHeaven::ChangeTimeOfDay()
 	//расчёт координат солнца
 	auto SunCoords = Ephemeris::equatorialCoordinatesForSunAtJC(JuCe, &TD, nullptr);
 	auto SunCoordsH = Ephemeris::equatorialToHorizontal(H - SunCoords.ra * 15, SunCoords.dec, Latitude);
-	SunLight->SetWorldRotation(FRotator(-SunCoordsH.alt, -SunCoordsH.azi, 0));
+	Sun = FRotator(-SunCoordsH.alt, -SunCoordsH.azi, 0).Quaternion();
 
 	//расчёт координат луны
 	auto MoonCoords = Ephemeris::equatorialCoordinatesForEarthsMoonAtJC(JuCe, &TD, nullptr);
 	auto MoonCoordsH = Ephemeris::equatorialToHorizontal(H - MoonCoords.ra * 15, MoonCoords.dec, Latitude);
-	MoonLight->SetWorldRotation (FRotator(-MoonCoordsH.alt, -MoonCoordsH.azi, 0));
+	Moon = FRotator(-MoonCoordsH.alt, -MoonCoordsH.azi, 0).Quaternion();
 
-	//рассчёт угла поворота неба туть
-	float LocalAngle = GreenwitchAngle + Longitude;
-	while (LocalAngle < 0.f || LocalAngle > 360.f)	LocalAngle = LocalAngle - FMath::Sign(LocalAngle) * 360.f;
+	UE_LOG(LogTemp, Log, TEXT("SKY %s: EvaluateSkyForTime dayfrac=%g"), *GetName(), TargetDayFraction); 
 
-	//непосредственный поворот небесной сферы
-	const float flippedAngle = LocalAngle * -1.f;
-	Sphaera->SetRelativeRotation( FRotator(Latitude, flippedAngle, 0.0f ) );
-	UE_LOG(LogTemp, Verbose, TEXT("SKY %s: ChangeTimeOfDay dayfrac=%g, Alt=%g, Azi=%g"), *GetName(), CurrentDayFraction, SunCoordsH.alt, SunCoordsH.azi);
+}
+
+
+//==============================================================================================================
+//изменить наклон солнца
+//==============================================================================================================
+void AMyrKingdomOfHeaven::ChangeTimeOfDay()
+{
+
+	//численная оценка времени полудня
+	float OldSunZ = SunZ();
+	if(OldSunZ > MaxSunZ) { MaxSunZ = OldSunZ, NoonFrac = CurrentDayFraction; }
+
+	//коэффициент смеси угла между точно посчитанными значениями
+	float Mix = Ephemerides.MixAmount(CurrentDayFraction);
+
+	//проверка выхода за пределы интерполируемого участка
+	if(Mix > 1)
+	{	
+		//сдвинуть вторую точку на первую, а для второй пересчитать эфемериды
+		Ephemerides.ShiftAll();
+		EvaluateSkyForTime(Ephemerides.Time0 + DayFractionQuantumForSampling, Ephemerides.F(0), Ephemerides.F(1), Ephemerides.F(2));
+		Mix -= 1;
+	}
+	else if (Ephemerides.DiffInv == 0)	ResetEphemerides();
+
+	UE_LOG(LogTemp, Log, TEXT("SKY %s: ChangeTimeOfDay dayfrac=%g, time0=%g a=%g"), *GetName(), CurrentDayFraction, Ephemerides.Time0, Mix);
+
+	//крутить небесные тела быстро, по интерполяции между посчитанными точками
+	SunLight->SetWorldRotation(Ephemerides.Current(0, Mix));
+	MoonLight->SetWorldRotation(Ephemerides.Current(1, Mix));
+	Sphaera->SetWorldRotation(Ephemerides.Current(2, Mix));
+
+	//численная оценка времени заката и восхода
+	if(OldSunZ > 0 && SunZ() < 0) SunsetFrac = CurrentDayFraction; else
+	if(OldSunZ < 0 && SunZ() > 0) SunriseFrac = CurrentDayFraction; else
 	
 	//обновление шейдеров цвета неба
 	CorelateSunLigntToAngle();
@@ -488,12 +517,10 @@ void AMyrKingdomOfHeaven::CorelateSunLigntToAngle()
 		auto Color = SunIntensitiesPerZ->GetUnadjustedLinearColorValue(-SunDir().Z);
 		SunLight->SetIntensity(Color.A * ZenithSunIntensity);
 		SunLight->SetLightColor(Color);
-		//SkyLight->SetIntensity(Color.A);
-
 		MPC->SetVectorParameterValue(TEXT("DirectionToSun"), -SunDir());
 		MPC->SetVectorParameterValue(TEXT("SunColor"), Color);
 
-		//таблица цветов луны
+		//таблица цветов луны - вот это нужно, ибо модель плохо справляется
 		if (MoonIntensitiesPerZ)
 		{
 			//цвет луны
@@ -508,11 +535,15 @@ void AMyrKingdomOfHeaven::CorelateSunLigntToAngle()
 			MPC->SetVectorParameterValue(TEXT("MoonColor"), MoonColor);
 		}
 	}
+
+	//кривая цветов зенита неба, добавляется к модели чтобы получить нормальный цвет, особенно ночью
 	if (ZenithColorsPerSunZ)
 	{
 		auto Color = ZenithColorsPerSunZ->GetUnadjustedLinearColorValue(-SunDir().Z);
 		MPC->SetVectorParameterValue(TEXT("SkyColorZenith"), Color);
 	}
+
+	//цвет земли, неясно, нужно ли
 	if (GroundColorsPerSunZ)
 	{
 		auto Color = GroundColorsPerSunZ->GetUnadjustedLinearColorValue(-SunDir().Z);
@@ -532,24 +563,21 @@ void AMyrKingdomOfHeaven::SelectCubemapsForCurrentTime(uint8& iMap1, uint8& iMap
 	//float DayFraction = ((int64)(TimeOfDay.GetTicks() % ETimespan::TicksPerDay)) / (double)ETimespan::TicksPerDay;
 
 	//часть суток в диапазоне количества имеющихся карта окружения
-	float FayFractionInSamples = CurrentDayFraction * SkyAmbients.Maps.Num();
+	float DayFractionInSamples = CurrentDayFraction * SkyAmbients.Maps.Num();
 
 	//целочисленные границы = номера ближайших карт
-	iMap1 = FMath::FloorToInt(FayFractionInSamples);
-	iMap2 = FMath::CeilToInt(FayFractionInSamples);
+	iMap1 = FMath::FloorToInt(DayFractionInSamples);
+	iMap2 = FMath::CeilToInt(DayFractionInSamples);
 	if (iMap1 == SkyAmbients.Maps.Num()) iMap1 = 0;
 	if (iMap2 == SkyAmbients.Maps.Num()) iMap2 = 0;
-	TransitCoef = FayFractionInSamples - (float)iMap1;
+	TransitCoef = DayFractionInSamples - (float)iMap1;
 }
 
+//==============================================================================================================
+// применить погоду к компонентам тумана
+//==============================================================================================================
 void AMyrKingdomOfHeaven::ApplyWeather()
 {
-	//инстанция глобальных параметров материалов
-	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
-	auto MPC = MakeMPCInst();
-	if (!MPC) return;
-
-
 	//внедрение новых значений куда надо
 	ExponentialFog->SetFogDensity(WeatherDerived.FogDensity);
 	ExponentialFog->SetFogHeightFalloff(WeatherDerived.FogFalloff);
@@ -559,7 +587,6 @@ void AMyrKingdomOfHeaven::ApplyWeather()
 	ExponentialFog->VolumetricFogExtinctionScale = WeatherDerived.VolumetricFogExtinctionScale;
 	//MPC->SetScalarParameterValue(TEXT("CurrentWeatherCirrusAmount"), WeatherNow.CirrusAmount);
 	//MPC->SetScalarParameterValue(TEXT("CurrentWeatherCumulusAmount"), WeatherNow.CumulusAmount);
-
 
 	//выключить если ноль - хз, стоит ли свеч такая оптимизация
 	if (ExponentialFog->VolumetricFogExtinctionScale < 0.001) ExponentialFog->SetVolumetricFog(false);
@@ -615,7 +642,6 @@ void AMyrKingdomOfHeaven::PerFrameRoutine(float DeltaTime)
 	//применить погоду
 	ApplyWeather();
 
-
 }
 
 //====================================================================================================
@@ -641,217 +667,3 @@ void AMyrKingdomOfHeaven::VeryRareAdjustWindDir(float DeltaTime)
 
 	WindDirTarget.Normalize();
 }
-
-
-UFUNCTION(BlueprintCallable) void AMyrKingdomOfHeaven::GetSunPosition(float Latitudo, float Longitudo, const FDateTime DateTime, float& altitude, float& azimuth)
-{
-
-	double LatitudeRad = FMath::DegreesToRadians(Latitudo);
-
-	// Get the julian day (number of days since Jan 1st of the year 4713 BC)
-	double JulianDay = DateTime.GetJulianDay() + (DateTime.GetTimeOfDay().GetTotalHours() /*- TimeOffset*/) / 24.0;
-	double JulianCentury = (JulianDay - 2451545.0) / 36525.0;
-
-	// Get the sun's mean longitude , referred to the mean equinox of julian date
-	double GeomMeanLongSunDeg = FMath::Fmod(280.46646 + JulianCentury * (36000.76983 + JulianCentury * 0.0003032), 360.0f);
-	double GeomMeanLongSunRad = FMath::DegreesToRadians(GeomMeanLongSunDeg);
-
-	// Get the sun's mean anomaly
-	double GeomMeanAnomSunDeg = 357.52911 + JulianCentury * (35999.05029 - 0.0001537 * JulianCentury);
-	double GeomMeanAnomSunRad = FMath::DegreesToRadians(GeomMeanAnomSunDeg);
-
-	// Get the earth's orbit eccentricity
-	double EccentEarthOrbit = 0.016708634 - JulianCentury * (0.000042037 + 0.0000001267 * JulianCentury);
-
-	// Get the sun's equation of the center
-	double SunEqOfCtr = FMath::Sin(GeomMeanAnomSunRad) * (1.914602 - JulianCentury * (0.004817 + 0.000014 * JulianCentury))
-		+ FMath::Sin(2.0 * GeomMeanAnomSunRad) * (0.019993 - 0.000101 * JulianCentury)
-		+ FMath::Sin(3.0 * GeomMeanAnomSunRad) * 0.000289;
-
-	// Get the sun's true longitude
-	double SunTrueLongDeg = GeomMeanLongSunDeg + SunEqOfCtr;
-
-	// Get the sun's true anomaly
-	//	double SunTrueAnomDeg = GeomMeanAnomSunDeg + SunEqOfCtr;
-	//	double SunTrueAnomRad = FMath::DegreesToRadians(SunTrueAnomDeg);
-
-	// Get the earth's distance from the sun
-	//	double SunRadVectorAUs = (1.000001018*(1.0 - EccentEarthOrbit*EccentEarthOrbit)) / (1.0 + EccentEarthOrbit*FMath::Cos(SunTrueAnomRad));
-
-	// Get the sun's apparent longitude
-	double SunAppLongDeg = SunTrueLongDeg - 0.00569 - 0.00478 * FMath::Sin(FMath::DegreesToRadians(125.04 - 1934.136 * JulianCentury));
-	double SunAppLongRad = FMath::DegreesToRadians(SunAppLongDeg);
-
-	// Get the earth's mean obliquity of the ecliptic
-	double MeanObliqEclipticDeg = 23.0 + (26.0 + ((21.448 - JulianCentury * (46.815 + JulianCentury * (0.00059 - JulianCentury * 0.001813)))) / 60.0) / 60.0;
-
-	// Get the oblique correction
-	double ObliqCorrDeg = MeanObliqEclipticDeg + 0.00256 * FMath::Cos(FMath::DegreesToRadians(125.04 - 1934.136 * JulianCentury));
-	double ObliqCorrRad = FMath::DegreesToRadians(ObliqCorrDeg);
-
-	// Get the sun's right ascension
-	double SunRtAscenRad = FMath::Atan2(FMath::Cos(ObliqCorrRad) * FMath::Sin(SunAppLongRad), FMath::Cos(SunAppLongRad));
-	double SunRtAscenDeg = FMath::RadiansToDegrees(SunRtAscenRad);
-
-	// Get the sun's declination
-	double SunDeclinRad = FMath::Asin(FMath::Sin(ObliqCorrRad) * FMath::Sin(SunAppLongRad));
-	double SunDeclinDeg = FMath::RadiansToDegrees(SunDeclinRad);
-
-	double VarY = FMath::Pow(FMath::Tan(ObliqCorrRad / 2.0), 2.0);
-
-	// Get the equation of time
-	double EqOfTimeMinutes = 4.0 * FMath::RadiansToDegrees(VarY * FMath::Sin(2.0 * GeomMeanLongSunRad) - 2.0 * EccentEarthOrbit * FMath::Sin(GeomMeanAnomSunRad) + 4.0 * EccentEarthOrbit * VarY * FMath::Sin(GeomMeanAnomSunRad) * FMath::Cos(2.0 * GeomMeanLongSunRad) - 0.5 * VarY * VarY * FMath::Sin(4.0 * GeomMeanLongSunRad) - 1.25 * EccentEarthOrbit * EccentEarthOrbit * FMath::Sin(2.0 * GeomMeanAnomSunRad));
-
-	// Get the hour angle of the sunrise
-	double HASunriseDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Cos(FMath::DegreesToRadians(90.833)) / (FMath::Cos(LatitudeRad) * FMath::Cos(SunDeclinRad)) - FMath::Tan(LatitudeRad) * FMath::Tan(SunDeclinRad)));
-	//	double SunlightDurationMinutes = 8.0 * HASunriseDeg;
-
-	// Get the local time of the sun's rise and set
-	double SolarNoonLST = (720.0 - 4.0 * Longitudo - EqOfTimeMinutes/* + TimeOffset * 60.0*/) / 1440.0;
-	double SunriseTimeLST = SolarNoonLST - HASunriseDeg * 4.0 / 1440.0;
-	double SunsetTimeLST = SolarNoonLST + HASunriseDeg * 4.0 / 1440.0;
-
-	// Get the true solar time
-	double TrueSolarTimeMinutes = FMath::Fmod(DateTime.GetTimeOfDay().GetTotalMinutes() + EqOfTimeMinutes + 4.0 * Longitudo/* - 60.0 * TimeOffset*/, 1440.0);
-
-	// Get the hour angle of current time
-	double HourAngleDeg = TrueSolarTimeMinutes < 0 ? TrueSolarTimeMinutes / 4.0 + 180 : TrueSolarTimeMinutes / 4.0 - 180.0;
-	double HourAngleRad = FMath::DegreesToRadians(HourAngleDeg);
-
-	// Get the solar zenith angle
-	double SolarZenithAngleRad = FMath::Acos(FMath::Sin(LatitudeRad) * FMath::Sin(SunDeclinRad) + FMath::Cos(LatitudeRad) * FMath::Cos(SunDeclinRad) * FMath::Cos(HourAngleRad));
-	double SolarZenithAngleDeg = FMath::RadiansToDegrees(SolarZenithAngleRad);
-
-	// Get the sun elevation
-	double SolarElevationAngleDeg = 90.0 - SolarZenithAngleDeg;
-	double SolarElevationAngleRad = FMath::DegreesToRadians(SolarElevationAngleDeg);
-	double TanOfSolarElevationAngle = FMath::Tan(SolarElevationAngleRad);
-
-	// Get the approximated atmospheric refraction
-	double ApproxAtmosphericRefractionDeg = 0.0;
-	if (SolarElevationAngleDeg <= 85.0)
-	{
-		if (SolarElevationAngleDeg > 5.0)
-		{
-			ApproxAtmosphericRefractionDeg = 58.1 / TanOfSolarElevationAngle - 0.07 / FMath::Pow(TanOfSolarElevationAngle, 3) + 0.000086 / FMath::Pow(TanOfSolarElevationAngle, 5) / 3600.0;
-		}
-		else
-		{
-			if (SolarElevationAngleDeg > -0.575)
-			{
-				ApproxAtmosphericRefractionDeg = 1735.0 + SolarElevationAngleDeg * (-518.2 + SolarElevationAngleDeg * (103.4 + SolarElevationAngleDeg * (-12.79 + SolarElevationAngleDeg * 0.711)));
-			}
-			else
-			{
-				ApproxAtmosphericRefractionDeg = -20.772 / TanOfSolarElevationAngle;
-			}
-		}
-		ApproxAtmosphericRefractionDeg /= 3600.0;
-	}
-
-	// Get the corrected solar elevation
-	double SolarElevationcorrectedforatmrefractionDeg = SolarElevationAngleDeg + ApproxAtmosphericRefractionDeg;
-
-	// Get the solar azimuth 
-	double tmp = FMath::RadiansToDegrees(FMath::Acos(((FMath::Sin(LatitudeRad) * FMath::Cos(SolarZenithAngleRad)) - FMath::Sin(SunDeclinRad)) / (FMath::Cos(LatitudeRad) * FMath::Sin(SolarZenithAngleRad))));
-	double SolarAzimuthAngleDegcwfromN = HourAngleDeg > 0.0f ? FMath::Fmod(tmp + 180.0f, 360.0f) : FMath::Fmod(540.0f - tmp, 360.0f);
-
-
-	// offset elevation angle to fit with UE coords system
-	altitude = 180.0f + SolarElevationcorrectedforatmrefractionDeg;
-	azimuth = SolarAzimuthAngleDegcwfromN;
-}
-
-UFUNCTION(BlueprintCallable) void AMyrKingdomOfHeaven::GetSunRiseSet(float Latitudo, float Longitudo, const FDateTime DateTime, float& Rise, float& Set, float& Noon)
-{
-
-	double LatitudeRad = FMath::DegreesToRadians(Latitudo);
-
-	// Get the julian day (number of days since Jan 1st of the year 4713 BC)
-	double JulianDay = DateTime.GetJulianDay() + (DateTime.GetTimeOfDay().GetTotalHours() /*- TimeOffset*/) / 24.0;
-	double JulianCentury = (JulianDay - 2451545.0) / 36525.0;
-
-	// Get the sun's mean longitude , referred to the mean equinox of julian date
-	double GeomMeanLongSunDeg = FMath::Fmod(280.46646 + JulianCentury * (36000.76983 + JulianCentury * 0.0003032), 360.0f);
-	double GeomMeanLongSunRad = FMath::DegreesToRadians(GeomMeanLongSunDeg);
-
-	// Get the sun's mean anomaly
-	double GeomMeanAnomSunDeg = 357.52911 + JulianCentury * (35999.05029 - 0.0001537 * JulianCentury);
-	double GeomMeanAnomSunRad = FMath::DegreesToRadians(GeomMeanAnomSunDeg);
-
-	// Get the earth's orbit eccentricity
-	double EccentEarthOrbit = 0.016708634 - JulianCentury * (0.000042037 + 0.0000001267 * JulianCentury);
-
-	// Get the sun's equation of the center
-	double SunEqOfCtr = FMath::Sin(GeomMeanAnomSunRad) * (1.914602 - JulianCentury * (0.004817 + 0.000014 * JulianCentury))
-		+ FMath::Sin(2.0 * GeomMeanAnomSunRad) * (0.019993 - 0.000101 * JulianCentury)
-		+ FMath::Sin(3.0 * GeomMeanAnomSunRad) * 0.000289;
-
-	// Get the sun's true longitude
-	double SunTrueLongDeg = GeomMeanLongSunDeg + SunEqOfCtr;
-
-	// Get the sun's true anomaly
-	//	double SunTrueAnomDeg = GeomMeanAnomSunDeg + SunEqOfCtr;
-	//	double SunTrueAnomRad = FMath::DegreesToRadians(SunTrueAnomDeg);
-
-	// Get the earth's distance from the sun
-	//	double SunRadVectorAUs = (1.000001018*(1.0 - EccentEarthOrbit*EccentEarthOrbit)) / (1.0 + EccentEarthOrbit*FMath::Cos(SunTrueAnomRad));
-
-	// Get the sun's apparent longitude
-	double SunAppLongDeg = SunTrueLongDeg - 0.00569 - 0.00478 * FMath::Sin(FMath::DegreesToRadians(125.04 - 1934.136 * JulianCentury));
-	double SunAppLongRad = FMath::DegreesToRadians(SunAppLongDeg);
-
-	// Get the earth's mean obliquity of the ecliptic
-	double MeanObliqEclipticDeg = 23.0 + (26.0 + ((21.448 - JulianCentury * (46.815 + JulianCentury * (0.00059 - JulianCentury * 0.001813)))) / 60.0) / 60.0;
-
-	// Get the oblique correction
-	double ObliqCorrDeg = MeanObliqEclipticDeg + 0.00256 * FMath::Cos(FMath::DegreesToRadians(125.04 - 1934.136 * JulianCentury));
-	double ObliqCorrRad = FMath::DegreesToRadians(ObliqCorrDeg);
-
-	// Get the sun's right ascension
-	double SunRtAscenRad = FMath::Atan2(FMath::Cos(ObliqCorrRad) * FMath::Sin(SunAppLongRad), FMath::Cos(SunAppLongRad));
-	double SunRtAscenDeg = FMath::RadiansToDegrees(SunRtAscenRad);
-
-	// Get the sun's declination
-	double SunDeclinRad = FMath::Asin(FMath::Sin(ObliqCorrRad) * FMath::Sin(SunAppLongRad));
-	double SunDeclinDeg = FMath::RadiansToDegrees(SunDeclinRad);
-
-	double VarY = FMath::Pow(FMath::Tan(ObliqCorrRad / 2.0), 2.0);
-
-	// Get the equation of time
-	double EqOfTimeMinutes = 4.0 * FMath::RadiansToDegrees(VarY * FMath::Sin(2.0 * GeomMeanLongSunRad) - 2.0 * EccentEarthOrbit * FMath::Sin(GeomMeanAnomSunRad) + 4.0 * EccentEarthOrbit * VarY * FMath::Sin(GeomMeanAnomSunRad) * FMath::Cos(2.0 * GeomMeanLongSunRad) - 0.5 * VarY * VarY * FMath::Sin(4.0 * GeomMeanLongSunRad) - 1.25 * EccentEarthOrbit * EccentEarthOrbit * FMath::Sin(2.0 * GeomMeanAnomSunRad));
-
-	// Get the hour angle of the sunrise
-	double HASunriseDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Cos(FMath::DegreesToRadians(90.833)) / (FMath::Cos(LatitudeRad) * FMath::Cos(SunDeclinRad)) - FMath::Tan(LatitudeRad) * FMath::Tan(SunDeclinRad)));
-	//	double SunlightDurationMinutes = 8.0 * HASunriseDeg;
-
-	// Get the local time of the sun's rise and set
-	Noon = (720.0 - 4.0 * Longitudo - EqOfTimeMinutes/* + TimeOffset * 60.0*/) / 1440.0;
-	Rise = Noon - HASunriseDeg * 4.0 / 1440.0;
-	Set = Noon + HASunriseDeg * 4.0 / 1440.0;
-
-}
-
-
-
-float AMyrKingdomOfHeaven::GetGreenwichMeanSiderealAngle(const FDateTime& GregorianDateTime)
-{
-	//количество единиц дней с наступления эпохи ж2000
-	const double JulianNowMinusJ2000 = (GregorianDateTime.GetTicks() - FDateTime::FromUnixTimestamp(946728000).GetTicks()) / static_cast<double>(ETimespan::TicksPerDay);
-
-	//неприведенное звездное время
-	double gmst	= 280.46061837 + 360.98564736629 * JulianNowMinusJ2000;
-
-	//приведение к диапазону 0 - 360 градусов
-	while (gmst < 0.f || gmst > 360.f)	gmst = gmst - FMath::Sign(gmst) * 360.f;
-	return gmst;
-}
-
-float AMyrKingdomOfHeaven::GetLocalMeanSiderealAngle(float InGreenwichMeanSiderealAngle, float Longitudo)
-{
-	// need to normalize to 0..360 again since longitude addition might cause the value to go out of 0..360 range
-	float lmst = InGreenwichMeanSiderealAngle + Longitudo;
-	while (lmst < 0.f || lmst > 360.f)	lmst = lmst - FMath::Sign(lmst) * 360.f;
-	return lmst;
-}
-

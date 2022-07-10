@@ -267,7 +267,7 @@ public:
 	//подвязать к существу, чтобы им управлять (пока не используется, для автоподсоса к герою уровня при загрузке)
 	void ClingToCreature(AActor* a);
 	void ReleaseCreature();
-	void PoseInsideCreature();
+	void PoseInsideCreature(bool ResetCameraRot = true);
 
 	//двигать камеру согласно контроллеру
 	void MoveCamera3p();

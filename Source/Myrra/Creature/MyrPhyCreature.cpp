@@ -705,12 +705,19 @@ void AMyrPhyCreature::TeleportToPlace(FTransform Dst)
 //==============================================================================================================
 void AMyrPhyCreature::SetKinematic(bool Set)
 {
+	//для кинематики тела должны быть прозрачными и не сталкиваться с рельефом
 	Mesh->SetPhyBodiesBumpable(!Set);
+
+	//и вообще не загружаться физикой, раз кинематика
 	Mesh->SetMachineSimulatePhysics(!Set);
 	bKinematicMove = Set;
+
+	//для объёмов секций установить абсолютные координаты, хотя хз, насколько нужно, они в принципе не столь нужны
 	Thorax->SetAbsolute(!Set, !Set, false);
 	Pelvis->SetAbsolute(!Set, !Set, false);
-	if (!Set && Daemon)	Daemon->PoseInsideCreature();
+
+	//здесь надо осторожнее, ибо при выходе обнуляется камера
+	if (!Set && Daemon)	Daemon->PoseInsideCreature(false);
 
 }
 
@@ -866,7 +873,7 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	Age += DeltaTime;
 
 	//очень редко + если на уровне присутствует небо и смена дня и ночи
-	if ((FrameCounter & 16) == 0 && GetMyrGameMode()->Sky)
+	if (GetMyrGameMode()->Sky && GetMyrGameMode()->Sky->TimeOfDay.GetSeconds() < 3)
 	{
 		//разделка суток по периодам
 		auto TimesOfDay = GetMyrGameMode()->Sky->MorningDayEveningNight();
@@ -878,11 +885,11 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 		AddEmotionStimulus(EEmoCause::TimeNight, TimesOfDay.A);
 		AddEmotionStimulus(EEmoCause::Moon, GetMyrGameMode()->Sky->MoonIntensity());
 		AddEmotionStimulus(EEmoCause::WeatherCloudy, FMath::Max(0.0f, 2 * GetMyrGameMode()->Sky->Cloudiness() - 1.0f));
+		AddEmotionStimulus(EEmoCause::WeatherFoggy, FMath::Max(0.0f, 2 * GetMyrGameMode()->Sky->WeatherDerived.DryFog - 1.0f));
 		AddEmotionStimulus(EEmoCause::TooCold, FMath::Max(0.0f, 5.0f * (0.2f - GetMyrGameMode()->Sky->WeatherDerived.Temperature)));
 		AddEmotionStimulus(EEmoCause::TooHot, FMath::Max(0.0f, 5.0f * (GetMyrGameMode()->Sky->WeatherDerived.Temperature - 0.9f)));
 
 	}
-
 
 	//если повезёт, здесь высосется код связанный в блюпринтах
 	RareTickInBlueprint(DeltaTime);

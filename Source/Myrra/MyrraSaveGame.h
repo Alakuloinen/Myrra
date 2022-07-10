@@ -28,6 +28,9 @@ public:
 
 	//время дня, или нескольких дней, которое реально изменяется в игре, солнце отсчитывается от DateOfPrecalculatedDays + TimeOfDay
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FTimespan TimePassed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 SunrizeTimeFrac;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 SunsetTimeFrac;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 NoonTimeFrac;
 
 	//массив данных по героям (и вообще всем существам в игре) и предметам
 	UPROPERTY(VisibleAnywhere) TMap <FName, FCreatureSaveData> AllCreatures;
