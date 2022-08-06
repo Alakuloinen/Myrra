@@ -52,7 +52,11 @@ UCLASS() class MYRRA_API AMyrDaemon : public APawn
 
 	//источник эффектов частиц - для дождя, роя наскомых, может, и запаха
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
-		class UParticleSystemComponent* ParticleSystem;
+		class UNiagaraComponent* ParticleSystem;
+
+	//источник эффектов частиц вторичный, чтоб заливать дождём там, где он не загорожен
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+		class UNiagaraComponent* SecondaryParticleSystem;
 
 	//маркер цели квеста, должен пришпиливаться к указанным компонентам, пока неясно, нужен ли вообще
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
@@ -63,10 +67,6 @@ UCLASS() class MYRRA_API AMyrDaemon : public APawn
 	//звуки природы, также, возможно, музыка
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 		class UAudioComponent* AmbientSounds = nullptr;
-
-	//декал для покрытия материалов перед камерой (п)блеском дождя
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
-		class UDecalComponent* RainWetArea = nullptr;
 
 	//захватчик сцены для рендеринга следов, присмятия травы
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
@@ -144,6 +144,7 @@ public:
 
 	//предыдущая позиция демона, для расчёта сдвига следов
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector PreviousPosition;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DistWalkedAccum = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) EMyrCameraMode MyrCameraMode = EMyrCameraMode::ThirdPerson;
 
@@ -228,21 +229,29 @@ public:
 	//материал для копирования рендер цели отпечатка шагов в историю
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HistorifyTrailsMat = nullptr;
 
-	//рычаг для управления материалом капель дождя по поверхности
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* RainDecalMatInst = nullptr;
+	//материал для декаля мокроты, когда дождь прошел мимо крыши
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	UMaterialInstance* WetDecalMat = nullptr;
+
+	//дождь, который генерируется, когдя понятно, что крыши нет
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite)	UNiagaraSystem* SecondaryRain = nullptr;
+
 
 	//мокрота того, что вокруг камеры - инерционный эффект дождя
 	//влияет на материал с гистерезисом, без дождя извне постепенно спадает
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Wetness = 0.0f;
 
-	//степень воздействия психоделического шейдера, включается при потреблении травы и при смерти
+	//степень воздействия психоделического шейдера, включается при потреблении травы, при смерти, возможно и во сне
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float Psychedelic = 0.0f;
 
 	// сонность, накапливается при бодрствовании (возможно, убрать, использовать А у эмоции)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Sleepiness = 0.0f;	
 
-	// 
+	// уровень освещенности в глаза - для расширения зрачков        
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Luminance = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool CurLocNoRain = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 CurLocFliesMod = 255;
+
 
 
 	//канал дополнительных чувств, регулируют, какие запахи подсвечиваются
@@ -319,6 +328,9 @@ public:
 	//установить видимый уровень дождя
 	void SetWeatherRainAmount(float Amount);
 
+	//установить количество мух летающих вокруг 
+	void SetFliesAmount(float Amount);
+
 	//всё что связано с рендерингом текстуры шагов и следов на траве, воде и т.п.
 	void UpdateTrailRender();
 
@@ -347,6 +359,10 @@ public:
 
 	//получить уровень освещенности
 	float GetLightingAtVector(FVector V);
+
+	//среагировать на удар капли по земле
+	UFUNCTION(BlueprintCallable) void ReactOnRainDrop(float Size, FVector Position, FVector Velocity);
+
 
 //реакции на управление реальным существом
 public: 

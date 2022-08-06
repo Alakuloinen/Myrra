@@ -33,6 +33,8 @@ AMyrraGameModeBase::AMyrraGameModeBase() : Super()
 
 }
 
+#define E(entry) (1<<((int)EUIEntry::##entry))
+
 //==============================================================================================================
 //при загрузке уровня
 //==============================================================================================================
@@ -40,6 +42,7 @@ void AMyrraGameModeBase::InitGame(const FString& MapName, const FString& Options
 {
 	PrimaryActorTick.SetTickFunctionEnable(true);
 	Super::InitGame(MapName, Options, ErrorMessage);
+
 }
 
 
@@ -100,6 +103,32 @@ void AMyrraGameModeBase::BeginPlay()
 	}
 	//ВНИМАНИЕ, это включает отображение всех форм коллизий, наглядно но медленно
 	//GetWorld()->Exec(GetWorld(), TEXT("pxvis collision"));
+}
+
+void AMyrraGameModeBase::PostLoad()
+{
+	if (MenuSets.Num() == 0)
+	{
+		int32 PauseMenu = E(Pause)|E(Pause)|E(LoadLast)|E(QuickSave)|E(Saves)|E(Options)|E(Quit);
+		MenuSets.Add(EUIEntry::Pause,		FUIEntryData(TEXT("Pause"),			PauseMenu));
+		MenuSets.Add(EUIEntry::Continue,	FUIEntryData(TEXT("Continue"),		PauseMenu));
+		MenuSets.Add(EUIEntry::LoadLast,	FUIEntryData(TEXT("Pause"),			PauseMenu));
+		MenuSets.Add(EUIEntry::QuickSave,	FUIEntryData(TEXT("Quick Save"),	PauseMenu));
+		MenuSets.Add(EUIEntry::Saves,		FUIEntryData(TEXT("Saves"),			PauseMenu));
+		MenuSets.Add(EUIEntry::Options,		FUIEntryData(TEXT("Options"),		PauseMenu));
+		MenuSets.Add(EUIEntry::Quit,		FUIEntryData(TEXT("Quit"),			PauseMenu));
+
+		int32 GamePauseMenu = E(Quests)|E(Stats)|E(Known)|E(EmoStimuli)|E(Phenes);
+		MenuSets.Add(EUIEntry::Quests,		FUIEntryData(TEXT("Quests"),		GamePauseMenu));
+		MenuSets.Add(EUIEntry::Stats,		FUIEntryData(TEXT("Stats"),			GamePauseMenu));
+		MenuSets.Add(EUIEntry::Known,		FUIEntryData(TEXT("Acquaintances"),	GamePauseMenu));
+		MenuSets.Add(EUIEntry::EmoStimuli,	FUIEntryData(TEXT("Emotion Stimuli"),GamePauseMenu));
+		MenuSets.Add(EUIEntry::Phenes,		FUIEntryData(TEXT("Phenes"),		GamePauseMenu));
+
+		MenuSets.Add(EUIEntry::Start,		FUIEntryData(TEXT("Start"),			E(Start)|E(NewGame)|E(LoadLast)|E(Saves)|E(Options)|E(Authors)|E(Quit)));
+		MenuSets.Add(EUIEntry::GameOver,	FUIEntryData(TEXT("Game Over"),		E(GameOver)|E(NewGame)|E(LoadLast)|E(Saves)|E(Options)|E(Authors)|E(Quit)));
+	}
+	Super::PostLoad();
 }
 
 

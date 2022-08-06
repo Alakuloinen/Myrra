@@ -21,6 +21,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FString SaveSlotName;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FDateTime SavedDateTime;
 
+	//общая статистика
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FGameStats Statistics;
+
 	//перзистентный уровень, главный, на котором происзодила игра; остальные
 	//уровни загружаются вокруг игрока по его положению либо автоматически (акторы-объёмы)
 	//либо при загрузке главного по срабатыванию триггеров каких-то

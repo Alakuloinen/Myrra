@@ -44,6 +44,9 @@ public:	// функции
 	//для блюпринта меню, сделанного на этом классе, хз
 	UFUNCTION(BlueprintCallable) void SetProgressBarFillType(class UProgressBar* PB, TEnumAsByte<EProgressBarFillType::Type> Newft);
 
+	//окрасить кнопку нужными цветами
+	UFUNCTION(BlueprintCallable) void PaintButton(class UButton *Butt, bool Selected = true);
+
 	//вызов божественных сущностей
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrraGameInstance() const { return (UMyrraGameInstance*)GetGameInstance(); }
 	UFUNCTION(BlueprintCallable) class AMyrraGameModeBase* GetMyrraGameMode() const { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }

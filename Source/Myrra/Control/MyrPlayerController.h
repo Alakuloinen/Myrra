@@ -19,22 +19,15 @@ UCLASS() class MYRRA_API AMyrPlayerController : public APlayerController
 {
 	GENERATED_BODY()
 
-	//виджеты различных режимов интерфейса, адресуемые именами для простоты и понятности, не выдумывать энумераторы
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
-	TMap<FName, UUserWidget*> UIWidgets;
-
-	//текущее состояние интерфейса поверх игры (да, упроперти только перове из них)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	FName CurrentUIModeName;			// имя текущего интерфейса - для удобства, универсальности и редактора
-	FInterfaceMode* CurrentUIMode;		// аггрегатор реальных свойств режима интерфейса - управлние, ток времени
-
-	// запоминалка для предыдущего режима, чтобы легче возвращаться
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
-	FName ToggleRecentUIModeName;		
-
 	//текст важной инфы
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 		FText PlayHudMessage;
+
+	//новые варианты оформления - два виджета-комбайна, внутри которых меняются менюшки и окна
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))	class UMyrMenuWidget* WidgetUI = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))	class UMyrBioStatUserWidget* WidgetHUD = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))	bool bUI = false;
+
 
 public:
 
@@ -49,6 +42,7 @@ public:
 	//ограничение на поворот головы 
 	float FirstPersonHeadYawLimit = 90;
 
+	//трясуны камеры в случае упоротости и в случае боли
 	class UCameraShakeBase* Shake = nullptr;
 	class UCameraShakeBase* PainShake = nullptr;
 
@@ -79,43 +73,45 @@ public:	//свои методы
 	class UMyrraGameInstance* GetMyrGameInstance() { return (UMyrraGameInstance*)GetGameInstance(); }
 	class AMyrraGameModeBase* GetMyrGameMode() { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }
 
+	//возвращуны текущих виджетов
+	UMyrBioStatUserWidget* GetWidgetHUD() { return WidgetHUD; }
+	UMyrMenuWidget* GetWidgetUI() { return WidgetUI; }
+	bool IsNowUIPause() const { return bUI; }
+
+	//впендюрить трясунов
 	void AddCameraShake(TSubclassOf<UCameraShakeBase> s) { Shake = PlayerCameraManager->StartCameraShake(s); Shake->ShakeScale = 0; }
 	void AddPainCameraShake(TSubclassOf<UCameraShakeBase> s) { PainShake = PlayerCameraManager->StartCameraShake(s);  PainShake->ShakeScale = 0; }
 	UCameraShakeBase* GetCameraShake() { return Shake; }
 	UCameraShakeBase* GetPainCameraShake() { return PainShake; }
 
+	//ввести в виджеты ссылки на текущего главного героя (в начале и при обновлении)
+	void ChangeWidgetRefs(class AMyrPhyCreature* PC);
+
 	//смена режима лица
 	void SetFirstPerson(bool Set);
 
-	//переключиться на другой интерфейс
-	UFUNCTION(BlueprintCallable) void ChangeUIMode(FName ModeName);
-
-	//сменить целевое существо в виджете
-	void ChangeWidgetProps(UMyrBioStatUserWidget* UW = nullptr);
-
-	//текущий интерфейс
-	UFUNCTION(BlueprintCallable) FName GetCurrentUIModeName() const { return CurrentUIModeName; };
-	UFUNCTION(BlueprintCallable) FName GetRecentUIModeName() const { return ToggleRecentUIModeName; };
-	FInterfaceMode* GetCurrentUIMode() const { return CurrentUIMode; };
-
-	//выдать текущий виджет текущего режима интрфейса, может выдать нуль
-	class UMyrBioStatUserWidget* CurrentWidget();
-
-	//если мы находимся на уровне, который предполагает игру (а не только интерфейс) для этого должен присутствовать виджет худ
-	UFUNCTION(BlueprintCallable) bool OnPlayLevel() const { return (bool)UIWidgets.Find(TEXT("Play"));  }
 
 //-------------------------------------------------------------
 public:	//обработчики некоторых системных команд
 //-------------------------------------------------------------
 
-	//обработчики команд включения и выключения разных меню по кнопкам
-	UFUNCTION(BlueprintCallable) void TogglePause();
-	UFUNCTION(BlueprintCallable) void ToggleSaves();
-	UFUNCTION(BlueprintCallable) void ToggleStats();
-	UFUNCTION(BlueprintCallable) void ToggleQuests();
-	UFUNCTION(BlueprintCallable) void QuickSave();
 
-	//экран при окончании игры
-	UFUNCTION(BlueprintCallable) void GameOverScreen();
+	//новая фигня - закрыть универсальный агрегатор меню вплоть до игрового худа
+	UFUNCTION(BlueprintCallable) void ChangeWidgets(EUIEntry NewEntry = EUIEntry::NONE);
+
+	//команды интерфейса
+	UFUNCTION(BlueprintCallable) void CmdPause()		{ ChangeWidgets(EUIEntry::Pause); };
+	UFUNCTION(BlueprintCallable) void CmdGameOver()		{ ChangeWidgets(EUIEntry::GameOver); };
+	UFUNCTION(BlueprintCallable) void CmdQuests()		{ ChangeWidgets(EUIEntry::Quests); };
+	UFUNCTION(BlueprintCallable) void CmdEmoStimuli()	{ ChangeWidgets(EUIEntry::EmoStimuli); };
+	UFUNCTION(BlueprintCallable) void CmdKnown()		{ ChangeWidgets(EUIEntry::Known); };
+	UFUNCTION(BlueprintCallable) void CmdSaves()		{ ChangeWidgets(EUIEntry::Saves); };
+	UFUNCTION(BlueprintCallable) void CmdOptions()		{ ChangeWidgets(EUIEntry::Options); };
+	UFUNCTION(BlueprintCallable) void CmdPhenes()		{ ChangeWidgets(EUIEntry::Phenes); };
+	UFUNCTION(BlueprintCallable) void CmdStats()		{ ChangeWidgets(EUIEntry::Stats); };
+
+	//это даже не меню, а вызов процедуры сохранения и закрытия (закрытия или оставить?) текущего меню
+	UFUNCTION(BlueprintCallable) void CmdQuickSave();
+
 
 };

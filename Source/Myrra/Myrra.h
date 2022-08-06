@@ -252,6 +252,7 @@ USTRUCT(BlueprintType) struct FEyeVisuals
 //								███████   ███████   ███████   ███████   
 //								███████   ███████   ███████   ███████    
 
+
 //###################################################################################################################
 // РЕЖИМ интерфейса - что поверх игры и как этим управлять - агрегатор для набирания множества простых режимов
 // и редактирования в редакторе. Почему то рушит стек при инициализации в TMap
@@ -262,6 +263,9 @@ USTRUCT(BlueprintType) struct FInterfaceMode
 
 	// виджет, что застилает экран
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TSubclassOf<UUserWidget> Widget;
+
+	// текстовое называние меню, которое открывает виджет
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FText HumanReadableName;
 
 	// 1 - ГУЙ, управляется мышкой
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool UI_notHUD;
@@ -279,4 +283,65 @@ public:
 
 	//внести все простые данные, виджет придётся заполнять в блюпринте/редакторе
 	FInterfaceMode (bool UI, float Tf) { UI_notHUD = UI; TimeFlowMod = Tf; }
+};
+
+
+//режим положение камеры, определяет также эффекты движения, постэффекты и т.п.
+UENUM(BlueprintType) enum class EUIEntry : uint8
+{
+	NONE,
+	Start,
+	Pause,
+	GameOver,
+	GameComplete,
+	Continue,
+	NewGame,
+	LoadLast,
+	QuickSave,
+	Quests,
+	Stats,
+	Saves,
+	Known,
+	EmoStimuli,
+	Phenes,
+	Options,
+	Authors,
+	Quit,
+	MAX
+};
+
+USTRUCT(BlueprintType) struct FUIEntryData
+{
+	GENERATED_USTRUCT_BODY()
+
+	// виджет, что вываливается при выборе этого пункта меню
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TSubclassOf<UUserWidget> Widget;
+
+	// текстовое называние меню, которое открывает виджет
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FText HumanReadableName;
+
+	// можно ли закрыть и продолжить игру или тупиковый
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	UMaterialInterface* BackgroundMaterial;
+
+	//если вызов этой функции открывает меню, то какие еще строки меню в нем содержатся
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = EUIEntry)) int32 AsMenu = 0;
+
+	FUIEntryData() {}
+	FUIEntryData(FString InText, int32 InSet) : AsMenu(InSet) { HumanReadableName = FText::FromString(InText); }
+};
+
+//сборщик статистики
+USTRUCT(BlueprintType) struct FGameStats
+{
+	GENERATED_USTRUCT_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int32 DistanceWalked = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int32 AttacksMade = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int32 SuccessfulHitsMade = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float DamageCollected = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int32 FoodEaten = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int32 SleepPeriods = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float TotalTimeSleeping = 0;
+
 };

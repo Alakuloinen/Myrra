@@ -512,6 +512,9 @@ public:
 	//получить множитель незаметности, создаваемый поверхностью, на которой мы стоим
 	float GetCurrentSurfaceStealthFactor() const;
 
+	//рассеяние звука текущее - от уровня и локации
+	class USoundAttenuation* GetCurSoundAttenuation();
+
 	//целевая скорость, с которой мы хотим двигаться
 	UFUNCTION(BlueprintCallable) float GetDesiredVelocity() const { return BehaveCurrentData->MaxVelocity * MoveGain; }
 

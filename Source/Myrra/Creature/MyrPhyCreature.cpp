@@ -7,6 +7,7 @@
 #include "../MyrraGameModeBase.h"						// текущий уровень - чтобы брать оттуда протагониста
 #include "Artefact/MyrArtefact.h"						// неживой предмет - для логики поедания
 #include "Artefact/MyrTriggerComponent.h"				// триггер - для посылки ему "я нажал Е!"
+#include "Artefact/MyrLocation.h"						// локация по триггеру - обычно имеется в виду помещение
 #include "../Control/MyrDaemon.h"						// демон
 #include "../Control/MyrAI.h"							// ИИ
 #include "../UI/MyrBioStatUserWidget.h"					// индикатор над головой
@@ -241,7 +242,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		case EDigestiveTarget::Stamina:			Dst = &Stamina; break;
 		case EDigestiveTarget::Pain:			Dst = &Pain; break;
 		case EDigestiveTarget::Psychedelic:     if (Daemon) Dst = &Daemon->Psychedelic; break;
-		case EDigestiveTarget::Sleepiness:     if (Daemon) Dst = &Daemon->Sleepiness; break;
+		case EDigestiveTarget::Sleepiness:		if (Daemon) Dst = &Daemon->Sleepiness; break;
 		}
 
 		//модифицировать параметр, если порция испита до дна, удалить ее
@@ -1100,7 +1101,7 @@ void AMyrPhyCreature::SoundOfImpact(FSurfaceInfluence* StepSurfInfo, EMyrSurface
 			ExactStepLoc, FRotator(),
 			EAttachLocation::KeepWorldPosition, true,
 			Strength, 1.0f, 0.0f,
-			GetMyrGameMode()->SoundAttenuation, nullptr, true);
+			GetCurSoundAttenuation(), nullptr, true);
 
 		//установить параметры скорости (влияет на громкость) и вертикальности (ступание-крабканье-скольжение)
 		if (Noiser)
@@ -1151,6 +1152,11 @@ void AMyrPhyCreature::SurfaceBurst(UNiagaraSystem* Dust, FVector ExactHitLoc, FQ
 	ParticleSystem->SetFloatParameter(TEXT("VelocityScale"), FMath::Min(Scale, 1.0f));
 	ParticleSystem->SetFloatParameter(TEXT("FragmentStartAlpha"), Scale);
 
+	//брызги сильно отличаются на мокрой и схой поверхности, но для доступа к влажности нужен протагонист
+	if (GetMyrGameMode())
+		if (GetMyrGameMode()->Protagonist)
+			ParticleSystem->SetFloatParameter(TEXT("Wetness"), GetMyrGameMode()->Protagonist->Wetness);
+
 }
 
 //==============================================================================================================
@@ -1193,6 +1199,7 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	{	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s AdoptBehaveState %s cancelled by min velocity"), *GetName(), *TXTENUM(EBehaveState, NewState));
 		return false;
 	}
+
 
 	//сбросить счетчик секунд на состояние
 	StateTime = 0.0f;
@@ -1574,6 +1581,9 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStrikePerform()
 	//обнаружить, что мы пересекаем умный объём и передать ему, что мы совершаем, возможно, судьбоносное действие
 	if (OnVictim.SendApprovalToTriggerOverlapperOnStrike)	SendApprovalToOverlapper();
 
+	//статистика по числу атак
+	GetMyrGameInst()->Statistics.AttacksMade++;
+
 	//диагностика
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s NewAttackStrikePerform %d"), *GetName(), CurrentAttack);
 	return EAttackAttemptResult::STROKE;//◘◘>
@@ -1848,6 +1858,9 @@ void AMyrPhyCreature::Save(FCreatureSaveData& Dst)
 
 	//возможно, поднять над землей, чтоб не вмуровался
 	Dst.Transform.SetLocation(Dst.Transform.GetLocation() + FVector(0, 0, 10));
+
+	//сохранить класс внутренний существа
+	Dst.CreatureClass = GetClass();
 		
 	Dst.Phenotype = Phenotype;
 	Dst.Damages.SetNum((int)ELimb::NOLIMB);
@@ -1913,7 +1926,6 @@ void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObj
 {
 	if (!GenePool) return;						//нет генофонда вообще нонсенс
 	if (!GenePool->MyrLogicReactions) return;	//забыли вставить в генофонд список реакций
-	
 
 	//для начала инструкции по обслуживанию события должны быть внутри
 	auto EventInfo = MyrAI()->MyrLogicGetData(Event);
@@ -2357,6 +2369,7 @@ bool  AMyrPhyCreature::Eat()
 
 	//перед деструкцией будет отвязан ИИ
 	Food->GetOwner()->Destroy();
+	GetMyrGameInst()->Statistics.FoodEaten++;
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s Eat() %s"), *GetName(), *Food->GetOwner()->GetName());
 	return true;
 }
@@ -2419,7 +2432,7 @@ void AMyrPhyCreature::TransferIntegralEmotion(float& Rage, float& Fear, float& P
 }
 
 //==============================================================================================================
-//зарегистрировать пересекаемый объём с функционалом
+//зарегистрировать пересекаемый объём с функционалом - вызывается из TriggerComponent
 //==============================================================================================================
 void AMyrPhyCreature::AddOverlap(UMyrTriggerComponent* Ov)
 {
@@ -2430,13 +2443,25 @@ void AMyrPhyCreature::AddOverlap(UMyrTriggerComponent* Ov)
 		Overlap1 = Overlap0;
 	}
 	Overlap0 = Ov;
+
+	//случай входа на локацию
+	if(Ov->GetOwner()->IsA<AMyrLocation>() && Daemon)
+	{	Daemon->CurLocNoRain = ((AMyrLocation*)Ov->GetOwner())->FullyCoversRain;
+		Daemon->CurLocFliesMod = ((AMyrLocation*)Ov->GetOwner())->FliesAmount;
+	}
 }
 
 //==============================================================================================================
-//исключить пересекаемый объём при выходе из него
+//исключить пересекаемый объём при выходе из него - вызывается из TriggerComponent
 //==============================================================================================================
 bool AMyrPhyCreature::DelOverlap(UMyrTriggerComponent* Ov)
 {
+	//случай покидания локации
+	if(Ov->GetOwner()->IsA<AMyrLocation>() && Daemon)
+	{	Daemon->CurLocNoRain = false;
+		Daemon->CurLocFliesMod = 255;
+	}
+
 	//удаляем только те, еоторые ранее были зарегистрированы
 	if(Ov == Overlap0)
 	{	Overlap0 = Overlap1;
@@ -2637,6 +2662,12 @@ float AMyrPhyCreature::GetCurrentSurfaceStealthFactor() const
 
 	//берем минимальный из двух частей тела (почему минимальный?)
 	return FMath::Max(PelvisStealthFactor, ThoraxStealthFactor);
+}
+
+//рассеяние звука текущее - от уровня и локации
+USoundAttenuation* AMyrPhyCreature::GetCurSoundAttenuation()
+{
+	return GetMyrGameMode()->SoundAttenuation;
 }
 
 

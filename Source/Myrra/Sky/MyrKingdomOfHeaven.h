@@ -118,15 +118,17 @@ USTRUCT(BlueprintType) struct FWeatherBase
 	float Cloudiness(float Fog) const { return FMath::Min(1.0f, CumulusAmount + CirrusAmount * 0.25f + Fog); }
 
 	//сила ветра для разнообразия берется как взвешенная разность не только давлений, но и непосредственно облаков
-	float WindSpeed(const FVector4& New) const { return 0.3f + FVector::DotProduct(New - AsV4c(), FVector(2,1,4)); }
+	float WindSpeed(const FVector4& New) const { return 0.3f + FMath::Abs(FVector::DotProduct(New - AsV4c(), FVector(2,1,4))); }
 
 	//уровень дождя
-	float RainAmount() const { return FMath::Max(0.0f, (CirrusAmount - 0.8f))*Depression*5.0f; }
+	float RainAmount() const { return FMath::Max(0.0f, (CumulusAmount - 0.8f))*Depression*5.0f; }
 
 	//загрузить данные из карты с плавным приближением, тут же разностно посчитать силу ветра
-	float UpdateFromMap_GetWindSpeed (const FVector4& NewRaw, float MixAlpha)
+	float UpdateFromMap_GetWindSpeed (const FVector4& NewRaw, float MixAlpha, const FWeatherBase& ConstAdd)
 	{	float W = WindSpeed(NewRaw);
-		AsV4() = FMath::Lerp(AsV4(), NewRaw, MixAlpha);
+		CumulusAmount = FMath::Lerp(CumulusAmount, ConstAdd.CumulusAmount + NewRaw.X, MixAlpha);
+		CirrusAmount = FMath::Lerp(CirrusAmount, ConstAdd.CirrusAmount + NewRaw.Y, MixAlpha);
+		Depression = FMath::Lerp(Depression, ConstAdd.Depression + NewRaw.Z, MixAlpha);
 		return W;
 	}
 
@@ -347,7 +349,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FWeatherBase WeatherBase;
 
 	//производные показатели погоды, рассчитываются однозначно (до лерпа) из базовых 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FWeatherDerived WeatherDerived;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FWeatherDerived WeatherDerived;
 
 	//новый способ определения погоды, глобальная бесшовная текстура облачности/ясности, 
 	//на ЦПУ берется тексель текущем месте для определения погоды, в ГПУ модифицирует облачность 
@@ -483,7 +485,7 @@ public:	//▄▀ - общие процедуры
 	class UMaterialParameterCollectionInstance* MakeMPCInst();
 
 	//вычисление, требующие реального времени
-	void PerFrameRoutine(float DeltaTime);
+	void PerFrameRoutine(float DeltaTime, float& WetnessToEvaporate);
 
 	//изредка менять направление ветра и проверять, далеко ли ушла текстура
 	void VeryRareAdjustWindDir(float DeltaTime);

@@ -28,6 +28,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		TMap <FName, FInterfaceMode> InterfaceModes;
 
+	//сборка для остальных меню чтобы проще и универсальнее
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSubclassOf<UUserWidget> WidgetHUD_Class;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSubclassOf<UUserWidget> WidgetUI_Class;
+
+	//наборы меню с предопределенными наборами строк меню и функций
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+		TMap <EUIEntry, FUIEntryData> MenuSets;
+
+
 	//настройки для обычной камеры от третьего лица, отсюда протагонист берет настройки, когда переключается с 1-ого лица обратно
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEyeVisuals ThirdPersonVisuals;
 
@@ -62,6 +71,7 @@ public://стандартные
 	//в начале игры - очевидно, при загрузке уровня
 	virtual void BeginPlay() override;
 
+	virtual void PostLoad() override;
 
 public: //свои уникальные методы
 

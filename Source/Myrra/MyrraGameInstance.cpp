@@ -29,6 +29,9 @@
 
 #include "Materials/MaterialParameterCollectionInstance.h"	// для подводки материала неба
 
+#include "ImageUtils.h"									// загрузка скриншотов как текстур
+
+#include "GameFramework/GameUserSettings.h"				// стандартные опции для меню настроек
 
 //====================================================================================================
 //====================================================================================================
@@ -105,6 +108,10 @@ void UMyrraGameInstance::PostLoad()
 		FEmoReactionsUI(TEXT("Cloudy weather"), TEXT("Attitude towards daily clouds and overcast, scaled by blue sky shortage"), EEmotio::Peace, 1, 30));
 	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherFoggy,
 		FEmoReactionsUI(TEXT("Foggy weather"), TEXT("Attitude towards considerable amount of fog, scaled by fog density"), FEmoStimulus(130, 90, 150, 3, 100)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::TooCold,
+		FEmoReactionsUI(TEXT("Too Cold"), TEXT("Emotion raised at low temperatures"), EEmotio::Insanity, 1, 70));
+	EmoReactionWhatToDisplay.Add(EEmoCause::TooHot,
+		FEmoReactionsUI(TEXT("Too Hot"), TEXT("Emotion raised at high temperatures"), FEmoStimulus(80, 20, 20, 1, 60)));
 
 
 	EmoReactionWhatToDisplay.Add(EEmoCause::LowHealth,
@@ -123,14 +130,54 @@ void UMyrraGameInstance::PostLoad()
 	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedCorpus,
 		FEmoReactionsUI(TEXT("Damaged Body"), TEXT("Emotion scaled by chest, spine, belly physical damage"), FEmoStimulus(180, 20, 150, 1, 60)));
 
-	EmoReactionWhatToDisplay.Add(EEmoCause::HearYouUnknown,
-		FEmoReactionsUI(TEXT("Hearing Unknown Creature"), TEXT("Emotion of hearing a creature that was never met (perveived, attacked) before. Scaled by loudness, defined by a general attitude to that creature's species, if present"), EEmotio::Worry, 1, 100));
-	EmoReactionWhatToDisplay.Add(EEmoCause::SeeYouUnknown,
-		FEmoReactionsUI(TEXT("Seeing Unknown Creature"), TEXT("Emotion of visually perceiving a creature that was never met (perveived, attacked) before. Scaled by visibility, defined by a general attitude to that creature's species, if present"), EEmotio::Anxiety, 2, 10));
-	EmoReactionWhatToDisplay.Add(EEmoCause::HearYouKnown,
-		FEmoReactionsUI(TEXT("Hearing Known Creature"), TEXT("Emotion of hearing a creature that was already met before and stays defined by a unique attitude in our memory. Scaled by loudness."), EEmotio::Worry, 1, 10));
-	EmoReactionWhatToDisplay.Add(EEmoCause::SeeYouKnown,
-		FEmoReactionsUI(TEXT("Seeing Known Creature"), TEXT("Emotion of visually preceiving a creature that was already met before and stays defined by a unique attitude in our memory. Scaled by visibility."), EEmotio::Anxiety, 1, 1));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownNear,
+		FEmoReactionsUI(TEXT("Object Known Near"), TEXT("Passive emotional influence of a known creature or item at moderate proximity as it has kept in memory, scaled by distance"), EEmotio::Void, 1, 20));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownClose,
+		FEmoReactionsUI(TEXT("Object Known Close"), TEXT("Emotional influence of a known creature or item taken from memory on a very small distance or touching us, scaled by distance"), EEmotio::Void, 3, 20));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownComeClose,
+		FEmoReactionsUI(TEXT("Object Known Coming Close"), TEXT("Emotional influence of a known creature or item taken from memory, when it is coming closer or we are approaching to, scaled by velocity"), EEmotio::Void, 2, 20));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownFlyClose,
+		FEmoReactionsUI(TEXT("Object Known Flying Close"), TEXT("Emotional influence of a known flying creature taken from memory at a period of it is coming closer through air, scaled by velocity"), EEmotio::Void, 4, 20));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageNear,
+		FEmoReactionsUI(TEXT("Object Big In Rage Near"), TEXT("A creature bigger than us, apparently being in wrath to anything, is at a moderate distance to us, scaled by distance, size ratio, and being sure we perceive it"), FEmoStimulus(120, 50, 255, 4, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageClose,
+		FEmoReactionsUI(TEXT("Object Big In Rage Close"), TEXT("A creature bigger than us, apparently being in wrath to anything, is at a tiny distance or touching us, scaled by distance, size ratio, and being sure we perceive it"), FEmoStimulus(255, 60, 200, 10, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageComeClose,
+		FEmoReactionsUI(TEXT("Object Big In Rage Come Close"), TEXT("What we feel as a very angry creature bigger than us, is approaching to us, scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(255, 100, 255, 20, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageComeAway,
+		FEmoReactionsUI(TEXT("Object Big In Rage Come Away"), TEXT("What we feel about a very angry creature bigger than us, going away from us; scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(128, 150, 100, 5, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigComeClose,
+		FEmoReactionsUI(TEXT("Object Big Come Close"), TEXT("What we feel as a creature apparently bigger than us is approaching to us, scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(128, 40, 170, 5, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigComeAway,
+		FEmoReactionsUI(TEXT("Object Big Come Away"), TEXT("What we feel when a creature apparently bigger than us leaving us, scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(70, 100, 50, 3, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjSmallNear,
+		FEmoReactionsUI(TEXT("Object Small Near"), TEXT("What we feel as a tiny creature is at a moderate distance to us, scaled by size ratio, and distance"), FEmoStimulus(128, 128, 0, 3, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjSmallClose,
+		FEmoReactionsUI(TEXT("Object Small Close"), TEXT("What we feel as a tiny creature is close to us or touching us, scaled by size ratio, and distance"), FEmoStimulus(128, 128, 128, 3, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjSmallInRageClose,
+		FEmoReactionsUI(TEXT("Object Small In Rage Close"), TEXT("A very angry creature rather smaller than us is at a tiny distance or touching us; scaled by distance, size ratio, and being sure we perceive it"), FEmoStimulus(255, 0, 0, 2, 60)));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveComeClose,
+		FEmoReactionsUI(TEXT("Object In Love Come Close"), TEXT("Feeling when a being expressing love or friendliness approaching us, scaled by amount of friendliness and velocity"), FEmoStimulus(0, 250, 128, 2, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveComeClose,
+		FEmoReactionsUI(TEXT("Object In Love Come Away"), TEXT("What we feel when a being expressing love or friendliness running out of our area, scaled by amount of friendliness and velocity"), FEmoStimulus(70, 120, 200, 1, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveClose,
+		FEmoReactionsUI(TEXT("Object In Love Close"), TEXT("What we feel when a creature showing love or friendliness is very close to us or touching us, scaled by amount of friendliness and distance"), FEmoStimulus(50, 255, 100, 2, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveNear,
+		FEmoReactionsUI(TEXT("Object In Love Near"), TEXT("What we feel when a creature showing love or friendliness is at a moderate distance to us, scaled by amount of friendliness and distance"), FEmoStimulus(0, 255, 0, 1, 60)));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInFearComeAway,
+		FEmoReactionsUI(TEXT("Object In Fear Come Away"), TEXT("A scared creature running away, scaled by velocity, and amount of fear"), FEmoStimulus(100, 100, 0, 1, 60)));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInFearComeClose,
+		FEmoReactionsUI(TEXT("Object In Fear Come Close"), TEXT("What we feel when a big scared creature is running onto us, scaled by velocity, size, and amount of fear"), FEmoStimulus(120, 50, 255, 1, 60)));
+
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjUnknownHeard,
+		FEmoReactionsUI(TEXT("Object Unknown Heard"), TEXT("Emotion of hearing a creature that was never met (perveived, attacked) before. Scaled by loudness, defined by a general attitude to that creature's species, if present"), EEmotio::Worry, 1, 100));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjUnknownSeen,
+		FEmoReactionsUI(TEXT("Object Unknown Seen"), TEXT("Emotion of visually perceiving a creature that was never met (perveived, attacked) before. Scaled by visibility, defined by a general attitude to that creature's species, if present"), EEmotio::Anxiety, 2, 10));
+	EmoReactionWhatToDisplay.Add(EEmoCause::ObjUnknownFlyClose,
+		FEmoReactionsUI(TEXT("Object Unknown Fly Close"), TEXT("Perceiving an unidentifiend flying creature approaching to us, scaled by velocity"), EEmotio::Anxiety, 3, 10));
 
 	Super::PostLoad();
 }
@@ -145,39 +192,18 @@ TArray<UMyrraSaveGame*> UMyrraGameInstance::GetAllSaveGameSlots()
 	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//такой вот изврат - подкласс искателя файлов внутри функции
 	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
-	class FFindSavesVisitor : public IPlatformFile::FDirectoryStatVisitor
-	{
-	public:
-
-		//конструктор пуст, а зачем он нужен явно хз
-		FFindSavesVisitor() {}
-
-		//внутренний накопитель найденных имен файлов
-		//непонятно, зачем нужно создавать УОбъекты, когда можно хранить просто список строк
+	class FMyrSavesVisitor : public FMyrFileVisitor
+	{public:
+		FMyrSavesVisitor() { Extension = TEXT("sav"); }
 		TArray<UMyrraSaveGame*> SavesFound;
-
-		//переопределение функции ответа на нахождение файла или папки
-		virtual bool Visit(const TCHAR* FilenameOrDirectory, const FFileStatData& StatData)
-		{
-			//если это папка
-			if (!StatData.bIsDirectory)
-			{
-				FString FullFilePath(FilenameOrDirectory);
-				if (FPaths::GetExtension(FullFilePath) == TEXT("sav"))
-				{
-					//создать болванку объекта-сохранения и записать туда имя
-					UMyrraSaveGame* yaSave = Cast<UMyrraSaveGame>(UGameplayStatics::CreateSaveGameObject(UMyrraSaveGame::StaticClass()));
-					if (yaSave)
-					{
-						yaSave->SaveSlotName = FPaths::GetBaseFilename(FullFilePath);
-						yaSave->SavedDateTime = StatData.ModificationTime;
-						SavesFound.Add(yaSave);
-					}
-				}
+		virtual void MyVisit(FString Name, const FFileStatData& StatData)
+		{	UMyrraSaveGame* yaSave = Cast<UMyrraSaveGame>(UGameplayStatics::CreateSaveGameObject(UMyrraSaveGame::StaticClass()));
+			if (yaSave)
+			{	yaSave->SaveSlotName = FPaths::GetBaseFilename(Name);
+				yaSave->SavedDateTime = StatData.ModificationTime;
+				SavesFound.Add(yaSave);
 			}
-			return true;
 		}
-
 	};
 	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//директория, где лежат сохраненные игры - это стандартный путь, по умолчанию для подсистемы сохранения
@@ -191,13 +217,107 @@ TArray<UMyrraSaveGame*> UMyrraGameInstance::GetAllSaveGameSlots()
 	if (!SavesFolder.IsEmpty())
 	{
 		//создаем системный искатель файлов (крайне криво, нарочно не догадаешься)
-		FFindSavesVisitor Visitor;
+		FMyrSavesVisitor Visitor;
 		FPlatformFileManager::Get().GetPlatformFile().IterateDirectoryStat(*SavesFolder, Visitor);
 		Saves = Visitor.SavesFound;
 	}
 
 	return Saves;
 }
+
+//====================================================================================================
+//порыться в папке скриншотов и найти все
+//====================================================================================================
+TArray<FString> UMyrraGameInstance::GetAllScreenshots()
+{
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+	//такой вот изврат - подкласс искателя файлов внутри функции
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+	class FMyrScreenshotsVisitor : public FMyrFileVisitor
+	{
+	public:
+		FMyrScreenshotsVisitor() { Extension = TEXT("png"); }
+		TArray<FString> ScreenshotFound;
+		virtual void MyVisit(FString Path, const FFileStatData& StatData)
+		{	ScreenshotFound.Add(Path);	}
+	};
+
+	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+	const FString Folder = FPaths::ProjectSavedDir() + TEXT("Screenshots\\Windows");
+	TArray<FString> ScreenshotFound;
+	if (!Folder.IsEmpty())
+	{
+		//создаем системный искатель файлов (крайне криво, нарочно не догадаешься)
+		FMyrScreenshotsVisitor Visitor;
+		FPlatformFileManager::Get().GetPlatformFile().IterateDirectoryStat(*Folder, Visitor);
+		ScreenshotFound = Visitor.ScreenshotFound;
+	}
+	return ScreenshotFound;
+}
+
+//для меню настроек
+void UMyrraGameInstance::FetchOptions()
+{
+	Options = UGameUserSettings::GetGameUserSettings();
+}
+int32 UMyrraGameInstance::GetOption(const EMyrOptions O) const
+{
+	switch (O)
+	{
+	case EMyrOptions::VSync:		return (int32)Options->IsVSyncEnabled();
+	case EMyrOptions::Screen:		return (int32)Options->GetFullscreenMode();
+	case EMyrOptions::Antialiasing:	return (int32)Options->GetAntiAliasingQuality();
+	case EMyrOptions::Shading:		return (int32)Options->GetShadingQuality();
+	case EMyrOptions::Shadows:		return (int32)Options->GetShadowQuality();
+	case EMyrOptions::Textures:		return (int32)Options->GetTextureQuality();
+	case EMyrOptions::ViewDist:		return (int32)Options->GetViewDistanceQuality();
+	case EMyrOptions::VisualEffects:return (int32)Options->GetVisualEffectQuality();
+	case EMyrOptions::PostProc:		return (int32)Options->GetPostProcessingQuality();
+	case EMyrOptions::FrameRate:
+		int fr = Options->GetFrameRateLimit();
+		switch (fr)
+		{	case 30: return 0;
+			case 60: return 1;
+			case 120: return 2;
+			case 0: return 3;
+		}
+	}
+	return 0;
+}
+void UMyrraGameInstance::SetOption(EMyrOptions O, int V)
+{
+	switch (O)
+	{	case EMyrOptions::VSync:		Options->SetVSyncEnabled((bool)V);					break;
+		case EMyrOptions::Screen:		Options->SetFullscreenMode((EWindowMode::Type)V);	break;
+		case EMyrOptions::Antialiasing:	Options->SetAntiAliasingQuality(V);					break;
+		case EMyrOptions::Shading:		Options->SetShadingQuality(V);						break;
+		case EMyrOptions::Shadows:		Options->SetShadowQuality(V);						break;
+		case EMyrOptions::Textures:		Options->SetTextureQuality(V);						break;
+		case EMyrOptions::ViewDist:		Options->SetViewDistanceQuality(V);					break;
+		case EMyrOptions::VisualEffects:Options->SetVisualEffectQuality(V);					break;
+		case EMyrOptions::PostProc:		Options->SetPostProcessingQuality(V);				break;
+		case EMyrOptions::FrameRate:
+			switch (V)
+			{	case 0: Options->SetFrameRateLimit(30.0f); break;
+				case 1: Options->SetFrameRateLimit(60.0f); break;
+				case 2: Options->SetFrameRateLimit(120.0f); break;
+				case 3: Options->SetFrameRateLimit(0.0f); break;
+			}
+		}
+}
+
+
+
+//====================================================================================================
+// загрузить скриншот в память как текстуру, рандомный из заданного списка путей к файлу
+//====================================================================================================
+UTexture2D* UMyrraGameInstance::GetRandomScreenshot(const TArray<FString>& Paths)
+{
+	if(Paths.Num())
+		return FImageUtils::ImportFileAsTexture2D(Paths[FMath::RandRange(0, Paths.Num()-1)]);
+	else return nullptr;
+}
+
 
 //====================================================================================================
 //начать совсем новую игру
@@ -242,26 +362,6 @@ void UMyrraGameInstance::QuickSave()
 		//собственно сохранить и уходить
 		Save(QuickSlot);
 	}
-}
-
-//====================================================================================================
-//====================================================================================================
-void UMyrraGameInstance::ToggleSaves()
-{
-	//получить контроллер первого (пока единственного) игрока
-	//какой-то бред, важные функции распределны между GameInstance и PlayerController
-	auto PC = Cast<AMyrPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
-	PC->ToggleSaves();
-}
-
-//====================================================================================================
-//====================================================================================================
-void UMyrraGameInstance::TogglePause()
-{
-	//получить контроллер первого (пока единственного) игрока
-	//какой-то бред, важные функции распределны между GameInstance и PlayerController
-	auto PC = Cast<AMyrPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
-	PC->TogglePause();
 }
 
 
@@ -335,6 +435,9 @@ bool UMyrraGameInstance::Load(UMyrraSaveGame * Slot)
 	//собственно, загрузить все голые данные
 	Slot = Cast<UMyrraSaveGame>(UGameplayStatics::LoadGameFromSlot(Slot->SaveSlotName, 0));
 
+	//статистика
+	Statistics = Slot->Statistics;
+
 	//начать загрузку базового уровня, в котором было это сохранение
 	UGameplayStatics::OpenLevel(GetWorld(), Slot->PrimaryLevel, true, TEXT("listen"));
 
@@ -392,6 +495,9 @@ bool UMyrraGameInstance::Save(UMyrraSaveGame * Slot)
 
 	//сохранить имя уровня, в котором происходило действо
 	Slot->PrimaryLevel = FName(*GetWorld()->GetName());
+
+	//статистика
+	Slot->Statistics = Statistics;
 
 	//сохранение всех существ
 	TArray<AActor*> Found;

@@ -41,6 +41,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<class AMyrPhyCreature*> Inhabitants;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<class AMyrArtefact*> Content;
 
+	//если территория полностью исключает дождь
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool FullyCoversRain = true;
+
+	//уменьшение количества вьющихся насекомых
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) uint8 FliesAmount = 0;
+
 	
 public:
 

@@ -8,6 +8,7 @@
 #include "../MyrraGameInstance.h"					// ядро игры 
 #include "../AssetStructures/MyrCreatureGenePool.h"	// генофонд существа, для доступа к диапазонам ролевых параметров
 #include "GameFramework/InputSettings.h"
+#include "Components/Button.h"
 
 //==============================================================================================================
 //для блюпринта, обработчика нажатия клавиш, чтобы выходить из меню по нажатию
@@ -85,6 +86,30 @@ void UMyrBioStatUserWidget::SetProgressBarFillType(UProgressBar* PB, TEnumAsByte
 		PB->SetRenderTransformAngle(0);
 }
 
+//окрасить кнопку нужными цветами
+void UMyrBioStatUserWidget::PaintButton(UButton* Butt, bool Selected)
+{
+	if (!Butt->GetIsEnabled())
+	{
+		Butt->SetColorAndOpacity(FLinearColor(0.5, 0.5, 0.5, 1));
+		Butt->SetBackgroundColor(FLinearColor(0,0,0,1));
+	}
+	else
+	{
+		if (Selected)
+		{
+			Butt->SetColorAndOpacity(GetMyrraGameInstance()->ButtonTextSelected);
+			if (Butt->IsHovered())	Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundSelectedHovered);
+			else					Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundSelected);
+		}
+		else
+		{
+			Butt->SetColorAndOpacity(GetMyrraGameInstance()->ButtonTextUnSelected);
+			if (Butt->IsHovered())	Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundUnSelectedHovered);
+			else					Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundUnSelected);
+		}
+	}
+}
 
 
 //==============================================================================================================

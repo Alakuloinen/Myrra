@@ -7,7 +7,6 @@
 #include "Camera/CameraComponent.h"						// камера
 #include "Components/InputComponent.h"					// ввод с клавы мыши
 #include "GameFramework/SpringArmComponent.h"			// пружинка камеры
-#include "Particles/ParticleSystemComponent.h"			// для частиц вокруг камеры
 #include "Components/AudioComponent.h"					// звук
 #include "Components/DecalComponent.h"					// декал
 #include "Components/SceneCaptureComponent2D.h"			// рендер в текстуру примятия травы
@@ -20,6 +19,9 @@
 #include "../UI/MyrBioStatUserWidget.h"					// индикатор над головой
 #include "Components/WidgetComponent.h"					// ярлык с инфой
 #include "Engine/TextureRenderTargetCube.h"
+
+#include "NiagaraComponent.h"							//для нового эффекта дождя					
+#include "NiagaraFunctionLibrary.h"						//для нового эффекта дождя					
 
 #include "Sky/MyrKingdomOfHeaven.h"						//небо отдаёт свои дрючки на тик этому классу, потому что он существует вне игры
 
@@ -99,8 +101,6 @@ AMyrDaemon::AMyrDaemon()
 	RootComp->SetUsingAbsoluteScale(true);
 	RootComponent = RootComp;
 	RootComp->SetCollisionProfileName(TEXT("PawnTransparent"));
-	//RootComp->SetCollisionObjectType(ECollisionChannel::ECC_Camera);
-	//RootComp->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
 	RootComp->SetUsingAbsoluteRotation(true);	// чтобы не поворачивалось пространства вместе с существом
 
 	// Create a follow camera
@@ -118,20 +118,22 @@ AMyrDaemon::AMyrDaemon()
 	ObjectiveMarkerWidget->SetVisibility(false);
 
 	//источник эффекта частиц
-	ParticleSystem = CreateDefaultSubobject<UParticleSystemComponent>(TEXT("Particle System"));
+	ParticleSystem = CreateDefaultSubobject<UNiagaraComponent>(TEXT("Particles"));
 	ParticleSystem->SetupAttachment(RootComponent);
 	ParticleSystem->SetRelativeLocation(FVector(0, 0, 0));
 	ParticleSystem->SetUsingAbsoluteRotation(true);
+
+	//вспомогательный источник эффекта частиц
+	SecondaryParticleSystem = CreateDefaultSubobject<UNiagaraComponent>(TEXT("SecondaryParticles"));
+	SecondaryParticleSystem->SetupAttachment(RootComponent);
+	SecondaryParticleSystem->SetRelativeLocation(FVector(0, 0, 0));
+	SecondaryParticleSystem->SetUsingAbsoluteRotation(true);
+	SecondaryParticleSystem->SetUsingAbsoluteLocation(true);
 
 	//звуки природы, окружения
 	AmbientSounds = CreateDefaultSubobject<UAudioComponent>(TEXT("Ambient Sound"));
 	AmbientSounds->SetupAttachment(Camera);
 	AmbientSounds->SetRelativeLocation(FVector(0, 0, 0));
-
-	//декал для глянца мокрых поверхностей
-	RainWetArea = CreateDefaultSubobject<UDecalComponent>(TEXT("Wet Surface"));
-	RainWetArea->SetupAttachment(RootComponent);
-	RainWetArea->SetRelativeLocation(FVector(0, 0, 0));
 
 	//захват вида сцены
 	CaptureTrails = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("Scene Capture 2D"));
@@ -200,6 +202,7 @@ void AMyrDaemon::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEv
 		//привязать к правильному компоненту
 		if (OwnedCreature) ClingToCreature(OwnedCreature);
 	}
+	else ParticleSystem->SetNiagaraVariableObject(TEXT("MyrDaemonBP"), this);
 }
 //==============================================================================================================
 // вызывается, когда параметр уже изменен, но имеется старое значение параметра - правильно с ним расстаться
@@ -333,8 +336,6 @@ void AMyrDaemon::BeginPlay()
 	UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), CaptureTrails->TextureTarget, CaptureTrails->TextureTarget->ClearColor);
 	UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), GetMyrGameInst()->TrailsTargetPersistent, GetMyrGameInst()->TrailsTargetPersistent->ClearColor);
 
-	//создать рычаг для динамического изменения материала окружающей мокроты
-	RainDecalMatInst = RainWetArea->CreateDynamicMaterialInstance();
 	PreviousPosition = GetActorLocation();
 
 	//запустить тряску камеры, она бесконечна и регулируется параметрами
@@ -343,6 +344,9 @@ void AMyrDaemon::BeginPlay()
 
 	//разблокировать настройку контраста = его регулирует сонность
 	Camera->PostProcessSettings.bOverride_ColorContrastMidtones = true;
+
+	//для реакции на капли дождя
+	ParticleSystem->SetNiagaraVariableObject(TEXT("MyrDaemonBP"), this);
 }
 
 //==============================================================================================================
@@ -355,13 +359,17 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 	//проделать для неба покадрово самые интерактивные вещи
 	//чтобы в небе не заводить 2 тика, покадровый и медленный
-	if (Sky) Sky->PerFrameRoutine(DeltaTime);
+	if (Sky)
+	{
+		Sky->PerFrameRoutine(DeltaTime, Wetness);
+	}
 
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
 	if (!EnvMatParam) return;
 	auto MPC = GetWorld()->GetParameterCollectionInstance(EnvMatParam);
 
+	if(!GetMyrGameInst()) return;
 	if(!GetMyrGameMode()) return;
 	if(!OwnedCreature) return;
 
@@ -374,10 +382,19 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
-	//каждый кадр записывать для всех материалов локацию игрока
 	//auto MPC = GetMyrGameInst()->MakeMPCInst();
-	MPC->SetVectorParameterValue(TEXT("PlayerLocation"), GetActorLocation());
+	// 
+	//каждый кадр записывать для всех материалов локацию игрока
+	//и в четвертый компонент еще и сырость, чтоб не создавать лишний параметр
+	MPC->SetVectorParameterValue(TEXT("PlayerLocation"), FLinearColor(GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z, Wetness));
 	MPC->SetVectorParameterValue(TEXT("PlayerOffsetFromPreviousLocation"), GetActorLocation() - PreviousPosition);
+
+	//подсчёт глобального пути главного героя (через буфер, чтобы заиметь хорошую точность при больших числах)
+	DistWalkedAccum += FVector::Dist(GetActorLocation(), PreviousPosition);
+	if(DistWalkedAccum >= 20)
+	{	GetMyrGameInst()->Statistics.DistanceWalked += DistWalkedAccum;
+		DistWalkedAccum = 0;
+	}
 	PreviousPosition = GetActorLocation();
 
 	//применение расчёта следов
@@ -425,8 +442,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 	}
 
 	//если вошли в режим паузы связанной с меню
-	if (!MyrController()->GetCurrentUIMode()) return;
-	else if (MyrController()->GetCurrentUIMode()->UI_notHUD)
+	if (MyrController()->IsNowUIPause())
 	{
 		//плавно снести уровень цветности до нуля (ЧБ)
 		Camera->PostProcessSettings.ColorSaturation.W *= 0.8f;
@@ -464,7 +480,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 			//выход в меню через контроллер игрока, такая вот извращенная логика
 			//а вообщездесь надо сначала выйти на уровень GameMode, оттуда решить что делать - кончить игру или перейти на новый уровень
 			if (auto MyrPlayer = Cast<AMyrPlayerController>(Controller))
-				MyrPlayer->GameOverScreen();
+				MyrPlayer->CmdGameOver();
 			return;
 
 		}
@@ -630,7 +646,7 @@ void AMyrDaemon::ClingToCreature(AActor* a)
 		UE_LOG(LogTemp, Log, TEXT("ClingToCreature %s to %s"), *GetName(), *OwnedCreature->GetName());
 
 		//посредством контроллера игрока переподключить новое существо к худ виджету
-		if(MyrController()) MyrController()->ChangeWidgetProps();
+		if(MyrController()) MyrController()->ChangeWidgetRefs(OwnedCreature);
 
 		//переопределить связки с клавишами
 		if (InputComponent)
@@ -889,7 +905,7 @@ void AMyrDaemon::SetTimeDilation(float Amount)
 {	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), Amount); }
 
 //==============================================================================================================
-//подготовить экран для менюшной паузы
+//подготовить экран для менюшной паузы - не используется, хз зачем это нужно
 //==============================================================================================================
 void AMyrDaemon::SwitchToMenuPause(bool Set)
 {
@@ -1064,34 +1080,31 @@ void AMyrDaemon::AdoptCameraVisuals(const FEyeVisuals& EV)
 
 
 //==============================================================================================================
-//установить уровень дождя и мокроты
+//установить уровень дождя и мокроты - вызывается из KingdomOfHeaven в редком тике
 //==============================================================================================================
 void AMyrDaemon::SetWeatherRainAmount(float Amount)
 {
-	//оптимизация - если сухо, то декал мокроты вообще не рендерится
-	if (Amount < 0.01 && Wetness < 0.01f)
-		RainWetArea->SetVisibility(false);
-	else
-	{
-		//показать декал мокроты
-		RainWetArea->SetVisibility(true);
+	//если мы в локации, которыая исключает дождь, 
+	if(CurLocNoRain) Amount = 0;
 
-		//рассчёт мокроты поверхностей вблизи камеры, она запаздывает за силой дождя
-		Wetness += 0.01f * Amount;
-		Wetness -= 0.001f;
-		if (Wetness >= 1.0f) Wetness = 1.0f;
-		else if (Wetness <= 0) Wetness = 0.0f;
-		RainDecalMatInst->SetScalarParameterValue(TEXT("Wetness"), Wetness);
-
-		//поверх мокроты по тем же поверхностям барабанят капли с нужной отчётливостью
-		RainDecalMatInst->SetScalarParameterValue(TEXT("RainAmount"), Amount);
-	}
+	//вторичный источник дождя ваще обрать, если дождя нет, чтоб не мешался
+	//а вот первичный не убирать, там еще насекомые и пушинки
+	SecondaryParticleSystem->SetVisibility(Amount > 0.01);
+	
 
 	//регулирование плотности падающих капель дождя - без других условий
 	ParticleSystem->SetFloatParameter(TEXT("RainAmount"), Amount);
-
+	SecondaryParticleSystem->SetFloatParameter(TEXT("RainAmount"), Amount);
 }
 
+//==============================================================================================================
+//установить уровень дождя и мокроты - вызывается из KingdomOfHeaven в редком тике
+//==============================================================================================================
+void AMyrDaemon::SetFliesAmount(float Amount)
+{
+	//регулирование количества мух, с учетом возможной локации, где их меньше
+	ParticleSystem->SetFloatParameter(TEXT("FliesAmount"), Amount * (CurLocFliesMod / 255.0f));
+}
 //==============================================================================================================
 //всё что связано с рендерингом текстуры шагов и следов на траве, воде и т.п.
 //==============================================================================================================
@@ -1181,7 +1194,7 @@ void AMyrDaemon::SendAction(int Button, bool StrikeOrRelease, ECreatureAction Ex
 //==============================================================================================================
 UMyrBioStatUserWidget* AMyrDaemon::HUDOfThisPlayer()
 {
-	return MyrController()->CurrentWidget();
+	return MyrController()->GetWidgetHUD();
 }
 
 //==============================================================================================================
@@ -1307,4 +1320,39 @@ float AMyrDaemon::GetLightingAtVector(FVector V)
 		}
 	}
 	return Accum;
+}
+
+//среагировать на удар капли по земле
+void AMyrDaemon::ReactOnRainDrop(float Size, FVector Position, FVector Velocity)
+{
+	//радиус вектор - если удар произошёл на метр и выше нас - значит то была крыша и декал создавать не надо
+	FVector Ra = GetActorLocation() - Position;
+	if (Ra.Z < -100.0f) return;
+
+	//участок кмокроты
+	if (WetDecalMat)
+	{	auto Decal = UGameplayStatics::SpawnDecalAtLocation(GetWorld(), WetDecalMat, FVector(50, 50, 150), Position, FRotator(), 4);
+		Decal->SetFadeIn(0, 1);
+		Decal->SetFadeOut(0, 2);
+	}
+
+	if (Ra.SizeSquared2D() < 10000)
+		SecondaryParticleSystem->SetWorldLocation(Position);
+
+	//запустить дождь дополнительный для густоты
+	//if (SecondaryRain && Ra.SizeSquared2D() < 10000)
+	//{
+	//	auto Rain = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), SecondaryRain, Position, FRotator(), FVector(1, 1, 1), true);
+	//}
+
+
+	//промокание
+	if (Wetness < 1.0f)
+	{
+		float Affect = 10000 / FVector::DistSquared(GetActorLocation(), Position);
+		Wetness = FMath::Min(1.0f, Wetness + Affect);
+
+		UE_LOG(LogTemp, Log, TEXT("DAEMON %s: ReactOnRainDrop Wetness + %g = %g"), *GetName(), Affect, Wetness);
+	}
+	else Wetness = 1.0f;
 }

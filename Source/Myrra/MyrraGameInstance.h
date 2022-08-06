@@ -40,6 +40,50 @@ USTRUCT(BlueprintType) struct MYRRA_API FEmoReactionsUI
 
 };
 
+//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+//подкласс искателя файлов
+//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
+class FMyrFileVisitor : public IPlatformFile::FDirectoryStatVisitor
+{
+public:
+	//расширение для поиска конкретных типов файла
+	FString Extension;
+
+	//своя функция по сгребыванию файлов
+	virtual void MyVisit(FString Name, const FFileStatData& StatData) {}
+
+	//переопределение функции ответа на нахождение файла или папки
+	virtual bool Visit(const TCHAR* FilenameOrDirectory, const FFileStatData& StatData)
+	{
+		//если это папка
+		if (!StatData.bIsDirectory)
+		{	FString FullFilePath(FilenameOrDirectory);
+			if (FPaths::GetExtension(FullFilePath) == Extension)
+				MyVisit(FullFilePath, StatData);
+		}
+		return true;
+	}
+
+};
+
+//###################################################################################################################
+// набор опций
+//###################################################################################################################
+UENUM(BlueprintType) enum class EMyrOptions : uint8
+{
+	VSync,
+	Screen,
+	FrameRate,
+	ViewDist,
+	Antialiasing,
+	Shading,
+	Textures,
+	Shadows,
+	PostProc,
+	VisualEffects
+};
+
+
 class URoleParameter;
 //###################################################################################################################
 // самый главный класс в игре, больше ничего и не нужно. Стоит всю игру, виден из много откуда, содержит общие
@@ -83,8 +127,22 @@ public: // супер глобальные свойства
 	//материал (видимо тупой простой) для копирования следов (забить в редакторе конкретный материал)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialInterface* MaterialToHistorifyTrails;
 
+	//настройки для меню
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UGameUserSettings* Options;
+
 	//настройки отображения эмоциональных реакций в меню самой игры
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  TMap<EEmoCause, FEmoReactionsUI> EmoReactionWhatToDisplay;
+
+	//общие цвета интерфейса
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundSelected;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundUnSelected;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundSelectedHovered;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundUnSelectedHovered;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonTextUnSelected;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonTextSelected;
+
+	//статистика текущей ветки игры
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FGameStats Statistics;
 
 
 //--------------------------------------------------------------------------------
@@ -153,10 +211,6 @@ public: //свои методы
 	UFUNCTION(BlueprintCallable) bool LoadLastSave();
 	UFUNCTION(BlueprintCallable) void QuickSave();
 
-	//режимы интерфейса, которые включаются и отключаются по одной команде
-	UFUNCTION(BlueprintCallable) void ToggleSaves();
-	UFUNCTION(BlueprintCallable) void TogglePause();
-
 	//действия при окончании игры
 	UFUNCTION(BlueprintCallable) void PostGameOverActions();
 
@@ -169,15 +223,12 @@ public: //свои методы
 	//загрузка и сохранение игры - вызываются из виждета-меню для конкретных файлов
 	UFUNCTION(BlueprintCallable) bool Load (UMyrraSaveGame* Slot);
 	UFUNCTION(BlueprintCallable) bool Save (UMyrraSaveGame* Slot);
-
 	UFUNCTION(BlueprintCallable) bool SaveByFileName (FString Name);
 	UFUNCTION(BlueprintCallable) bool DeleteSave (FString Name);
-
 
 	//включение и завершение экрана загрузки
 	UFUNCTION(BlueprintCallable) virtual void BeginLoadingScreen (const FString& MapName);
 	UFUNCTION(BlueprintCallable) virtual void EndLoadingScreen (UWorld* InLoadedWorld);
-
 
 	//разобрать все квесты и внести их заманушные стадии в лист ожидания
 	UFUNCTION(BlueprintCallable) void InitializeQuests();
@@ -188,6 +239,11 @@ public: //свои методы
 	//передать инфу о событии на головной уровень - это может стать причиной продвижения истории и квеста
 	//вызывается из существа
 	void MyrLogicEventCheckForStory(EMyrLogicEvent Event, class AMyrPhyCreature* Instigator, float Amount, UObject* Victim);
+
+	//для меню настроек
+	UFUNCTION(BlueprintCallable) void  FetchOptions();
+	UFUNCTION(BlueprintCallable) int32 GetOption(const EMyrOptions O) const;
+	UFUNCTION(BlueprintCallable) void  SetOption(EMyrOptions O, int V);
 
 //--------------------------------------------------------------------------------
 public: //возвращуны
@@ -201,6 +257,10 @@ public: //возвращуны
 
 	//выдать список имен всех сохраненных игр
 	UFUNCTION(BlueprintCallable) TArray<UMyrraSaveGame*> GetAllSaveGameSlots();
+	
+	//найти все скриншоты и сделать из них текстуры
+	UFUNCTION(BlueprintCallable) TArray<FString> GetAllScreenshots();
+	UFUNCTION(BlueprintCallable) UTexture2D* GetRandomScreenshot(const TArray<FString>& Paths);
 
 	//глобальная коллекция глобальных параметров материала
 	class UMaterialParameterCollection* GetMatParams() const { return EnvMatParam; }
@@ -208,7 +268,7 @@ public: //возвращуны
 	//создать для текущей функции локальную инстанцию коллекции параметров материала
 	class UMaterialParameterCollectionInstance* MakeMPCInst();
 
-	//выдать ближайшую эмоцию словесную
+	//выдать ближайшую эмоцию словесную для интерфейса
 	UFUNCTION(BlueprintCallable) float EmotionToMnemo    (const FEmotio& In,	  EEmotio& Out1, EEmotio& Out2) const { return          In.GetArch(&Out1, &Out2); }
 	UFUNCTION(BlueprintCallable) float EmoStimulusToMnemo(const FEmoStimulus& In, EEmotio& Out1, EEmotio& Out2) const { return FEmotio(In).GetArch(&Out1, &Out2); }
 	UFUNCTION(BlueprintCallable) FLinearColor EmoStimulusToColor(const FEmoStimulus& In) const { return FEmotio(In).ToFLinearColor(); }

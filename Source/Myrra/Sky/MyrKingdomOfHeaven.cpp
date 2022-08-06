@@ -130,7 +130,8 @@ void AMyrKingdomOfHeaven::PostEditChangeProperty(FPropertyChangedEvent& Property
 	}
 
 	//двигаем позицию воздушной массы
-	else if(MUT(AirMassPosition)) PerFrameRoutine(0);
+	else if (MUT(AirMassPosition))
+	{	float h=0; PerFrameRoutine(0, h);	}
 
 	//изменили демона протагониста - взаимная регистрация протагониста и неба
 	else if(MUT(Protagonist)) if(Protagonist) Protagonist->Sky = this;
@@ -230,15 +231,21 @@ void AMyrKingdomOfHeaven::Tick(float DeltaTime)
 
 			//получение базовых параметров погоды и тут же расчёт первой производной харки = скорости ветра
 			WeatherDerived.UpdateWindSpeed ( 
-				WeatherBase.UpdateFromMap_GetWindSpeed ( (FVector4)FinalWeather, 0.3f * DeltaTime ),
+				WeatherBase.UpdateFromMap_GetWindSpeed ( (FVector4)FinalWeather, 0.3f * DeltaTime, WeatherExplicitAdd ),
 				0.5f*DeltaTime );
 
 			//обновить производные параметры погоды, которые не требуют покадровости
 			WeatherDerived.UpdateRare(WeatherBase, DeltaTime, -SunDir().Z);
 
+			//установить силу эффекта дождя вокруг протагониста
+			if (Protagonist)
+			{ 
+				Protagonist->SetWeatherRainAmount(WeatherDerived.RainAmount);
+			}
+
 			//ветер, вектор направления и сила
 			auto MPC = MakeMPCInst();
-			if(MPC) MPC->SetVectorParameterValue(TEXT("WindDir"), FLinearColor(WindDir.X, WindDir.Y, 0.0f, WeatherDerived.WindSpeed));
+			if(MPC) MPC->SetVectorParameterValue(TEXT("WindDir"), FLinearColor(WindDir.X, WindDir.Y, WeatherDerived.RainAmount, WeatherDerived.WindSpeed));
 
 
 		}
@@ -400,7 +407,7 @@ void AMyrKingdomOfHeaven::InitUnits()
 					WeatherMapPosition[0], WeatherMapPosition[1]));		//приведенная позиция для полотна облаков и погоды
 
 			//ветер более глобален чем погода и доступ к нему через гейммод
-			MPC->SetVectorParameterValue(TEXT("WindDir"), FLinearColor(WindDir.X, WindDir.Y, 0, WeatherDerived.WindSpeed));
+			MPC->SetVectorParameterValue(TEXT("WindDir"), FLinearColor(WindDir.X, WindDir.Y, 0,  WeatherDerived.WindSpeed));
 		}
 
 	}
@@ -475,7 +482,7 @@ void AMyrKingdomOfHeaven::ChangeTimeOfDay()
 	}
 	else if (Ephemerides.DiffInv == 0)	ResetEphemerides();
 
-	UE_LOG(LogTemp, Log, TEXT("SKY %s: ChangeTimeOfDay dayfrac=%g, time0=%g a=%g"), *GetName(), CurrentDayFraction, Ephemerides.Time0, Mix);
+	//UE_LOG(LogTemp, Log, TEXT("SKY %s: ChangeTimeOfDay dayfrac=%g, time0=%g a=%g"), *GetName(), CurrentDayFraction, Ephemerides.Time0, Mix);
 
 	//крутить небесные тела быстро, по интерполяции между посчитанными точками
 	SunLight->SetWorldRotation(Ephemerides.Current(0, Mix));
@@ -585,8 +592,6 @@ void AMyrKingdomOfHeaven::ApplyWeather()
 	ExponentialFog->SecondFogData.FogDensity = WeatherDerived.SecondFogDensity;
 	ExponentialFog->VolumetricFogScatteringDistribution = WeatherDerived.VolumetricFogScatteringDistribution;
 	ExponentialFog->VolumetricFogExtinctionScale = WeatherDerived.VolumetricFogExtinctionScale;
-	//MPC->SetScalarParameterValue(TEXT("CurrentWeatherCirrusAmount"), WeatherNow.CirrusAmount);
-	//MPC->SetScalarParameterValue(TEXT("CurrentWeatherCumulusAmount"), WeatherNow.CumulusAmount);
 
 	//выключить если ноль - хз, стоит ли свеч такая оптимизация
 	if (ExponentialFog->VolumetricFogExtinctionScale < 0.001) ExponentialFog->SetVolumetricFog(false);
@@ -610,7 +615,7 @@ UMaterialParameterCollectionInstance* AMyrKingdomOfHeaven::MakeMPCInst()
 //====================================================================================================
 //вычисление, требующие реального времени - переносятся в тик другого актора
 //====================================================================================================
-void AMyrKingdomOfHeaven::PerFrameRoutine(float DeltaTime)
+void AMyrKingdomOfHeaven::PerFrameRoutine(float DeltaTime, float& WetnessToEvaporate)
 {
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
@@ -642,6 +647,9 @@ void AMyrKingdomOfHeaven::PerFrameRoutine(float DeltaTime)
 	//применить погоду
 	ApplyWeather();
 
+	//задуть мокроту
+	WetnessToEvaporate -= 0.001 * (1.0 + WeatherDerived.WindSpeed) * (1.0f + WeatherDerived.Temperature);
+	if (WetnessToEvaporate < 0) WetnessToEvaporate = 0;
 }
 
 //====================================================================================================

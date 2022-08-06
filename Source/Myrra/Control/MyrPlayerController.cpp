@@ -8,6 +8,7 @@
 #include "GameFramework/Pawn.h"
 #include "../Creature/MyrPhyCreature.h"	//чтоб спавгить демона сразу на привязи
 #include "../UI/MyrBioStatUserWidget.h"	// модифицированный виджет со вложенными указателями на игрока, контроллер их переключает
+#include "../UI/MyrMenuWidget.h"	// модифицированный виджет со вложенными указателями на игрока, контроллер их переключает
 #include "Kismet/GameplayStatics.h"						// для вызова GetAllActorsOfClass
 #include "Camera/CameraShakeBase.h"			// трясун камеры
 
@@ -17,119 +18,6 @@
 AMyrPlayerController::AMyrPlayerController()
 {
 }
-
-//==============================================================================================================
-// сменить наэкранный интерфейс
-//==============================================================================================================
-void AMyrPlayerController::ChangeUIMode (FName ModeName)
-{
-	UE_LOG(LogTemp, Warning, TEXT("Change UI: %s - %s"),
-		*CurrentUIModeName.ToString(),
-		*ModeName.ToString());
-
-	AMyrDaemon* Me = GetDaemonPawn();
-	if (!Me)
-	{	UE_LOG(LogTemp, Error, TEXT("ChangeUIMode WTF no daemon pawn!"));
-		return;
-	}
-
-	//проверка на существование старого виджета
-	if(CurrentUIMode)
-	{
-		//виджет, который текущий
-		UUserWidget** pCurWi = UIWidgets.Find(CurrentUIModeName);
-		if (!pCurWi || !*pCurWi) { UE_LOG(LogTemp, Error, TEXT("No Widget 1 %s"), *CurrentUIModeName.ToString());	}
-		else
-		{
-			//сохранить предыдущий, чтобы можно было вернуться на одну позицию
-			ToggleRecentUIModeName = CurrentUIModeName;
-
-			//убрать старый виджет с экрана
-			UUserWidget* CurWi = *pCurWi;
-			CurWi->RemoveFromParent();
-		}
-	}
-
-	//достаём новый режим, найдя в карте из класса AMyrraGameModeBase
-	auto GameMode = Cast<AMyrraGameModeBase>(GetWorld()->GetAuthGameMode());
-	CurrentUIMode = GameMode->InterfaceModes.Find(ModeName);
-
-	//если режим есть (иначе выдаст нуль, и система впадёт в пустой не HUDовый режим)
-	if(CurrentUIMode)
-	{
-		//виджет, который текущий
-		UUserWidget** pCurWi = UIWidgets.Find (ModeName);
-		if (!pCurWi || !*pCurWi) { UE_LOG(LogTemp, Error, TEXT("No Widget 2 %s"), *ModeName.ToString());	return;	}
-		UUserWidget* CurWi = *pCurWi;
-		CurrentUIModeName = ModeName;
-
-		//сразу поместить на экран
-		CurWi->AddToViewport();
-
-		// типы взаимодействия с пользователем - тыкабельное меню или нетыкабельный худ.
-		if(CurrentUIMode->UI_notHUD == 1)
-		{
-			//настроить управление, характерное для меню, с курсором и кнопками
-			FInputModeUIOnly InputModeData;
-			InputModeData.SetLockMouseToViewportBehavior(EMouseLockMode::LockInFullscreen);
-			InputModeData.SetWidgetToFocus(CurWi->TakeWidget()); //Because UMG wraps Slate
-			CurWi->SetKeyboardFocus();
-
-			//включить обесцвечивание подлежащей под меню сцены
-			GetDaemonPawn()->SwitchToMenuPause(true);
-
-			//это всё местные методы
-			SetInputMode(InputModeData);
-			bShowMouseCursor = true;
-			SetTickableWhenPaused(true);
-		}
-		else
-		{
-			//выключить обесцвечивание подлежащей под меню сцены
-			GetDaemonPawn()->SwitchToMenuPause(false);
-
-			//настроить управление для нормального 3д-мира
-			FInputModeGameOnly InputModeData;
-			SetInputMode(InputModeData);
-			bShowMouseCursor = false;
-		}
-
-		//если виджет определен как местный класс, инициализируем дополнительные поля
-		ChangeWidgetProps(Cast<UMyrBioStatUserWidget>(CurWi));
-
-		//настроить ток времени / паузу по настройкам свежевыставленного режима
-		if (CurrentUIMode->TimeFlowMod == 0)
-		{	UGameplayStatics::SetGamePaused(GetWorld(), true);		}
-		else
-		{
-			UGameplayStatics::SetGamePaused(GetWorld(), false);
-			UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0);
-		}
-	}
-	else { UE_LOG(LogTemp, Error, TEXT("No Widget pointer %s"), *ModeName.ToString());	return; }
-}
-
-void AMyrPlayerController::ChangeWidgetProps(UMyrBioStatUserWidget* UW)
-{
-	if (!UW) UW = CurrentWidget();
-	if (UW)
-	{	UW->MyrPlayerController = this;
-		UW->SetOwnerCreature(GetDaemonPawn()->GetOwnedCreature());
-		UW->MyrAI = UW->MyrOwner->MyrAI();
-		UW->OnJustShowed();
-	}
-
-}
-
-//==============================================================================================================
-//выдать текущий виджет текущего режима интрфейса, может выдать нуль
-//==============================================================================================================
-UMyrBioStatUserWidget* AMyrPlayerController::CurrentWidget()
-{
-	return  Cast<UMyrBioStatUserWidget>(*UIWidgets.Find(CurrentUIModeName)); 
-}
-
-
 
 
 
@@ -144,30 +32,24 @@ void AMyrPlayerController::BeginPlay()
 	Super::BeginPlay();
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////
-	//инициализация набора рельных виджетов по образцам из GameMode-потомка, определенного для данного уровня
+	//получить доступ к gamemode - там ручками вписаны какие классы для интерфейса создавать
 	auto GameMode = Cast<AMyrraGameModeBase>(GetWorld()->GetAuthGameMode());
 	UE_LOG(LogTemp, Log, TEXT("AMyrPlayerController BeginPlay Create Widgets from %s"), *GameMode->GetName());
-	for (auto Wi : GameMode->InterfaceModes)
+
+	//новый код только с 2 классами интерфейса - непосредственное создание виджетов
+	if (GameMode->WidgetUI_Class && GameMode->WidgetHUD_Class)
 	{
-		//создать на основе виджет-блюпринта собственно виджет
-		UUserWidget* lw = CreateWidget<UUserWidget>(this, Wi.Value.Widget);
-		UIWidgets.Add(Wi.Key, lw);
-		UE_LOG(LogTemp, Log, TEXT("AMyrPlayerController --- add Widget %s (%s)"), *Wi.Key.ToString(), *Wi.Value.Widget->GetName());
+		WidgetUI = CreateWidget<UMyrMenuWidget>(this, GameMode->WidgetUI_Class);
+		WidgetHUD = CreateWidget<UMyrBioStatUserWidget>(this, GameMode->WidgetHUD_Class);
+		ChangeWidgetRefs(GetDaemonPawn()->GetOwnedCreature());
+		ChangeWidgets();
 	}
 
 #if !WITH_EDITOR
 	//если в системе еще не родился загруженный слот сохранений, это значит мы попали на уровень начальной загрузки
 	if(!GetMyrGameInstance()->JustLoadedSlot)
-		ChangeUIMode(TEXT("Start")); 
+		ChangeWidgets(EUIEntry::Start);
 #endif
-
-
-	//если на текущем уровне разрешён режим Play - это игровой уровень, и когда он загружен - сразу начинать с игры
-	if(UIWidgets.Find(TEXT("Play"))) ChangeUIMode(TEXT("Play"));
-
-	//сразу выставить изначальный режим интерфейса
-	//для теста сразу переход к игре, а вообще здесь нужно стартовое меню
-	ToggleRecentUIModeName = CurrentUIModeName; 
 
 }
 
@@ -181,11 +63,15 @@ void AMyrPlayerController::SetupInputComponent()
 	//пока неясно, как делить действия в этом поле между контроллером и пешкой
 	//пока чисто для разукрупнения здесь будут содержаться действия связанные с меню и интерфейсом,
 	//то есть, не относящиеся к геймплею как к таковому
-	InputComponent->BindAction ("Pause", IE_Pressed, this, &AMyrPlayerController::TogglePause);
-	InputComponent->BindAction ("Saves", IE_Pressed, this, &AMyrPlayerController::ToggleSaves);
-	InputComponent->BindAction("QuickSave", IE_Pressed, this, &AMyrPlayerController::QuickSave);
-	InputComponent->BindAction("Stats", IE_Pressed, this, &AMyrPlayerController::ToggleStats);
-	InputComponent->BindAction("Quests", IE_Pressed, this, &AMyrPlayerController::ToggleQuests);
+	InputComponent->BindAction ("Pause", IE_Pressed, this, &AMyrPlayerController::CmdPause);
+	InputComponent->BindAction ("Saves", IE_Pressed, this, &AMyrPlayerController::CmdSaves);
+	InputComponent->BindAction ("QuickSave", IE_Pressed, this, &AMyrPlayerController::CmdQuickSave);
+	InputComponent->BindAction ("Stats", IE_Pressed, this, &AMyrPlayerController::CmdStats);
+	InputComponent->BindAction ("Quests", IE_Pressed, this, &AMyrPlayerController::CmdQuests);
+	InputComponent->BindAction ("Options", IE_Pressed, this, &AMyrPlayerController::CmdOptions);
+	InputComponent->BindAction ("EmoStimuli", IE_Pressed, this, &AMyrPlayerController::CmdEmoStimuli);
+	InputComponent->BindAction ("Phenes", IE_Pressed, this, &AMyrPlayerController::CmdPhenes);
+
 
 }
 
@@ -203,6 +89,13 @@ void AMyrPlayerController::UpdateRotation(float DeltaTime)
 	}*/
 }
 
+void AMyrPlayerController::ChangeWidgetRefs(AMyrPhyCreature* PC)
+{
+	WidgetHUD->MyrOwner = PC;
+	WidgetHUD->MyrAI = PC->MyrAI();
+	WidgetUI->MyrOwner = PC;
+}
+
 //==============================================================================================================
 //смена режима лица
 //==============================================================================================================
@@ -218,51 +111,97 @@ void AMyrPlayerController::SetFirstPerson(bool Set)
 }
 
 //==============================================================================================================
-//обработчики-обертки для команд включения и выключения разных меню
-//здесь никаких сложных действий, просто остановка игры и отображение гуя поверх нее
 //==============================================================================================================
-void AMyrPlayerController::TogglePause()
+//новая фигня - закрыть универсальный агрегатор меню вплоть до игрового худа
+//==============================================================================================================
+//==============================================================================================================
+void AMyrPlayerController::ChangeWidgets(EUIEntry NewEntry)
 {
-	if(CurrentUIModeName == TEXT("Pause")) ChangeUIMode(TEXT("Play"));
-	else ChangeUIMode(TEXT("Pause"));
-}
-void AMyrPlayerController::ToggleSaves()
-{
-	if(CurrentUIModeName == TEXT("Saves")) ChangeUIMode(ToggleRecentUIModeName);
-	else ChangeUIMode(TEXT("Saves"));
-}
-void AMyrPlayerController::ToggleStats()
-{
-	if (CurrentUIModeName == TEXT("Stats")) { ChangeUIMode(ToggleRecentUIModeName); }
-	else ChangeUIMode(TEXT("Stats"));
-}
-void AMyrPlayerController::ToggleQuests()
-{
-	if (CurrentUIModeName == TEXT("Quests")) { ChangeUIMode(ToggleRecentUIModeName); }
-	else ChangeUIMode(TEXT("Quests"));
-}
+	//достаём новый режим, найдя в карте из класса AMyrraGameModeBase
+	auto GameMode = Cast<AMyrraGameModeBase>(GetWorld()->GetAuthGameMode());
 
-//==============================================================================================================
-//экран при окончании игры
-//==============================================================================================================
-void AMyrPlayerController::GameOverScreen()
-{
-	//надеть экран гейм овера, если до этого был экран игры
-	if (CurrentUIModeName == TEXT("Play")) ChangeUIMode(TEXT("GameOver"));
-	GetMyrGameInstance()->PostGameOverActions();
+
+	//переключение на меню конкретное
+	if(NewEntry != EUIEntry::NONE)
+	{
+		//поискать в принципе такую команду в этом гейммоде, если нет, то вызов некорректный
+		auto Data = GameMode->MenuSets.Find(NewEntry);
+		if (!Data) return;
+
+		//если замещается игровой интерфейс 
+		if (!bUI)
+		{
+			//удалить виджет худа с экрана
+			WidgetHUD->RemoveFromParent();
+
+			//записать если нужно, новый набор меню
+			WidgetUI->InitNewMenuSet(Data->AsMenu);
+
+			//переключить внутренний набор на нужное окно
+			WidgetUI->ChangeCurrentWidget(NewEntry);
+
+			//сразу поместить на экран
+			WidgetUI->AddToViewport();
+
+			//настроить управление, характерное для меню, с курсором и кнопками
+			FInputModeUIOnly InputModeData;
+			InputModeData.SetLockMouseToViewportBehavior(EMouseLockMode::LockInFullscreen);
+			InputModeData.SetWidgetToFocus(WidgetUI->TakeWidget()); //Because UMG wraps Slate
+			WidgetUI->SetKeyboardFocus();
+
+			//на всякий случай снова заложить ссылку на главного героя в виджет меню
+			WidgetUI->MyrOwner = GetDaemonPawn()->OwnedCreature;
+
+			//включить обесцвечивание подлежащей под меню сцены
+			GetDaemonPawn()->SwitchToMenuPause(true);
+
+			//это всё местные методы
+			SetInputMode(InputModeData);
+			bShowMouseCursor = true;
+			SetTickableWhenPaused(true);
+			UGameplayStatics::SetGamePaused(GetWorld(), true);
+			bUI = true;
+			return;
+		}
+
+		//на экране уже есть меню, но включен другой виджет
+		else if (WidgetUI->CurrentWidgetId != NewEntry)
+		{
+			//переключить внутренний набор на нужное окно
+			WidgetUI->ChangeCurrentWidget(NewEntry);
+			bUI = true;
+			return;
+		}
+
+		//если же меню раскрыто то же, что и запрашивается - сигнал к выключению меню до худа игры - ниже
+	}
+	//если функция до сих пор не закончилась, наступает черед смены режима с меню на игровой худ
+	//убрать с экрана старый виджет
+	WidgetUI->RemoveFromParent();
+
+	//сразу поместить на экран
+	WidgetHUD->AddToViewport();
+	WidgetHUD->SetOwnerCreature(GetDaemonPawn()->OwnedCreature);
+	WidgetHUD->MyrPlayerController = this;
+	WidgetHUD->OnJustShowed();
+
+	//настроить управление для нормального 3д-мира
+	FInputModeGameOnly InputModeData;
+	SetInputMode(InputModeData);
+	bShowMouseCursor = false;
+	UGameplayStatics::SetGamePaused(GetWorld(), false);
+	GetDaemonPawn()->SwitchToMenuPause(false);
+	bUI = false;
 }
 
 //==============================================================================================================
 //сообщение на экран об успешном фоновом сохранении
 //==============================================================================================================
-void AMyrPlayerController::QuickSave()
+void AMyrPlayerController::CmdQuickSave()
 {
 	//собственно, процедура сохранения
 	GetMyrGameInstance()->QuickSave();
 
-	//если виджет на экране модифицированный, выдать ему сообщение - мож, напечатает строчку "сохранено"
-	if (auto BioCurWi = Cast<UMyrBioStatUserWidget>(*UIWidgets.Find(CurrentUIModeName)))
-		BioCurWi->OnSaved();
-	UE_LOG(LogTemp, Log, TEXT("AMyrPlayerController QuickSave"));
 }
+
 
