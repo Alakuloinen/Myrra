@@ -51,6 +51,11 @@ EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, 
 	if (SkipDuringAttack && !Owner->NoAttack())	
 		return EAttackAttemptResult::WRONG_PHASE;//◘◘>
 
+	//это действие с низким приоритетом хочет вытолкнуть более приоритетоное
+	if(Owner->DoesSelfAction())
+		if(Priority <= Owner->GetSelfAction()->Condition.Priority)
+			return EAttackAttemptResult::LOW_PRIORITY;//◘◘>
+
 	///////////////////////////////////////////////////
 
 	// попадает в диапазоны  усталости
@@ -231,6 +236,7 @@ void UMyrActionInfo::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 {
 	FName PropertyName = (PropertyChangedEvent.MemberProperty != nullptr) ? PropertyChangedEvent.MemberProperty->GetFName() : NAME_None;
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UMyrActionInfo, VictimTypes))
+	{
 
 		//если пользователь добавил сборку для жертвы из нуля хотя бы одну
 		if (VictimTypes.Num() > 0 && DynModelsPerPhase.Num() < (int)EActionPhase::NUM)
@@ -239,131 +245,22 @@ void UMyrActionInfo::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 			DynModelsPerPhase[(int)EActionPhase::READY].AnimRate = -0.1f;
 			DynModelsPerPhase[(int)EActionPhase::DESCEND].AnimRate = -1.0f;
 		}
+	}
+
+	//проверить, что для атаки фазы предусматривающие откат анимации поданы с отрицательной скоростью
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UMyrActionInfo, DynModelsPerPhase) && IsAttack())
+	{
+		for (int i = 0; i < DynModelsPerPhase.Num(); i++)
+		{
+			if ((EActionPhase)i == EActionPhase::DESCEND && DynModelsPerPhase[i].AnimRate > 0)
+				DynModelsPerPhase[i].AnimRate = -1.0f;
+			if ((EActionPhase)i == EActionPhase::READY && DynModelsPerPhase[i].AnimRate > 0)
+				DynModelsPerPhase[i].AnimRate = -0.1f;
+		}
+	}
 
 	RecalcOverallStaminaFactor();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif
-
-//==============================================================================================================
-//форма проверки для ИИ, стоит ли совершать даннуб атаку по отношению к данной цели
-//==============================================================================================================
-EAttackAttemptResult UMyrAttackInfo::ShouldIStartThisAttack (
-	AMyrPhyCreature* Owner,		// существо, которое хочет атаковать этой атакой
-	UPrimitiveComponent* ExactVictim,		// жертва существа, определенная ИИ, при игре игроком это может быть и 0
-	FGoal* Goal,				// сборка цели ИИ, может быть и при атаке игроком, если включен режим помощи в нацеливании
-	bool ByAI)					// дополнительный флаг, что совершается именно ИИ, хотя зачем он нужен?
-{
-	//проверять отдельно, подходит ли сам деятель (для оптимизации)
-	//не нужно, если он уже начал, и нужно решить о продолжении
-	bool CheckMyself = true;
-
-	/*//если уже какая-то атака выполняется
-	if(!Owner->NoAttack())
-	{
-		//именно эта атака сейчас выполняется
-		if(Owner->GetCurrentAttackInfo() == this)
-		{
-			//в какой фазе уже находится наша атака
-			switch(Owner->CurrentAttackPhase)
-			{
-				//в начальной фазе - хорошо, себя можно не проверять, только жертву
-				case EActionPhase::ASCEND:	
-				case EActionPhase::READY:	
-				case EActionPhase::RUSH:
-					CheckMyself = false;
-					break;
-
-				//если в этой атаке предусмотрено несколько быстрых повторов, и они еще не исчерпаны
-				//то продолжить проверку, но не избегать проверки исполнителя, иначе досрочно прекратить
-				case EActionPhase::STRIKE:
-					if(NumInstantRepeats >= Owner->CurrentAttackRepeat)
-						return EAttackAttemptResult::OUT_OF_REPEATS;//◘◘>
-					else break;
-
-				//фаза заката, всё, поезд ушёл, только дожидаться, когда атака кончится
-				case EActionPhase::DESCEND: return EAttackAttemptResult::WRONG_PHASE;//◘◘>
-			}
-		}
-		//выполняется какое-то другое действие, нельзя включить ЭТУ атаку, дождаться конца
-		else return EAttackAttemptResult::WRONG_PHASE;//◘◘>
-	}
-
-	//исполнитель сам по отдельности не попадает под критерии (например, здоровья мало или двигается слишком быстро)
-	if(CheckMyself)
-	{	//###########################################################
-		auto CheckRes = Condition.IsFitting (Owner);
-		if(CheckRes != EAttackAttemptResult::OKAY_FOR_NOW) return CheckRes;//##>
-	}
-
-	//если атакует игрок, прервать дальнейшее - так как дальше типично ИИ-шные оптимизации, отсекающие
-	//те случаи (слишком далеко, не так повёрнуты), когда игрок сам должен думать
-	if(!ByAI) return EAttackAttemptResult::OKAY_FOR_NOW;//◘◘>
-	
-	//////////////////////////////////////////////////////////////////////////
-	//если ИИ атакующего уже подсуетился и промерил жертву в качестве цели
-	if(Goal)
-	{
-		//если жертва вне радиуса доставания атаки, не надо ее начинать
-		if(	!CheckByRadius (Goal->LookAtDist))
-			return EAttackAttemptResult::OUT_OF_RADIUS;//◘◘>
-
-		//если жертва вне угла поражения
-		if(	!CheckByAngle (Goal->LookAlign))
-			return EAttackAttemptResult::OUT_OF_ANGLE;//◘◘>
-	}
-
-	//////////////////////////////////////////////////////////////////////////
-	//если атака направляется на существо
-	if(auto MyrVic = Cast<AMyrPhyCreature>(ExactVictim->GetOwner()))
-	{
-		//жертва по отдельности не попадают под критерии (например, здоровья мало или двигается слишком быстро)
-		//###########################################################
-		auto CheckRes = ConditionVictim.IsFitting (Owner);
-		if(CheckRes != EAttackAttemptResult::OKAY_FOR_NOW) return CheckRes;//##>
-	}
-	*/
-	//вожделенная строчка
-	return EAttackAttemptResult::OKAY_FOR_NOW;
-}
-
-//==============================================================================================================
-//сравнить дву атаки для текущего существа, чтобы выбрать более подходящую
-//==============================================================================================================
-bool UMyrAttackInfo::IsItBetterThanTheOther (AMyrPhyCreature* Performer, UMyrAttackInfo *TheOther)
-{
-	auto MyRes = Condition.IsFitting(Performer);
-	if (MyRes != EAttackAttemptResult::OKAY_FOR_NOW) return false;
-
-	auto MyRes2 = TheOther->Condition.IsFitting(Performer);
-	if (MyRes2 != EAttackAttemptResult::OKAY_FOR_NOW) return true;
-
-	if(Performer->Stamina < 0.5) 
-	{
-		//тут надо по другому
-//		if(DeltaStaminaAtSuccess < TheOther->DeltaStaminaAtSuccess) return false;
-	}
-	else
-	{
-		if (TactileDamage < TheOther->TactileDamage) return false;
-	}
-	return true;
-}
-
-//==============================================================================================================
-//проверка возможности попадения в цель, для автонацеливания
-//==============================================================================================================
-bool UMyrAttackInfo::QuickAimResult(AMyrPhyCreature* Owner, FGoal* Goal, float Accuracy)
-{
-	//если жертва вне радиуса доставания атаки, не надо ее начинать
-	if(	!CheckByRadius (Goal->LookAtDist)) return false;//◘◘>
-
-	//если жертва вне угла поражения
-	if(	!CheckByAngle (Goal->LookAlign)) return false;//◘◘>
-
-	//если мы попадаем, но нацелены неточно (и помогать нам при такой точности - читерство)
-	if(Goal->LookAlign < Accuracy)  return false;//◘◘>
-	return true;//◘◘>
-}
-
 

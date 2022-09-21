@@ -92,16 +92,16 @@ UENUM(BlueprintType) enum class EMyrCameraMode : uint8
 USTRUCT(BlueprintType) struct FCreatureDrive
 {
 	GENERATED_USTRUCT_BODY()
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector MoveDir;			// курс движения
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector ActDir;				// курс взгляда и/или удара в атаке
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f MoveDir;			// курс движения
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f ActDir;				// курс взгляда и/или удара в атаке
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Gain = 0.0f;			// сила тяги к движению
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction DoThis;		// команда (простая или сборочная) которую вот прям щас выполнить
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool Release = false;		// тру = отжатие кнопки, для атак переход к удару, для переключателей режимов - выключение, возврат
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool NeedCheck = false;		// нужно ли дополнительно проверять применимость действия-ассета, или контроллер уже сам его проверил
 
 	FCreatureDrive()
-	{	MoveDir = FVector(0, 0, 0);
-		ActDir = FVector(1, 0, 0);
+	{	MoveDir = FVector3f(0, 0, 0);
+		ActDir = FVector3f(1, 0, 0);
 		Gain = 0; 
 		DoThis = ECreatureAction::NONE;
 	}

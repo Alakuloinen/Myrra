@@ -18,11 +18,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "Ephemeris.hpp"
 
 #include <stdio.h>
 #include <math.h>
 
-#include "Ephemeris.hpp"
 
 
 #ifndef PI

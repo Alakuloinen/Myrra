@@ -46,10 +46,8 @@ float FPhene::LUT[PHENE_CURVE_MAX][MAX_LEVEL+2] = {
 DEFINE_LOG_CATEGORY(LogMyrPhyCreature);
 
 //одной строчкой вся логика ответов на запросы о переходе в новое состояние
-#define TRANSIT(state, cond) case EBehaveState::##state: if(cond) AdoptBehaveState(EBehaveState::##state); break;
-#define TRANSIT2(state, stateE, cond) case EBehaveState::##state: if(cond) if(!AdoptBehaveState(EBehaveState::##state)) AdoptBehaveState(EBehaveState::##stateE);
-#define BEWARE(cond, state) if(cond) if(AdoptBehaveState(EBehaveState::##state)) break
-#define BEWAREELSE(cond, state, altst) if(cond) if(!AdoptBehaveState(EBehaveState::##state)) {if(AdoptBehaveState(EBehaveState::##altst)) break;} else break
+#define BEWARE(state, cond) if(cond) if(AdoptBehaveState(EBehaveState::##state)) break
+#define BEWAREELSE(state, altst, cond) if(cond) if(!AdoptBehaveState(EBehaveState::##state)) {if(AdoptBehaveState(EBehaveState::##altst)) break;} else break
 
 //позиция головы в мировых координатах
 FVector AMyrPhyCreature::GetHeadLocation() { return Mesh->GetHeadLocation(); }
@@ -67,6 +65,7 @@ AMyrPhyCreature::AMyrPhyCreature()
 	PrimaryActorTick.TickInterval = 0.0f;
 	PrimaryActorTick.EndTickGroup = TG_PrePhysics;
 	bMoveBack = 0;
+	bWannaClimb = 0;
 
 	//механический лошарик
 	Mesh = CreateOptionalDefaultSubobject<UMyrPhyCreatureMesh>(TEXT("Mesh"));
@@ -76,9 +75,11 @@ AMyrPhyCreature::AMyrPhyCreature()
 	Thorax = CreateDefaultSubobject<UMyrGirdle>(TEXT("Thorax"));
 	Thorax->SetupAttachment(RootComponent);
 	Thorax->IsThorax = true;
+	Thorax->SetGenerateOverlapEvents(true);
 	Pelvis = CreateDefaultSubobject<UMyrGirdle>(TEXT("Pelvis"));
 	Pelvis->SetupAttachment(RootComponent);
 	Pelvis->IsThorax = false;
+	Pelvis->SetGenerateOverlapEvents(false);
 
 	//компонент персональных шкал здоровья и прочей хрени (висит над мешем)
 	LocalStatsWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("Local Stats Widget"));
@@ -91,6 +92,7 @@ AMyrPhyCreature::AMyrPhyCreature()
 	Voice->OnAudioPlaybackPercent.AddDynamic(this, &AMyrPhyCreature::OnAudioPlaybackPercent);
 	Voice->OnAudioFinished.AddDynamic(this, &AMyrPhyCreature::OnAudioFinished);
 
+	//отсеивать нефункциональные экземпляры класса
 	if (HasAnyFlags(RF_ClassDefaultObject)) return;
 
 	//первоначальное направление - вперед
@@ -214,8 +216,20 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//но пока просто тупо присваивается
 	ConsumeInputFromControllers(DeltaTime);
 
-	//обработка уткнутости в препятствие и простейшая корректировка курса
-	WhatIfWeBumpedIn();
+	//извлечь степень физической уткнутости 
+	Mesh->StuckToStepAmount();
+
+	//нормальная, физическая фаза
+	//обработать пояса конечностей
+	Thorax->SenseForAFloor(DeltaTime);
+	Pelvis->SenseForAFloor(DeltaTime);
+
+	//поиск подходящей реакции на затык
+	if(Mesh->Bumper1().Stepped)
+		for (auto R : BehaveCurrentData->BumpReactions)
+		{	auto LaunchResult = TestBumpReaction(&R, Mesh->MaxBumpedLimb1);
+			if (LaunchResult == EAttackAttemptResult::STARTED) break;
+		}
 
 	//боль - усиленная разность старого, высокого здоровья и нового, сниженного мгновенным уроном. 
 	Pain *= 1 - DeltaTime * 0.7 * Health;
@@ -255,7 +269,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 
 
 	//фаза кинематической костыльной доводки до места или удержания на объекте
-	if (bKinematicRefine)
+/*	if (bKinematicRefine)
 	{
 		//найти триггер, который отвечает за данную фазу
 		FTriggerReason* FoundTR = nullptr;
@@ -278,8 +292,8 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 					else
 					{
 						//обработать пояса конечностей
-						Thorax->ExplicitTraceFeet(0);
-						Pelvis->ExplicitTraceFeet(0);
+						//Thorax->ExplicitTraceFeet(0);
+						//Pelvis->ExplicitTraceFeet(0);
 						Thorax->Procede(DeltaTime);
 						Pelvis->Procede(DeltaTime);
 					}
@@ -331,13 +345,9 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		Mesh->SetWorldTransform(T, false, nullptr, ETeleportType::ResetPhysics);
 		return;
 		
-	}
+	}*/
 
-	//нормальная, физическая фаза
-	//обработать пояса конечностей
-	Thorax->Procede(DeltaTime);
-	Pelvis->Procede(DeltaTime);
-
+	FrameCounter++;
 }
 
 
@@ -350,14 +360,14 @@ void AMyrPhyCreature::OnAudioPlaybackPercent(const USoundWave* PlayingSoundWave,
 	if (!Voice->IsPlaying()) return;
 	
 	//длина строки субитров
-	const int Length = PlayingSoundWave->SpokenText.Len();
+	const int Length = PlayingSoundWave->Comment.Len();
 
 	//открывать рот только если в текущем аудио есть субтитры (с версии 4.24 вызывается и когда 100%)
 	if (Length > 0 && PlaybackPercent < 1.0)
 	{
 		//текущий произносимый звук
 		//здесь также можно парсить строку, чтобы вносить эмоциональные вариации
-		CurrentSpelledSound = (EPhoneme)PlayingSoundWave->SpokenText[Length * PlaybackPercent];
+		CurrentSpelledSound = (EPhoneme)PlayingSoundWave->Comment[Length * PlaybackPercent];
 	}
 }
 
@@ -427,6 +437,9 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 	//руление курса движения осуществляется только при наличии тяги
 	if(D->Gain>0)
 	{
+		//любой привод тела с тягой показывает желание двигаться
+		bMove = true;
+
 		//действия в случае раскорячки тела и курса: для начала просчитать степень этой раскорячки
 		if(BehaveCurrentData->TurnReactions.Num()>0)
 		{
@@ -464,7 +477,7 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 					case ETurnMode::SlowConst:
 					{
 						//направление вбок как базис для плавного руления
-						FVector SideWay = Mesh->GetLimbAxisRight(Mesh->Lumbus);
+						FVector3f SideWay = Mesh->GetLimbAxisRight(Mesh->Lumbus);
 						if((SideWay|D->MoveDir)<0) SideWay = -SideWay;
 						MoveDirection = MoveDirection + SideWay * BestTurnReaction->SpeedFactor;
 
@@ -486,7 +499,9 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 						//направление приводится к вектору тела вперед или назад
 						if(CourseOff > 0.0)	MoveDirection = Thorax->Forward;
 						else
-						{	MoveDirection = -Thorax->Forward;
+						{	
+							BEWARE(walkback, CurrentState == EBehaveState::walk || CurrentState == EBehaveState::stand);
+							//MoveDirection = -Thorax->Forward;
 							bMoveBack = true;
 						}
 						//для кручения в плоскости зед убирается, и вектор перестает быть единичным
@@ -514,9 +529,24 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	//если выше, то линейно увеличиваем, а если ниже, то резко обрываем (нужно остановиться вовремя)
 	if(D->Gain != ExternalGain)
-	{	float Raznice = D->Gain - ExternalGain;
-		if (Raznice <= 0.05)
-			ExternalGain = D->Gain;
+	{
+		//знаковая разница между новым и текущим уровнем тяги
+		float Raznice = D->Gain - ExternalGain;
+
+		//если новый уровень ниже, то есть тормозим
+		if (Raznice <= 0.05f)
+		{
+			//приходится сильно тормозить
+			if (Raznice < -0.1f)
+			{
+				//кинетическая энергия
+				float E = FMath::Clamp(Pelvis->VelocityAgainstFloor.SizeSquared() * 0.0001 - 1, 0.1f, 0.9f);
+				ExternalGain -= 0.05f*(1-E);
+			}
+			//при малой разнице вне зависимости от скорости (для простоты и сходимости) сразу присваивается новый
+			else ExternalGain = D->Gain;
+		}
+		//новый уровень выше - линейно ускориться
 		else ExternalGain += 0.05f;
 
 		//для режима лазанья включение бега вдвое ускоряе, а не-бег вдвое замедляет
@@ -545,6 +575,9 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 //==============================================================================================================
 void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 {
+	//обнуляется, чтобы подготовит к чтению новых
+	bMove = false;
+
 	//играется игроком
 	if(Daemon)
 	{	
@@ -557,8 +590,7 @@ void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 			//особая фигня от первого лица когда смотришь назад
 			//чтоб не глазеть внутрь шеи, всё тело активируется движением и поворачивается
 			if (Daemon->IsFirstPerson())
-			{
-				FVector RealForth = Mesh->GetLimbAxisForth(Mesh->Pectus);
+			{	FVector3f RealForth = Mesh->GetLimbAxisForth(Mesh->Pectus);
 				if((AttackDirection|RealForth)<-0.1)
 				{	MoveDirection = AttackDirection;
 					MoveDirection.Z = 0;
@@ -586,34 +618,31 @@ void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 //==============================================================================================================
 EAttackAttemptResult AMyrPhyCreature::TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb)
 {
+	auto& L = Mesh->Bumper1();
+	float B = Mesh->Bumper1().GetBumpCoaxis();
 	if (BR->Reaction == ECreatureAction::NONE)		return EAttackAttemptResult::INCOMPLETE_DATA;
-	if ((BR->BumperLimb & (1<<(int)BumpLimb))==0)	return EAttackAttemptResult::WRONG_ACTOR;
-	if (!NoSelfAction())							return EAttackAttemptResult::ALREADY_RUNNING;
-	if (BR->Threshold > 0 && Stuck < BR->Threshold)	return EAttackAttemptResult::OUT_OF_RADIUS;
-	if (BR->Threshold < 0 && Stuck > BR->Threshold)	return EAttackAttemptResult::OUT_OF_RADIUS;
-	if(Thorax->SpeedAlongFront() < BR->MinVelocity)	return EAttackAttemptResult::OUT_OF_VELOCITY;
+	if ((BR->BumperLimb & (1<<(int)L.WhatAmI))==0)	return EAttackAttemptResult::WRONG_ACTOR;
+
+	if(auto Floor = L.Floor)
+	{	
+		if(Floor->OwnerComponent->CanCharacterStepUpOn == ECanBeCharacterBase::ECB_No)
+		{
+			if (BR->Threshold > 0)					return EAttackAttemptResult::NO_USEFUL_FOUND;
+			else if (B < -BR->Threshold)			return EAttackAttemptResult::OUT_OF_RADIUS;
+		}
+		else //if (Floor->OwnerComponent->CanCharacterStepUpOn == ECanBeCharacterBase::ECB_Yes)
+		{
+			if (BR->Threshold < 0)					return EAttackAttemptResult::NO_USEFUL_FOUND;
+			else if (B < BR->Threshold)				return EAttackAttemptResult::OUT_OF_RADIUS;
+		}
+	}else											return EAttackAttemptResult::INCOMPLETE_DATA;
+
+	if((Mesh->BodySpeed(L)|L.ImpactNormal) < BR->MinVelocity)
+													return EAttackAttemptResult::OUT_OF_VELOCITY;
 	
 	ActionFindStart(BR->Reaction);					return EAttackAttemptResult::STARTED;
 }
 
-//==============================================================================================================
-//вычислить степень уткнутости в препятствие и тут же произвести корректировку
-//==============================================================================================================
-void AMyrPhyCreature::WhatIfWeBumpedIn()
-{
-	//расчёт сумарной уткнутости - если положительное, то сразу
-	//если перед нами непролазное препятствие (-) то постепенно опомниваться от такой колизии
-	ELimb Bumper = ELimb::NOLIMB;
-
-	//извлечь степень физической уткнутости 
-	Stuck = Mesh->StuckToStepAmount(Bumper);
-
-	//поиск подходящей реакции на затык
-	for (auto R : BehaveCurrentData->BumpReactions)
-	{	auto LaunchResult = TestBumpReaction(&R, Bumper);
-		if (LaunchResult == EAttackAttemptResult::STARTED) break;
-	}
-}
 
 //==============================================================================================================
 //обновить осознанное замедление скорости по отношению к норме для данного двигательного поведения
@@ -622,20 +651,27 @@ void AMyrPhyCreature::UpdateMobility(bool IncludeExternalGain)
 {
 	//при усталости скорость падает только когда запас сил меньше 1/10 от максимума
 	const float Fatigue = (Stamina < 0.1) ? Stamina * 10 : 1.0f;
-	
+
 	//здесь будет длинная формула
 	MoveGain = Fatigue											// источщение запаса сил
 				* Phenotype.MoveSpeedFactor()					// общая быстрота индивида 
 				* (1.0f - Mesh->GetWholeImmobility())			// суммарное увечье частей тело взвешенное по коэффициентам влияния на подвижность
-				* Mesh->DynModel->MotionGain					// если модель заданая состоянием, самодействием, релаксом и т.п. предполагает замедление
+				* Mesh->DynModel->GetMoveWeaken()				// замедление или остановка хода даже при нажатой кнопке, например для релакса или подтоговки к прыжку
 				* FMath::Max(1.0f - Pain, 0.0f);				// боль уменьшает скорость (если макс.боль выше 1, то на просто парализует на долгое время, пока она не спадет)
 
 	//если тягу в расчёт не включать, то мобильность превращается в коэффициент замедления, а не прямое указание к силе движения
-	if (IncludeExternalGain) MoveGain *= ExternalGain;
+	if (IncludeExternalGain)
+	{
+		//если есть сильная уткнутость в препятствие, скорость понижается
+		if(Mesh->Bumper1().GetBumpCoaxis() > 0.8) MoveGain *= FMath::Max(5*(1 - Mesh->Bumper1().GetBumpCoaxis()), 0.0f);
 
-	//чтобы не анимировать странный улиточный микрошаг, пусть лучше стоит на месте
-	if (MoveGain < 0.2) MoveGain = 0;
+		//особый случай когда в центральных члениках задана команда двигаться даже без тяги
+		if (Mesh->DynModel->MoveWithNoExtGain)
+			MoveGain *= FMath::Max(Mesh->DynModel->MotionGain, ExternalGain);
 
+		//стандартный случай, если тяги нет, тело, зафиксированное на опоре, кинематически обездвиживается
+		else MoveGain *= ExternalGain;
+	}
 }
 
 
@@ -665,8 +701,16 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 	//полная замена дин модели, не только звук
 	if (Fully)
 	{
-		//применить новые настройки динамики движения/поддержки для частей тела поясов
+		//сохранить модель
 		Mesh->DynModel = DynModel;
+
+		//фаза подготовки и стартовая доля силы
+		if (DynModel->JumpImpulse < 0) AttackForceAccum = -DynModel->JumpImpulse;
+
+		//текущая фаза - прыгнуть
+		if (DynModel->JumpImpulse > 0) JumpAsAttack();
+
+		//применить новые настройки динамики движения/поддержки для частей тела поясов
 		Thorax->AdoptDynModel(DynModel->Thorax);
 		Pelvis->AdoptDynModel(DynModel->Pelvis);
 
@@ -726,12 +770,26 @@ void AMyrPhyCreature::SetKinematic(bool Set)
 //==============================================================================================================
 //включить или выключить желание при подходящей поверхности зацепиться за нее
 //==============================================================================================================
-void AMyrPhyCreature::SetWannaClimb(bool Set)
+void AMyrPhyCreature::ClimbTryActions()
 {
+	//удачно зацепились
+	if (Thorax->Climbing || Pelvis->Climbing)
+		CeaseActionsOnHit();
+	else
+	{
+		if (!Mesh->Thorax.IsClimbable())
+		{
+			if (Mesh->Erection() < 0.7)
+				ActionFindStart(ECreatureAction::SELF_PRANCE1);
+			else ActionFindStart(ECreatureAction::SELF_PRANCE_BACK);
+		}
+	}
+	bWannaClimb = false;
 	//подробная реализация, с подпрыгом, если нужно
 	//Mesh->ClingGetReady(Set);
-		//только происходит включение
-	if (Set)
+	
+	//только происходит включение
+/*	if (bClimb)
 	{
 		//флаг, что получилось зацепиться вот прям сразу
 		auto CanCling = Thorax->CanGirdleCling();
@@ -753,9 +811,9 @@ void AMyrPhyCreature::SetWannaClimb(bool Set)
 			case EClung::NoClimbableSurface:
 				if (Mesh->Erection() < 0.7)
 					ActionFindStart(ECreatureAction::SELF_PRANCE1);
-				else ActionFindStart(ECreatureAction::SELF_PRANCE_BACK1);
+				else ActionFindStart(ECreatureAction::SELF_PRANCE_BACK);
 		}
-	}
+	}*/
 }
 
 
@@ -836,7 +894,6 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 {
 	//исключить метаболизм параметров в мертвом состоянии
 	if (Health <= 0) return;
-	FrameCounter++;
 
 	//учёт воздействия поверхности, к которой мы прикасаемся любой частью тела, на здоровье
 	EMyrSurface CurSu = EMyrSurface::Surface_0;
@@ -916,11 +973,11 @@ int AMyrPhyCreature::FindObjectInFocus(const float Devia2D, const float Devia3D,
 //==============================================================================================================
 //полный спектр действий от (достаточно сильного) удара между этим существом и некой поверхностью
 //==============================================================================================================
-void AMyrPhyCreature::Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector Normal, EMyrSurface ExactSurface, FSurfaceInfluence* ExactSurfInfo)
+void AMyrPhyCreature::Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface)
 {
 	//для простоты вводится нормаль, а уже тут переводится в кватернион, для позиционирования источника частиц
-	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g"), *GetName(), Amount);
-	FQuat ExactHitRot = FRotationMatrix::MakeFromX(Normal).ToQuat();
+	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g at %s"), *GetName(), Amount, *TXTENUM(ELimb, ExactLimb));
+	FQuat4f ExactHitRot = FRotationMatrix44f::MakeFromX(Normal).ToQuat();
 
 	Pain += Amount;
 
@@ -938,6 +995,7 @@ void AMyrPhyCreature::Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, F
 	MyrAI()->NotifyNoise(ExactHitLoc, Amount);
 
 	//сборка данных по поверхности, которая осприкоснулась с этим существом
+	FSurfaceInfluence* ExactSurfInfo = GetMyrGameInst()->Surfaces.Find(Mesh->GetLimb(ExactLimb).Surface);
 	if (!ExactSurfInfo) return;
 
 	//◘здесь генерируется всплеск пыли от шага - сразу два! - касание и отпуск, а чо?!
@@ -994,9 +1052,6 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 	//пояс
 	auto Girdle = GetGirdle(eLimb);
 
-	//если для конечности не заведен физ-членик, вероятно существо безногое, и надо брать данные из родителя-туловища
-	if (!Mesh->HasPhy(eLimb)) Limb = &Mesh->GetLimbParent(eLimb);
-
 	//а вот если физически нога или туловище не касается поверхности, шаг нельзязасчитывать
 	if(!Limb->Stepped) return;
 
@@ -1007,23 +1062,36 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 	//точное место шага - пока не ясно, стоит ли делать трассировку
 	FVector ExactStepLoc = Trans.GetLocation();
 
-	//сила шага, ее надо сложно рассчитывать 
-	float StepForce = FMath::Min(Mesh->GetMachineBody(*Limb)->GetBodyMass(), 2.0f);
-
+	//сила шага, ее надо сложно рассчитывать, нужна чтоб мелкие животные не пылили
+	float StepForce = 1.0f;
 
 	//поворот для декала - тут все просто
-	FQuat ExactStepRot = Trans.GetRotation();
+	FQuat4f ExactStepRot = (FQuat4f)Trans.GetRotation();
 
 	//поворот для источника частиц - вот тут нужен вектор скорости в направлении нормали
-	FQuat ExactBurstRot = ExactStepRot;
+	FQuat4f ExactBurstRot = ExactStepRot;
 
 	//расчёт скорости движущегося кончика ноги в точке шага
-	float VelScalar; FVector VelDir;
+	FVector3f Vel; float VelScalar; FVector3f VelDir;
+	FLimb* WorkingLimb = Limb;
 
-	//если к кончику лапы приделан членик, то берем его, иначе (для мышей) через общую скорость
-	auto FootBody = Mesh->HasFlesh(eLimb) ? Mesh->GetFleshBody(*Limb, 0) : Girdle->GetBody(EGirdleRay::Center);
-	FVector Vel = FootBody->GetUnrealWorldVelocity();
-	if (Limb->Floor) Vel -= Limb->Floor->GetUnrealWorldVelocity();
+	//если кинематический членик есть
+	if (Mesh->HasFlesh(eLimb))
+	{
+		WorkingLimb = Limb;
+		Vel = Mesh->BodySpeed(*Limb, 0);
+		StepForce = FMath::Min(Mesh->GetFleshBody(*Limb, 0)->GetBodyMass(), 2.0f);
+	}
+	//если ничего нет по ноге, откуда можно выдрать физику
+	else
+	{
+		WorkingLimb = &Girdle->GetLimb(EGirdleRay::Center);
+		Vel = Mesh->BodySpeed(*WorkingLimb);
+		StepForce = FMath::Min(Mesh->GetMachineBody(*Limb)->GetBodyMass(), 2.0f);
+	}
+
+	//если зафиксирована опора, вычесть ее скорость чтоб оносительное движение было
+	if (WorkingLimb->Floor) Vel -= (FVector3f)WorkingLimb->Floor->GetUnrealWorldVelocity();
 	if ((Vel | Limb->ImpactNormal) < 0) Vel = -Vel;
 	Vel.ToDirectionAndLength(VelDir, VelScalar);
 
@@ -1033,8 +1101,8 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 
 	//если слабый шаг, то брызги больше вверх, если шаг сильнее, то всё больше в сторону движения 
 	ExactBurstRot = FMath::Lerp(
-		FRotationMatrix::MakeFromX(Limb->ImpactNormal).ToQuat(),
-		FRotationMatrix::MakeFromX(VelDir).ToQuat(),
+		FRotationMatrix44f::MakeFromX(Limb->ImpactNormal).ToQuat(),
+		FRotationMatrix44f::MakeFromX(VelDir).ToQuat(),
 		FMath::Min(StepForce, 1.0f));
 	//DrawDebugLine(GetWorld(), ExactStepLoc, ExactStepLoc + Vel*0.1,	FColor(Raise?255:0, StepForce*255, 0), false, 2, 100, 1);
 
@@ -1066,11 +1134,11 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 				if (auto DecalMat = GetGenePool()->FeetDecals.Find(ExplicitSurface))
 				{
 					//выворот плоскости текстуры следа
-					FQuat offsetRot(FRotator(-90.0f, 0.0f, 0.0f));
-					FRotator Rotation = (ExactStepRot * offsetRot).Rotator();
+					FQuat4f offsetRot(FRotator3f(-90.0f, 0.0f, 0.0f));
+					FRotator3f Rotation = (ExactStepRot * offsetRot).Rotator();
 
 					//◘ генерация компонента следа
-					auto Decal = UGameplayStatics::SpawnDecalAtLocation(GetWorld(), *DecalMat, FVector(20, 20, 20), ExactStepLoc, Rotation, 10);
+					auto Decal = UGameplayStatics::SpawnDecalAtLocation(GetWorld(), *DecalMat, FVector(20, 20, 20), ExactStepLoc, (FRotator)Rotation, 10);
 					Decal->SetFadeOut(0, 10, true);
 					Decal->SetSortOrder(20);
 				}
@@ -1139,9 +1207,9 @@ void AMyrPhyCreature::SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, F
 }
 
 //новая версия с ниагарой
-void AMyrPhyCreature::SurfaceBurst(UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale)
+void AMyrPhyCreature::SurfaceBurst(UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat4f ExactHitRot, float BodySize, float Scale)
 {
-	auto ParticleSystem = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Dust, ExactHitLoc, FRotator(ExactHitRot), FVector(1, 1, 1), true);
+	auto ParticleSystem = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Dust, ExactHitLoc, FRotator((FQuat)ExactHitRot), FVector(1, 1, 1), true);
 	ParticleSystem->SetRenderCustomDepth(true);
 
 	//параметр, определяемый размерами тела - размер спрайтов (хорошо бы еще размер области генерации)
@@ -1216,9 +1284,9 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	if (NeedKin != bKinematicMove) SetKinematic(NeedKin);
 
 	//пока для теста, вообще неясно - на этот раз увязчаем корень тела, чтоб не болталось при лазаньи
-	if (NewState == EBehaveState::climb) Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 100;
-	else Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 0;
-	Mesh->GetRootBody()->UpdateDampingProperties();
+	//if (NewState == EBehaveState::climb) Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 100;
+	//else Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 0;
+	//Mesh->GetRootBody()->UpdateDampingProperties();
 
 
 	//счастливый финал
@@ -1243,7 +1311,7 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 
 	//применить новые настройки динамики движения/поддержки для частей тела поясов
 	//ВНИМАНИЕ, только когда нет атаки, в атаках свои дин-модели по фазам, если применить, эти фазы не отработают
-	if(NoAttack())
+	if(NoAnyAction())
 		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
 
 	//если управляется демоном игрока
@@ -1269,110 +1337,141 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 	{
 		//шаг по поверхности
 		case EBehaveState::stand:
-			if (BewareDying()) break;
-			BEWARE(GotUntouched(), fall);
-			BEWARE(ExternalGain>0, walk);
-			BEWARE(bCrouch, crouch);
-			BEWARE(bSoar && Stamina > 0.1f, soar);
-			BEWAREELSE(bRun && Stamina > 0.1f, run, walk);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(crouch,		bCrouch);
+			BEWARE(soar,		bSoar && MoveGain > 0.1);
+			BEWARE(run,			bRun && Stamina > 0.1f);
+			BEWARE(walk,		MoveGain > 0 || bRun);
 			break;
 
 		//шаг по поверхности (боимся упасть, опрокинуться и сбавить скорость до стояния)
 		case EBehaveState::walk:
-			if(BewareDying()) break;
-			BEWARE(GotUntouched(), fall);
-			BEWARE(ExternalGain==0 && GotSlow(10), stand);
-			BEWARE(Stuck > 0.5 || Thorax->GuidedMoveDir.Z>0.7, mount);
-			BEWARE(bCrouch, crouch);
-			BEWARE(bSoar && Stamina > 0.1f, soar);
-			if(BewareOverturn(0.5f - 0.2* MoveGain)) break;
-			BEWAREELSE(bRun && Stamina > 0.1f, run, walk);
-			BEWARE(bClimb && !GotUnclung(), climb);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(stand,		MoveGain==0 && GotSlow(10));
+			BEWARE(mount,		Thorax->GuidedMoveDir.Z>0.7);
+			BEWARE(crouch,		bCrouch);
+			BEWARE(soar,		bSoar && MoveGain > 0.1);
+			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
+			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(climb,		bClimb && !GotUnclung());
+			BEWARE(run,			bRun && Stamina > 0.1f);
+			break;
+
+		//шаг задом на перед
+		case EBehaveState::walkback:
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(stand,		ExternalGain == 0 && GotSlow(10));
+			BEWARE(walk,		ExternalGain == 0 || (MoveDirection | Mesh->GetWholeForth()) > -0.9);
+			BEWARE(soar,		bSoar && MoveGain > 0.1);
+			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
+			BEWARE(tumble,		Mesh->IsLyingDown());
 			break;
 
 		//шаг украдкой по поверхности
 		case EBehaveState::crouch:
-			if (BewareDying()) break;
-			BEWARE(GotUntouched(), fall);
-			BEWARE(!bCrouch, walk);
-			BEWARE(bSoar && Stamina > 0.1f, soar);
-			BEWAREELSE(bRun && Stamina > 0.1f, run, walk);
-			BEWARE(bClimb && !GotUnclung(), climb);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(soar,		bSoar && MoveGain > 0.1);
+			BEWARE(climb,		bClimb && !GotUnclung());
+			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
+			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(run,			bRun && Stamina > 0.1f);
+			BEWARE(walk,		!bCrouch || bRun);
 			break;
 
 		//бег по поверхности
 		case EBehaveState::run:
-			if (BewareDying()) break;
-			BEWARE(GotUntouched(), fall);
-			BEWARE(GotSlow(10), walk);
-			BEWARE(Stuck > 0.7 || Thorax->GuidedMoveDir.Z > 0.8, mount);
-			if (BewareOverturn (0.5f - 0.2 * MoveGain)) break;
-			BEWARE(!bRun, walk);
-			BEWARE(bClimb && !GotUnclung(), climb);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(walk,		GotSlow(10) || !bMove || !bRun);
+			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
+			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(climb,		bClimb && !GotUnclung());
 			break;
 
 		//забраться на уступ
 		case EBehaveState::mount:
-			if (BewareDying()) break;
-			BEWARE(GotUntouched(), fall);
-			BEWARE(Stuck < 0.5 && Pelvis->GuidedMoveDir.Z<0.65, walk);	//порог выхода меньше, чтоб убрать дребезг
-			BEWAREELSE(bRun && Stamina > 0.1f, run, walk);
-			BEWARE(bClimb && !GotUnclung(), climb);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(climb,		bClimb && !GotUnclung());
+			BEWARE(walk,		!Mesh->Bumper1().Stepped || Pelvis->GuidedMoveDir.Z < 0.65);
+			BEWAREELSE(run,walk,bRun && Stamina > 0.1f);
 			break;
 
 		//лазанье по проивольно крутым поверхностям
 		case EBehaveState::climb:
-			if (BewareDying()) break;
-			//if (BewareHangTop()) break;
-			BEWARE(bSoar && Stamina > 0.1f, soar);
-			BEWARE(GotUntouched(), fall);
-			BEWARE(GotUnclung(), fall);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(soar,		bSoar && Stamina > 0.1f);
+			BEWARE(fall,		!GotLandedAny() || GotUnclung());
 			break;
 
 		//набирание высоты (никаких волевых переходов, только ждать земли и перегиба скорости)
 		case EBehaveState::soar:
-			if(BewareDying()) break;
-			BEWARE(!bSoar, fly);
-			BewareGround();
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fly, 		!bSoar);
+			BEWARE(run,			GotLandedAny(200) && bRun);
+			BEWARE(walk,		GotLandedAny(200));
 			break;
 			
 		//падение (никаких волевых переходов, только ждать земли)
 		case EBehaveState::fall:
-			if(BewareDying()) break;
-			BEWARE(bSoar, soar);
-			BEWARE(bFly, fly);
-			BEWARE(StateTime>0.5, land);
-			BewareGround();
+			BEWARE(dying,		Health <= 0);
+			BEWARE(soar,		bSoar);
+			BEWARE(fly,			bFly);
+			BEWARE(land,		StateTime>0.5);
+			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
+			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(run,			GotLandedAny(200) && bRun);
+			BEWARE(crouch,		GotLandedAny(200));
 			break;
 
 		//специальное долгое падение, которое включается после некоторрого времени случайного падения
 		//на него вешается слоумо для выворота тела в полете
 		case EBehaveState::land:
-			if (BewareDying()) break;
-			BEWARE(bSoar, soar);
-			BEWARE(bFly, fly);
-			BewareGround();
+			BEWARE(dying,		Health <= 0);
+			BEWARE(soar,		bSoar);
+			BEWARE(fly,			bFly);
+			BEWARE(run,			GotLandedAny(200)  && bRun);
+			BEWARE(crouch,		GotLandedAny(200) );
 			break;
 
 		//режим полёта
 		case EBehaveState::fly:
-			if(BewareDying()) break;
-			BEWARE(!bFly || Stamina*Health<0.1 || ExternalGain==0, fall);
-			BEWARE(bSoar, soar);
-			BEWARE(!GotUntouched(), walk);
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!bFly || Stamina*Health<0.1 || ExternalGain==0);
+			BEWARE(soar,		bSoar);
+			BEWARE(run,			GotLandedAny(200) && bRun);
+			BEWARE(walk,		GotLandedAny(200));
 			break;
 
 		//опрокидывание (пассивное лежание (выход через действия а не состояния) и активный кувырок помимо воли)
 		case EBehaveState::lie:
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(tumble,		Mesh->IsLyingDown() && MoveGain > 0.1f);
+			BEWARE(walk,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
+			break;
+
 		case EBehaveState::tumble:
-			if(BewareDying()) break;
-			BEWARE(GotUntouched(), fall);
-			BewareOverturn(0.6,false);	// изменение tumble <-> lie <-> walk
+			BEWARE(dying,		Health <= 0);
+			BEWARE(fall,		!GotLandedAny());
+			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain < 0.1f);
+			BEWARE(walk,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;
 	
 		//здоровье достигло нуля, просто по рэгдоллиться пару секнуд перед окончательной смертью
 		case EBehaveState::dying:
-			BEWARE(StateTime>2, dead);
+			BEWARE(dead, StateTime>2);
+			if(Stamina == -1) break;
+			ActionFindStart(ECreatureAction::SELF_DYING1);
+			CatchMyrLogicEvent(EMyrLogicEvent::SelfDied, 1.0f, nullptr);
+			MyrAI()->LetOthersNotice(EHowSensed::DIED);
+			bClimb = 0;
+			Health = 0.0f;
+			Stamina = -1;
 			break;
 
 		//окончательная смерть с окоченением, поджиманием лапок
@@ -1387,60 +1486,6 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 
 }
 
-//==============================================================================================================
-//проверить переворот (берётся порог значения Z вектора вверх спины)
-//==============================================================================================================
-bool AMyrPhyCreature::BewareOverturn(float Thresh, bool NowWalking)
-{
-	//спина смотрит вниз - уже неправильно
-	if (Mesh->IsSpineDown(Thresh))		
-	{	
-		//если спина вниз, а вот ноги хорошо стоят - анаомальная раскоряка мостиком, надо срочно исправлять состоянием Tumble
-		if (Thorax->StandHardness > 0.8 || Pelvis->StandHardness > 0.8)	
-			return AdoptBehaveState(EBehaveState::tumble);
-
-		//спина вниз, и лапы в воздухе - для игрока обычное лежание, пусть сам выкарабкивается
-		else if(Daemon) return AdoptBehaveState(EBehaveState::lie);	
-
-		//но для NPC в нем нет смысла, надо быстрее встать
-		else return AdoptBehaveState(EBehaveState::tumble);	
-		
-	}
-	//если функция вызывается из наземного состояния (по умолчанию) - то оно и остаётся
-	else if(NowWalking) return false;
-
-	//если функция вызывается из tumble - эта веть конец лежания и переход в состояние по умолчанию
-	else return AdoptBehaveState(EBehaveState::walk);
-}
-
-//==============================================================================================================
-//распознавание натыкания на стену с целью подняться
-//==============================================================================================================
-bool AMyrPhyCreature::BewareStuck(float Thresh)
-{
-	if(Stuck > Thresh)
-		return AdoptBehaveState(EBehaveState::mount);
-	return false;
-}
-
-//==============================================================================================================
-//условия перехода в смерть
-//==============================================================================================================
-bool AMyrPhyCreature::BewareDying()
-{
-	//при замечании нулевого здоровья перейти в режим Эпоперек стиксаЭ
-	//в котором вызвать конвульсии и посигналить ИИ что сдох
-	if (Health <= 0)
-	{	AdoptBehaveState(EBehaveState::dying);
-		ActionFindStart(ECreatureAction::SELF_DYING1);
-		CatchMyrLogicEvent(EMyrLogicEvent::SelfDied, 1.0f, nullptr);
-		bClimb = 0;
-		MyrAI()->LetOthersNotice(EHowSensed::DIED);
-		Health = 0.0f;
-		return true;
-	}
-	return false;
-}
 
 //==============================================================================================================
 //начать атаку (внимание, проверок нет, применимость атаки должна проверяться заранее)
@@ -1621,15 +1666,8 @@ void AMyrPhyCreature::NewAdoptAttackPhase(EActionPhase NewPhase)
 		}
 	}
 
-	//атака "пригнуться и прыгнуть" - используется аккумулятор мощи
-	//взводится до "чуть-чуть не нуль", чтобы число также содержало логику вкл/выкл
-	if(OnVictim.JumpHoldPhase == CurrentAttackPhase) AttackForceAccum = 0.1;
-
-	//текущая фаза - прыгнуть
-	else if(OnVictim.JumpPhase == CurrentAttackPhase) JumpAsAttack();
-
 	//текущая новая фаза - отцепить то, что зацеплено было
-	else if(OnVictim.UngrabPhase == CurrentAttackPhase) UnGrab();
+	if(OnVictim.UngrabPhase == CurrentAttackPhase) UnGrab();
 
 	//настроить физику членов в соответствии с фазой атаки (UpdateMobility внутри)
 	AdoptWholeBodyDynamicsModel(&Action->DynModelsPerPhase[(int)CurrentAttackPhase], Action->UseDynModels);
@@ -1669,9 +1707,6 @@ void AMyrPhyCreature::NewAttackEnd()
 	if(NoAttack())
 	{	UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s NewAttackEnd WTF no attack"), *GetName());
 		return;	}
-
-	//что бы то ни было, а накопитель силы сбросить
-	AttackForceAccum = 0.0f;
 
 	//аварийный сброс всех удерживаемых предметов, буде таковые имеются
 	UnGrab();
@@ -1766,26 +1801,21 @@ void AMyrPhyCreature::NewAttackNotifyEnd()
 //==============================================================================================================
 bool AMyrPhyCreature::JumpAsAttack()
 {
-	//исключить совсем уж недобор мощи, чтобы были всё же прыжки, а не дёрганья
-	if (AttackForceAccum == 0.0f) AttackForceAccum = 1.0f;
-	if (AttackForceAccum < 0.5f) AttackForceAccum = 0.5f;
-
 	//пересчитать подвижность безотносительно тяги(которой может не быть если WASD не нажаты)
 	UpdateMobility(false);	
 
 	//влияние прокачки на силу прыжка
-	float JumExperience = GetAttackAction()->ReverseJumpDir ?
+	float JumExperience = Mesh->DynModel->GetJumpAlongImpulse() < 0 ?
 		Phenotype.JumpBackForceFactor() : Phenotype.JumpForceFactor();
 
 	//базис скорости прыжка пока что в генофонде общий для всех существ данного класса
 	float JumpImpulse =
-		  FMath::Min(AttackForceAccum, 1.0f)		// учет времени прижатия кнопки/ног
+		  AttackForceAccum							// учет времени прижатия кнопки/ног
 		* MoveGain									// учет моторного здоровья
 		* JumExperience;							// ролевая прокачиваемая сила
 
 	//как правильно и универсально добывать направление прыжка, пока неясно
-	FVector JumpDir = GetAttackAction()->ReverseJumpDir ? -AttackDirection : AttackDirection;
-	JumpDir = FVector::VectorPlaneProject(JumpDir, Mesh->Pelvis.ImpactNormal);
+	FVector3f JumpDir = FVector3f::VectorPlaneProject(AttackDirection, Mesh->Pelvis.ImpactNormal);
 
 	//прыжок - важное сильновое упражнение, регистрируется 
 	CatchMyrLogicEvent(EMyrLogicEvent::SelfJump, AttackForceAccum, nullptr);
@@ -1799,9 +1829,23 @@ bool AMyrPhyCreature::JumpAsAttack()
 	//переход в состояние вознесения нужен для фиксации анимации, а не для новой дин-модели, которая всё равно затрётся дальше по ходу атакой
 	AdoptBehaveState(EBehaveState::fall);
 
-	//техническая часть прыжка - одновременное гарцевание обоими поясами
-	Thorax->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
-	Pelvis->PhyPrance(JumpDir, JumpImpulse * GetAttackActionVictim().JumpVelocity, JumpImpulse * GetAttackActionVictim().JumpUpVelocity);
+	//если посчитанный импульс существенен
+	if (JumpImpulse > 0)
+	{
+		//получить импульсы 
+		const float Long = JumpImpulse * Mesh->DynModel->GetJumpAlongImpulse();
+		const float Up = JumpImpulse * Mesh->DynModel->GetJumpUpImpulse();
+
+		//техническая часть прыжка - одновременное гарцевание обоими поясами
+		Thorax->PhyPrance(JumpDir, Long, Up);
+		Pelvis->PhyPrance(JumpDir, Long, Up);
+	}
+	//если импуль вышел нулевым, это от усталости или ран, нужно выдать самодействия
+	else
+	{
+		ActionFindStart(ECreatureAction::COMPLAIN_TIRED);
+	}
+
 
 	AttackForceAccum = 0;
 	return false;
@@ -1993,11 +2037,7 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
 		case ECreatureAction::TOGGLE_FLY:		bFly = 1;	bSoar = 0;		return R;//◘◘>
 		case ECreatureAction::TOGGLE_SOAR:		bSoar = 1;					return R;//◘◘>
 		case ECreatureAction::TOGGLE_WALK:		bRun=bCrouch=bSoar=bFly=0;	return R;//◘◘>
-		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 1;
-
-			CeaseActionsOnHit();	// прервать действия чтобы начать новые
-			SetWannaClimb(true);	// запустить возможно новые действия, помогающие быстрее зацепиться
-			return R;//◘◘>
+		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 1; bWannaClimb=1;	return R;//◘◘>
 	}
 
 	/////////////////////////////////////////////////////////////////////////
@@ -2075,14 +2115,12 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindRelease(ECreatureAction Type, UP
 	auto R = EAttackAttemptResult::STARTED;
 	switch (Type)
 	{
-		//выключение бега
+		
 		case ECreatureAction::TOGGLE_HIGHSPEED:	bRun = 0;		return R;//◘◘>
 		case ECreatureAction::TOGGLE_CROUCH:	bCrouch = 0;	return R;//◘◘>
 		case ECreatureAction::TOGGLE_FLY:		bFly = 0;		return R;//◘◘>
 		case ECreatureAction::TOGGLE_SOAR:		bSoar = 0;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 0;
-			SetWannaClimb(false);
-			return R;//◘◘>
+		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 0;		return R;//◘◘>
 	}
 
 	//по умолчанию для неудачи непонятной
@@ -2117,14 +2155,18 @@ void AMyrPhyCreature::SelfActionStart(int SlotNum)
 			return;
 		}
 
-	//если слот самодействия доступен
-	if (CurrentSelfAction == 255)
+	//самодействия могут выбивать друг друга, кроме самих себя
+	if (CurrentSelfAction != SlotNum)
 	{
+		//выбить старое самодействие
+		if (CurrentSelfAction != 255) SelfActionCease();
+
 		//теперь можно стартовать
 		CurrentSelfAction = SlotNum;
 		AdoptWholeBodyDynamicsModel(&GetSelfAction()->DynModelsPerPhase[SelfActionPhase], GetSelfAction()->UseDynModels);
 
 		//отправить символический звук выражения, чтобы очевидцы приняли во внимание и эмоционально пережили
+		//здесь вообще-то нужно не для каждого самодействия, а только для значимых и видных
 		MyrAI()->LetOthersNotice(EHowSensed::EXPRESSED); 
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s SelfActionStart OK %s"), *GetName(), *GetCurrentSelfActionName());
 
@@ -2186,16 +2228,21 @@ void AMyrPhyCreature::ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutAction
 	for(int i=0; i<GenePool->Actions.Num(); i++)
 	{
 		//сопоставление сути очередного действия с тем, что нужно - самодействия или ралкс-действия
-		if(GenePool->Actions[i]->IsRelax() == RelaxNotSelf)
+		if (GenePool->Actions[i]->IsRelax() == RelaxNotSelf)
 
 			//если ограничение на константу темы действия
-			if(Restrict==ECreatureAction::NONE || GenePool->Actions[i]->Type == Restrict)
+			if (Restrict == ECreatureAction::NONE || GenePool->Actions[i]->Type == Restrict)
+			{
 
 				//полная проверка всех критериев применимости, за исключение вероятности
-				if(ActOk(GenePool->Actions[i]->IsActionFitting(this, false)))
+				auto R = GenePool->Actions[i]->IsActionFitting(this, false);
 
-					//адресация по индексу, адресат должен иметь указатель на генофонд существа для получения списка
-					OutActionIndices.Add(i);
+				//адресация по индексу, адресат должен иметь указатель на генофонд существа для получения списка
+				if (ActOk(R)) OutActionIndices.Add(i);
+				else
+					UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindList Reject %s cause %s"),
+						*GetName(), *GenePool->Actions[i]->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
+			}
 	}
 		
 }
@@ -2525,12 +2572,12 @@ UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger rmin, EWhyTrig
 //==============================================================================================================
 //извлечь вектор из триггера и направить тело по нему - внимание, здесь нет нормализации!
 //==============================================================================================================
-bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, EWhoCame WhoAmI)
+bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector3f& InMoveDir, EWhoCame WhoAmI)
 {
 	//проверить есть ли заданный триггер вокруг нас
 	FTriggerReason *TR = nullptr;
 	UMyrTriggerComponent* UsedOv = nullptr;
-	FVector Force(0);
+	FVector3f Force(0);
 
 	UsedOv = HasSuchOverlap ( EWhyTrigger::VectorFieldMover, TR, WhoAmI);
 	if(UsedOv) 	Force = UsedOv->ReactVectorFieldMove(*TR, this);
@@ -2552,8 +2599,20 @@ bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector& InMoveDir, EWhoCame WhoAmI
 void AMyrPhyCreature::Line(ELimbDebug Ch, FVector A, FVector AB, float W, float Time)
 {
 	if (IsDebugged(Ch))
+	{
+		auto C = GetMyrGameInst()->DebugColors.Find(Ch);
 		DrawDebugLine(GetOwner()->GetWorld(), A, A + AB,
-			GetMyrGameInst()->DebugLineChannel(Ch), false, Time, 100, W);
+			(C ? (*C) : FColor(255, 255, 255)), false, Time, 100, W);
+	}
+}
+void AMyrPhyCreature::Linet(ELimbDebug Ch, FVector A, FVector AB, float Tint, float W, float Time)
+{
+	if (IsDebugged(Ch))
+	{
+		auto C = GetMyrGameInst()->DebugColors.Find(Ch);
+		DrawDebugLine(GetOwner()->GetWorld(), A, A + AB,
+			(FLinearColor((C?(*C):FColor(255, 255, 255))) * Tint).ToFColor(false), false, Time, 100, W);
+	}
 }
 void AMyrPhyCreature::Line(ELimbDebug Ch, FVector A, FVector AB, FColor Color, float W, float Time)
 {
@@ -2629,14 +2688,14 @@ FVector AMyrPhyCreature::GetClosestBodyLocation(FVector Origin, FVector Earlier,
 //==============================================================================================================
 //вектор, в который тело смотрит глазами - для определения "за затылком"
 //==============================================================================================================
-FVector AMyrPhyCreature::GetLookingVector() const
+FVector3f AMyrPhyCreature::GetLookingVector() const
 {
 	return Mesh->GetLimbAxisForth(Mesh->Head);
 }
 //==============================================================================================================
 //вектор вверх тела
 //==============================================================================================================
-FVector AMyrPhyCreature::GetUpVector() const
+FVector3f AMyrPhyCreature::GetUpVector() const
 {
 	return Mesh->GetLimbAxisUp(Mesh->Thorax);
 }
@@ -2651,11 +2710,11 @@ float AMyrPhyCreature::GetCurrentSurfaceStealthFactor() const
 
 	//поверхность из ног при ходьбе передался в членик-промежность, оттуда по типу поверхности берем сборку
 	//для каждого пояса конечностей проверяется его призмеденность - иначе поверхности опоры или нет, или она устарела
-	if(Thorax->StandHardness > 0.4)
+	if(Thorax->StandHardness > 100)
 	{	auto pg = GetMyrGameInst()->Surfaces.Find(Mesh->Thorax.Surface);
 		if (pg) ThoraxStealthFactor = pg->StealthFactor;
 	}
-	if(Pelvis->StandHardness > 0.4)
+	if(Pelvis->StandHardness > 100)
 	{	auto pg = GetMyrGameInst()->Surfaces.Find(Mesh->Pelvis.Surface);
 		if (pg) PelvisStealthFactor = pg->StealthFactor;
 	}

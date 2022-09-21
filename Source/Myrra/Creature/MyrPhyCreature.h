@@ -36,9 +36,11 @@ UCLASS() class MYRRA_API AMyrPhyCreature : public APawn
 
 public:
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bMove : 1;		//ваще как либо хотеть двигаться
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bRun : 1;			//бежать
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bCrouch : 1;		//красться
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bClimb : 1;		//лазать по деревьям
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bWannaClimb : 1;	//момент запроса на карабканье
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bFly : 1;			//летать
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bSoar : 1;		//активно набирать высоту
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematicRefine : 1;	//кинематически доводить
@@ -79,8 +81,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrCreatureGenePool* GenePool;
 
 	//единичные вектора направления действий
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector MoveDirection;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector AttackDirection;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f MoveDirection;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f AttackDirection;
 
 	//скаляры различных оперативных параметров
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float ExternalGain = 0.0f;			// коэффициент скорости, для разгона извне
@@ -91,7 +93,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Pain = 0.0f;					// боль - резкое ухудшение характеристик при просадке здоровья
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float AttackStrength = 0.0f;			// сила атаки, пока используется как дальность прыжка в прыжковой атаке, надо повесить сюда задержку при нажатии кнопки
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Age = 0.0f;					// возраст, просто возраст в секундах, чтобы состаривать и убивать неписей (мож double или int64?)
-	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Stuck = 0.0f;					// степень застревания (плюс = уступ, можно залезть, минус = препятствие, умерить пыл или отойти)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float LightingAtView = 0.0f;			// уровень освещенности в направлении взгляда
 
 	// набор данных воздействия последней съеденной пищи			
@@ -115,6 +116,7 @@ public:
 	bool IsDebugged(ELimbDebug Ch) { return ((DebugLinesToShow & (1 << (uint32)Ch)) != 0);  }
 	void Line(ELimbDebug Ch, FVector A, FVector AB, float W = 1, float Time = 0.02);
 	void Line(ELimbDebug Ch, FVector A, FVector AB, FColor Color, float W = 1, float Time = 0.02);
+	void Linet(ELimbDebug Ch, FVector A, FVector AB, float Tint, float W = 1, float Time = 0.02);
 #endif
 
 	//счетчик тактов
@@ -182,9 +184,6 @@ public:
 	//оценить применимость реакции на уткнутость и если удачно запустить ее
 	EAttackAttemptResult TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb);
 
-	//вычислить степень уткнутости в препятствие и тут же произвести корректировку
-	void WhatIfWeBumpedIn();
-
 	//обновить осознанное замедление скорости по отношению к норме для данного двигательного поведения
 	void UpdateMobility(bool IncludeExternalGain = true);
 
@@ -203,7 +202,7 @@ public:
 	void SetKinematic(bool Set);
 
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
-	void SetWannaClimb(bool Set);
+	void ClimbTryActions();
 
 	//найти объект в фокусе - для демона, просто ретранслятор из ИИ, чтобы демон не видел ИИ
 	int FindObjectInFocus(const float Devia2D, const float Devia3D, AActor*& Result, FText& ResultName);
@@ -222,7 +221,7 @@ public:
 	void MakeStep(ELimb WhatFoot, bool Raise);
 
 	//пострадать от физических повреждений (всплывает из меша)
-	void Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector Normal, EMyrSurface ExactSurface, FSurfaceInfluence* ExactSurfInfo = nullptr);
+	void Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface);
 
 	//ментально осознать, что пострадали от действий другого существа или наоборот были им обласканы
 	void SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker);
@@ -230,7 +229,7 @@ public:
 
 	//запустить брызг частиц пыли и т.п. из чего состоит заданная поверхность
 	void SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale);
-	void SurfaceBurst(class UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale);
+	void SurfaceBurst(class UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat4f ExactHitRot, float BodySize, float Scale);
 
 	//проиграть звук контакта с поверхностью / шаг, удар
 	void SoundOfImpact(FSurfaceInfluence *SurfInfo, EMyrSurface Surface, FVector Loc, float Strength, float Vertical, EBodyImpact ImpactType);
@@ -247,38 +246,15 @@ public:
 	void ProcessBehaveState(float DeltaTime);
 
 	/////////////////////////////////////////////
-	bool GotUnclung()					{ return !Thorax->FixedOnFloor && !Pelvis->FixedOnFloor; }
-	bool GotUntouched(float Thr = 0.01)	{ return (Thorax->StandHardness + Pelvis->StandHardness <= Thr); }
+	bool GotUnclung()					{ return !Thorax->Climbing && !Pelvis->Climbing; }
+	bool GotLandedAny(uint8 Thr = 100) { return ((Thorax->StandHardness >= Thr) || (Pelvis->StandHardness >= Thr)); }
 	bool GotSlow(float T = 1)			{ return (Pelvis->VelocityAgainstFloor.SizeSquared() < T && Thorax->VelocityAgainstFloor.SizeSquared() < T); }
 	bool GotSoaringDown(float T = -50)	{ return (Mesh->GetPhysicsLinearVelocity().Z < T); }
 	/////////////////////////////////////////////
 
 	//проверка на провис передней или задней частью тела - внимание, должно вызываться после BewareFall, так как вариант "оба в воздухе" здесь опущен
-	bool BewareHangTop() { if(Thorax->StandHardness < 0.01f) return AdoptBehaveState(EBehaveState::hang); else return false; }
-	bool BewareHangBottom() { if(Pelvis->StandHardness < 0.01f) return AdoptBehaveState(EBehaveState::hang); else return false; }
-
-	//проверить переворот (берётся порог значения Z вектора вверх спины)си принять пассивное лежание lie или активное tumble
-	bool BewareOverturn(float Thresh = 0.0f, bool NowWalking = true);
-
-	//в состоянии перекувыркнутости проверить, если мы выпрямились, встали на ноги
-	bool BewareFeetDown(float Thresh = 0.0f) { return (!Mesh->IsSpineDown(Thresh)) ? AdoptBehaveState(EBehaveState::walk) : false; }
-
-	//распознавание натыкания на стену с целью подняться
-	bool BewareStuck(float Thresh = 0.5);
-
-	//проверить на опору под ногами
-	bool BewareGround(float thr = 0.01)
-	{	if (!GotUntouched(thr))							//если хоть одна конечность теперь контачит с опорой
-		{	//if (Attacking())							//если в это время происходит какая-то атака
-			//	if (GetAttackActionVictim().JumpPhase <= CurrentAttackPhase)
-			//		NewAttackEnd();						//прыжковая атака должна быть экстренно завершена при окончании прыжка
-			AdoptBehaveState(EBehaveState::walk);		//walk - это по умолчанию, затем оно быстро переведется в нужное состояние
-			return true;								//критерий выхода со сменой запрашиваемого состояния
-		} else return false;							//продолжить исследовать другие возможности
-	}
-
-	//условия перехода в смерть
-	bool BewareDying();
+	//bool BewareHangTop() { if(Thorax->StandHardness < 0.01f) return AdoptBehaveState(EBehaveState::hang); else return false; }
+	//bool BewareHangBottom() { if(Pelvis->StandHardness < 0.01f) return AdoptBehaveState(EBehaveState::hang); else return false; }
 
 	//////////////////////////////////////////////////////////////////////
 	//действия - начать, ударить, прекратить досрочно
@@ -371,7 +347,7 @@ public:
 	bool DelOverlap(class UMyrTriggerComponent* Ov);
 
 	//подправить курс по триггер-объёму
-	bool ModifyMoveDirByOverlap(FVector& INMoveDir, EWhoCame WhoAmI);
+	bool ModifyMoveDirByOverlap(FVector3f& INMoveDir, EWhoCame WhoAmI);
 
 	//вывод в блюпринт для редкого тика, чтобы добавлять действия специфичные для конкретного существа
 	UFUNCTION(BlueprintImplementableEvent)	void RareTickInBlueprint(float DeltaTime);
@@ -458,8 +434,8 @@ public:
 	bool NowPhaseDescend() const { return (CurrentAttackPhase == EActionPhase::DESCEND); }
 
 	//текущая фаза атаки соответствует указанным в сборке этой атаки для особых действий: подготовиться к прыжку, прыгнуть, схватить при касании
-	bool NowPhaseToJump() { return (GetAttackActionVictim().JumpPhase == CurrentAttackPhase); }
-	bool NowPhaseToHold() { return (GetAttackActionVictim().JumpHoldPhase == CurrentAttackPhase); }
+	bool NowPhaseToJump() { return (Mesh->DynModel->JumpImpulse > 0); }
+	bool NowPhaseToHold() { return (Mesh->DynModel->JumpImpulse < 0); }
 
 	//сейчас фаза чтобы схватить - тут сложнее, надо ещё проверить, чтобы не совпадало с фазой отпускания, иначе нет смысла
 	//вызывается в MyrPhyCreatureMesh.cpp
@@ -478,6 +454,7 @@ public:
 	bool DoesSelfAction() const { return CurrentSelfAction<255; }
 	bool NoRelaxAction() const { return (CurrentRelaxAction == 255); }
 	bool DoesRelaxAction() const { return (CurrentRelaxAction < 255); }
+	bool NoAnyAction() const { return (NoAttack() && NoSelfAction() && NoRelaxAction()); }
 
 	bool PreStrike() const { return (int)CurrentAttackPhase <= (int)EActionPhase::READY; }
 
@@ -488,11 +465,14 @@ public:
 	bool Dead() { return (CurrentState == EBehaveState::dead);  }
 
 	//оси ориентации существа (ориентируемся по мешу, положение опоры может сильно отличаться)
-	FVector GetAxisForth() const { return ((UPrimitiveComponent*)Mesh)->GetComponentTransform().GetScaledAxis(EAxis::X); }
-	FVector GetAxisLateral() const { return ((UPrimitiveComponent*)Mesh)->GetComponentTransform().GetScaledAxis(EAxis::Y); }
+	FVector3f GetAxisForth() const { return (FVector3f)((UPrimitiveComponent*)Mesh)->GetComponentTransform().GetScaledAxis(EAxis::X); }
+	FVector3f GetAxisLateral() const { return (FVector3f)((UPrimitiveComponent*)Mesh)->GetComponentTransform().GetScaledAxis(EAxis::Y); }
 
 	//позиция головы в мировых координатах (берется из скелета меша)
 	FVector GetHeadLocation();
+
+	//вектор между голову в сторону чужой головы
+	FVector3f HeadToYourHead(AMyrPhyCreature* You) { return (FVector3f)(GetHeadLocation() - You->GetHeadLocation()); }
 
 	//выдать координаты центра масс конкретной части тела
 	FVector GetBodyPartLocation(ELimb Limb);
@@ -504,10 +484,10 @@ public:
 	FVector GetClosestBodyLocation(FVector Origin, FVector Earlier, float EarlierD2);
 
 	//вектор, в который тело смотрит глазами - для определения "за затылком"
-	FVector GetLookingVector() const;
+	FVector3f GetLookingVector() const;
 
 	//вектор тела вверх
-	FVector GetUpVector() const;
+	FVector3f GetUpVector() const;
 
 	//получить множитель незаметности, создаваемый поверхностью, на которой мы стоим
 	float GetCurrentSurfaceStealthFactor() const;

@@ -213,9 +213,9 @@ UENUM(BlueprintType) enum class ECreatureAction : uint8
 	ATTACK193 = 193 UMETA(Hidden),
 	ATTACK194 = 194 UMETA(Hidden),
 
-	SELF_PRANCE_BACK1 = 195,		//подпрыгнуть задом
+	SELF_PRANCE_BACK = 195,			//подпрыгнуть задом
 	RECOIL_AT_BUMP = 196,			//отпрянуть в ответ на уткнутие
-	SELF_PRANCE_BACK3 = 197,		//подпрыгнуть задом
+	JUMP_BACK_AT_BUMP = 197,		//подпрыгнуть задом
 
 	ATTACK198 = 198 UMETA(Hidden),
 	ATTACK199 = 199 UMETA(Hidden),
@@ -269,7 +269,9 @@ UENUM(BlueprintType) enum class ECreatureAction : uint8
 	ATTACK234 = 234 UMETA(Hidden),
 	ATTACK235 = 235 UMETA(Hidden),
 	ATTACK236 = 236 UMETA(Hidden),
-	ATTACK237 = 237 UMETA(Hidden),
+
+	COMPLAIN_TIRED = 237,			//действие, чтоб показать, что сатмина на нуле
+
 	ATTACK238 = 238 UMETA(Hidden),
 	ATTACK239 = 239 UMETA(Hidden),
 
@@ -347,6 +349,7 @@ UENUM() enum class EAttackAttemptResult : uint8
 	FAILED_TO_START,	// что-то пошло не так и попытка не состоялась
 	FAILED_TO_STRIKE,	// что-то пошло не так и попытка не состоялась
 	NO_USEFUL_FOUND,
+	LOW_PRIORITY,
 	INJURED,
 	NO_GOAL,
 	OKAY_FOR_NOW

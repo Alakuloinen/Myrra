@@ -161,25 +161,7 @@ public: // квесты
 
 //цвета для рисования линий отладки
 #if WITH_EDITORONLY_DATA
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbAxisX;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbAxisY;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbAxisZ;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbForces;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbTorques;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugGirdleGuideDir;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugGirdleStepped;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugMainDirs;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbNormals;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbConstrPri;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugFeetShoulders;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbConstrForceLin;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLimbConstrForceAng;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugCentralConstrForceLin;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugCentralConstrForceAng;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugLineTrace;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugFeetBrakeDamping;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug) FColor DebugAILookDir;
-	FColor DebugLineChannel(ELimbDebug Ch) { return ((FColor*)(&DebugLimbAxisX))[(int)Ch]; }
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug)	TMap<ELimbDebug, FColor> DebugColors;
 #endif
 
 //--------------------------------------------------------------------------------
