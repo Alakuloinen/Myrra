@@ -665,83 +665,6 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 	SetFootRay(Foot, CurFootRay);
 
 
-	/*//##############################################################################
-	//трассируем по вектору предыдущей позы ноги, но если центр не подтвердил твердь то нах
-	FHitResult Hit(ForceInit);
-	if(LMB(Center).Stepped) Trace(Start, OldFootRay * (1 + Crouch) * 1.2, Hit);
-	//##############################################################################
-
-	//▐▌найдено пересечение с землей
-	if (Hit.bBlockingHit)
-	{
-		//сохранить часть данных сразу в ногу
-		auto FM = Hit.PhysMaterial.Get();
-		if (FM) Foot.Surface = (EMyrSurface)FM->SurfaceType.GetValue();
-
-		// если до этого нога была в воздухе, есть вероятность, что мы падали с высоты
-		if (Fallen || (!Foot.Stepped && IS_MACRO(MyrOwner()->CurrentState, AIR)))
-		{	
-			Crouch = 1;
-			float Severity = me()->ShockResult(Foot, me()->BodySpeed(LMB(Center)).Z, Hit.Component.Get());
-			Foot.Damage += Severity;
-			if (Severity > 0.0f)
-			{
-				MyrOwner()->Hurt(Foot.WhatAmI, Severity, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, Foot.Surface);
-			}
-		}
-		//сохранить часть данных сразу в ногу
-		Foot.Floor = Hit.Component.Get()->GetBodyInstance(Hit.BoneName);
-		Foot.Stepped = STEPPED_MAX;
-
-		//стойкость стояния на ногах
-		StandHardness += 100;
-
-		//базовое значение для новой линии ноги, между суставом и точкой пересечения с землей
-		FVector3f NewFootRay = (FVector3f)(Hit.ImpactPoint - Start);
-
-		//вариация размаха ног только во время шага
-		if (MyrOwner()->MoveGain > 0)
-		{
-			//насколько ногу надо отставить от сердеины (+) или вжать под себя(-)
-			float CenterUneven = LMB(Center).ImpactNormal | Lateral;
-			float FootUneven = (FVector3f)Hit.ImpactNormal | Lateral;
-			float DesiredSwing = FMath::Lerp(SwingMin, SwingMax, FMath::Max(CenterUneven + FMath::Abs(CenterUneven - FootUneven), 0.0f));
-
-			//самое желаемое положение ноги без оглядки на реальные точки земли
-			FVector3f DesiredRay = (FVector3f)(CentralImpact + (FVector)Lateral * DesiredSwing - Start);
-
-			//отладка
-			LINEWT(ELimbDebug::FeetShoulders, Start, (FVector)DesiredRay, 0.5, 0.1);
-
-			//новый отрезок ноги
-			NewFootRay = FMath::Lerp(NewFootRay, DesiredRay, DeltaTime * 4 * FMath::Min(FMath::Abs(SpeedAlongFront())*0.01f, 1.0f));
-		}
-		
-		//костыль, чтоб не качались, при жесткой вертикали резко поддержать вертикальность в плоскости хода
-		if (Vertical) NewFootRay = FVector3f::VectorPlaneProject(NewFootRay, GuidedMoveDir);
-
-		//запокаовка в локальные координаты спины
-		SetFootRay(Foot, NewFootRay);
-
-		//загиб ступни вперед/назад
-		Foot.FootPitch() = 0.5 + ((FVector3f)(Hit.ImpactPoint - Start) | GuidedMoveDir) / 2 / TargetFeetLength;
-	}
-	//▐▌еcли нога не нащупала опору
-	else
-	{
-		//на воздухе пусть будет вариация между размахами ног через уровень вертикальности
-		float DesiredSwing = FMath::Lerp(SwingMin, SwingMax, FMath::Max(LAXIS(LMB(Center),Up).Z, 0.0f));
-
-		//самое желаемое положение ноги без оглядки на реальные точки земли
-		FVector DesiredRay = CentralImpact + (FVector)Lateral * DesiredSwing - Start;
-
-		//плавно выйти на новый вектор из предыдущего и нового идеального
-		FVector3f NewFootRay = FMath::Lerp(OldFootRay, (FVector3f)DesiredRay, FMath::Max(DeltaTime * 4, 0.8f));
-
-		//отладка
-		LINEWT(ELimbDebug::FeetShoulders, Start, (FVector)DesiredRay, 1, 0.1);
-		SetFootRay(Foot, NewFootRay);
-	}*/
 }
 
 
@@ -772,7 +695,6 @@ void UMyrGirdle::PhyPrance(FVector3f HorDir, float HorVel, float UpVel)
 	//резко отключить пригнутие, разогнуть ноги во всех частях тела
 	Crouch = 0.0f;
 
-
 	//применить импульсы к туловищу	// ослабление, связанное с лежанием, не применяется, чтобы мочь встать, извиваясь
 	me()->PhyJumpLimb(LMB(Left), Dir);
 	me()->PhyJumpLimb(LMB(Right), Dir);
@@ -781,6 +703,7 @@ void UMyrGirdle::PhyPrance(FVector3f HorDir, float HorVel, float UpVel)
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: PhyPrance horV=%g, upV=%g"), *GetOwner()->GetName(), HorVel, UpVel);
 
 	//явно, не дожидаясь ProcessLimb, обнулить жесткость стояния, чтобы в автомате состояний поведения не переклинивало
+	CLimb.EraseFloor();
 	StandHardness = 0;
 }
 

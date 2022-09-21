@@ -1413,7 +1413,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fly, 		!bSoar);
 			BEWARE(run,			GotLandedAny(200) && bRun);
-			BEWARE(walk,		GotLandedAny(200));
+			BEWARE(crouch,		GotLandedAny(200));
 			break;
 			
 		//падение (никаких волевых переходов, только ждать земли)
@@ -1444,7 +1444,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(fall,		!bFly || Stamina*Health<0.1 || ExternalGain==0);
 			BEWARE(soar,		bSoar);
 			BEWARE(run,			GotLandedAny(200) && bRun);
-			BEWARE(walk,		GotLandedAny(200));
+			BEWARE(crouch,		GotLandedAny(200));
 			break;
 
 		//опрокидывание (пассивное лежание (выход через действия а не состояния) и активный кувырок помимо воли)
@@ -1452,14 +1452,14 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fall,		!GotLandedAny());
 			BEWARE(tumble,		Mesh->IsLyingDown() && MoveGain > 0.1f);
-			BEWARE(walk,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
+			BEWARE(crouch,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;
 
 		case EBehaveState::tumble:
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fall,		!GotLandedAny());
 			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain < 0.1f);
-			BEWARE(walk,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
+			BEWARE(crouch,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;
 	
 		//здоровье достигло нуля, просто по рэгдоллиться пару секнуд перед окончательной смертью
