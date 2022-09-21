@@ -3,31 +3,6 @@
 #include "CoreMinimal.h"
 #include "AdvMath.generated.h"
 
-//для векторов, обозначающих короткие и нормированные направления (коль скоро пиздохуёблядский УЕ5 перекроил все под double)
-//typedef UE::Math::TVector<float> FVector3f;
-//#define FVector3f FVector3f
-/*USTRUCT(BlueprintType) struct FVector3f
-{	GENERATED_BODY()
-public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FVector3f M;
-	FVector3f():M(0){}
-	FVector3f(float A):M(A){}
-	FVector3f(float iX, float iY, float iZ) :M(iX, iY, iZ) {}
-	FVector3f(const FVector3f& iM) :M(iM) {}
-	FVector3f(const FVector& iM) :M(iM) {}
-	operator FVector() { return (FVector)M; }
-	operator FVector3f() { return M; }
-	float operator|(const FVector3f& D) { return M | D.M; }
-	FVector3f operator^(const FVector3f& D) { return M ^ D.M; }
-	float SizeSquared() const { return M.SizeSquared(); }
-};*/
-
-inline FVector3f operator*(FVector A, FVector3f B) { return (FVector3f)(A * (FVector)B); }
-inline FVector3f operator+(FVector A, FVector3f B) { return (FVector3f)(A + (FVector)B); }
-inline FVector3f operator-(FVector A, FVector3f B) { return (FVector3f)(A - (FVector)B); }
-inline FVector3f operator-(FVector3f A, FVector B) { return (FVector3f)((FVector)A - B); }
-
-
 //ограничить нулем и единицей с насыщением (чтоб не писать длинные FMath::Clamp(...) )
 float FORCEINLINE SAT01(float v) { return v>1.0f ? 1.0f : (v<0.0f ? 0.0f : v); }
 
@@ -36,7 +11,6 @@ float FORCEINLINE SAT01(float v) { return v>1.0f ? 1.0f : (v<0.0f ? 0.0f : v); }
 //==============================================================================================================
 float FORCEINLINE StepTo( float OldVal, float NewVal, float Step)
 {
-	
 	float Diffe = NewVal - OldVal;
 	if(Diffe > Step)	return OldVal + Step; else
 	if(Diffe < -Step)	return OldVal - Step; else
@@ -146,7 +120,7 @@ EMyrAxis FORCEINLINE AntiAxis(EMyrAxis Axis)
 }
 
 //оси соответствующие перечислителям EMyrAxis - для быстроты (покоятся в Myrra.cpp)
-extern FVector3f MyrAxes[8];
+extern FVector MyrAxes[8];
 
 //совсем быстрый и ущербный по краям арксинус
 float FORCEINLINE UFastArcSin(float X)

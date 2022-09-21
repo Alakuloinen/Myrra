@@ -52,7 +52,6 @@ UENUM(BlueprintType) enum class ELDY : uint8
 	NoExtGain			UMETA(DisplayName = "+ Only If No Move Gain"),
 	OnGround			UMETA(DisplayName = "+ Only If On Ground"),
 	NotOnGround			UMETA(DisplayName = "+ Only If Off Ground"),
-	EvenIfFixed			UMETA(DisplayName = "+ Even If Fixed"),
 };
 
 //стандартный перечислитель, не анриловский, так как андрил не понимает перечислители-классы больше 8 бит
@@ -88,15 +87,11 @@ ENUM_CLASS_FLAGS(ELDY); enum LDY
 	LDY_EXTGAIN = 1 << (int)ELDY::ExtGain,
 	LDY_NOEXTGAIN = 1 << (int)ELDY::NoExtGain,
 	LDY_ONGROUND = 1 << (int)ELDY::OnGround,
-	LDY_NOTONGROUND = 1 << (int)ELDY::NotOnGround,
-	LDY_EVENIFFIXED = 1 << (int)ELDY::EvenIfFixed
+	LDY_NOTONGROUND = 1 << (int)ELDY::NotOnGround
 
 };
 
-//###################################################################################################################
-// ориентация конкретной чачсти тела или группы частей тела
-// чтобы по-разному экспортированные кости можно было двигать в понятных направлениях
-//###################################################################################################################
+//ориентация конкретной чачсти тела или группы частей тела (чтобы по-разному экспортированные кости можно было двигать в понятных направлениях)
 USTRUCT(BlueprintType) struct FLimbOrient
 {
 	GENERATED_USTRUCT_BODY()
@@ -114,9 +109,7 @@ USTRUCT(BlueprintType) struct FLimbOrient
 	}
 };
 
-//###################################################################################################################
 //по каким осям поясница и голова способны крутиться - для оптимизации, чтобы исключать расчёт арксинусов
-//###################################################################################################################
 USTRUCT(BlueprintType) struct FBodyFreedom
 {
 	GENERATED_USTRUCT_BODY()
@@ -129,7 +122,13 @@ USTRUCT(BlueprintType) struct FBodyFreedom
 };
 
 //###################################################################################################################
-// дополнительные данные к физическому членику - отношение к секции тела и тип (физ-тело или кинематическое мясо)
+// дополнительные данные к физическому членику - части тела и их здоровье, которое вычисляется так:
+// - если счётчик времени на восстановление не заполнялся / опустел до нуля - членик полностью цел и здоров
+// - если счётчик достиг базового коэффициента - здоровье=0, членик выбит из строя, но уже начинает восстанавливаться
+// - если счётчик взведён выше базового коэффициента, здоровье=0, и членик будет висеть еще долго, пока счётчик
+// не достигнет базового коэффициента... фактически здоровье отрицательное, и при суммировании общего здоровья 
+// включается со знаком минус, то есть если один членик глубоко подбит, а остальные совершенно здоровы, то суммарное
+// здоровье опустится ниже нуля, и всё тело падёт
 //###################################################################################################################
 USTRUCT(BlueprintType) struct FBODY_BIO_DATA
 {
@@ -140,20 +139,17 @@ USTRUCT(BlueprintType) struct FBODY_BIO_DATA
 
 	// актуальный счётчик времени восстановления - из него вычитается реальное время
 	// переименовать во что-то более гибкое, без привязки ко времени, возможно даже целочисленный
-	// , гах, теперь это в флимбе
-	//UPROPERTY(VisibleAnywhere) float DamageWeight = 0.0f;
+	UPROPERTY(VisibleAnywhere) float DamageWeight = 0.0f;
 
 	//уровень листовости (если лист, то 0, и далее по иерархии) чтобы сравнивать дальность члеников в сегменте
 	//это надо заполнять до игры, при разборе физ.лошарика, проще всего ввести вручную в строку имен члеников 
 	uint8 DistFromLeaf = 0;
 
 	// этот членик никогда не опасен, даже если опасен весь его макросегмент (зачем?)
-	//uint8 NeverDangerous : 1;
+	uint8 NeverDangerous : 1;
 };
 
-//###################################################################################################################
 //свойства каркасного узла
-//###################################################################################################################
 USTRUCT(BlueprintType) struct FMachineLimbAnatomy
 {
 	GENERATED_USTRUCT_BODY()
@@ -263,7 +259,7 @@ USTRUCT(BlueprintType) struct FMeshAnatomy
 
 };
 
-#define STEPPED_MAX 63
+#define STEPPED_MAX 15
 //###################################################################################################################
 // часть тела
 //###################################################################################################################
@@ -274,68 +270,36 @@ USTRUCT(BlueprintType) struct FLimb
 	//номер части тела для самоидентификации
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb WhatAmI;
 
-	//быстрая определялка, наступает или нет (по умолчанию контакта нет, ибо Floor = nullptr)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Stepped = 0;
-
-	//степень соосности вектора скорости и нормали при ударе
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Colinea = 0;
-
-	// запомнить поверхность предмета последнего касания
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EMyrSurface Surface;
-
-	// держит что-то этой конечностью (или карабкается этим туловищем)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Grabs:1;
-
-	// предыдущее столкновение было атакующим и повреждающим, это - пропустить, чтоб не спамить систему
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LastlyHurt:1;			
-
-	// нормаль касания, если это центральный узел пояса или нога, то не своя нормаль, а расчитанная по трассировкам
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f ImpactNormal;
+	// параметры точки касания этой части тела со внешней поверхностью
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector ImpactNormal;			// если это узел пояса, то не своя нормаль, а усредненная по ногам
+	FBodyInstance* Floor = nullptr;												// физическое тело опоры - там всё
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EMyrSurface Surface;			// запомнить поверхность опоры
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Grabs:1;				// держит что-то этой конечностью
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LastlyHurt:1;			// предыдущее столкновение было атакующим и повреждающим, это - пропустить, чтоб не спамить систему
 
 	//модель приложения сил, заносится извне на уровне режима поведения, текущего самодействия
 	//возможно, не нужно, так как еть доступ через -> Girdle -> DynModel -> GirdleRay. Но слишком длинный.
-	//также сюда можно заносить/уносить рантайм события LastlyHurt / Grabs
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (Bitmask, BitmaskEnum = ELDY)) int32 DynModel = LDY_PASSIVE;
 
 	//повреждение данной части тела
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Damage = 0.0f;
 
-	// физическое тело опоры - там всё
-	FBodyInstance* Floor = nullptr;
+	//быстрая определялка, наступает или нет (по умолчанию контакта нет, ибо Floor = nullptr)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Stepped = 0;
 
 	////////////////////////////////////////////////////////////
 
-	//стереть из этой части тела информацию о касании 
 	void EraseFloor() { Stepped = 0; Floor = nullptr; Surface = EMyrSurface::Surface_0; }
-
-	//перенести из другой части тела информацию о поверхности касания, не трогая сам факт удара
 	void GetFloorOf(const FLimb& Oth) { Floor = Oth.Floor; Surface = Oth.Surface; }
-
-	//перенести из другой части тела полностью инфу о событии касания
 	void TransferFrom(const FLimb& Oth) { Stepped = Oth.Stepped; GetFloorOf(Oth); }
 
 	////////////////////////////////////////////////////////////
 
-	//ВНИМАНИЕ, ОПАСНОЕ ПРИВЕДЕНИЕ!
-	//если это нога
-	float& FootPitch() { return *((float*)&DynModel); }
-	FVector3f& RelFootRay() { return ImpactNormal; }
 
-	//нога, не туловище 
-	bool IsLeg() const { return (WhatAmI >= ELimb::L_ARM && WhatAmI <= ELimb::R_LEG); }
-
-	//левая нога 
-	bool IsLeft() const { return (WhatAmI == ELimb::L_ARM || WhatAmI == ELimb::L_LEG);	}
-
-	//можно карабкаться в вертикали
-	static bool IsClimbable(EPhysicalSurface S) { return ((EMyrSurface)S == EMyrSurface::Surface_WoodRaw || (EMyrSurface)S == EMyrSurface::Surface_Fabric/* || S == EMyrSurface::Surface_Flesh*/); }
-	bool IsClimbable() const { return IsClimbable((EPhysicalSurface)Surface); }
+	bool IsClimbable() const  { return (Surface == EMyrSurface::Surface_WoodRaw || Surface == EMyrSurface::Surface_Fabric/* || Surface == EMyrSurface::Surface_Flesh*/); }
 
 	//эта часть тела хочет быть вертикальной (но не факт, что есть)
 	bool IsVertical() const { return (DynModel & LDY_TO_VERTICAL) && (DynModel & LDY_MY_UP); }
-
-	//для простого учета развернутости осей (возможно, не нужен, так как ForcesMultiplier можно задать отрицательным
-	float OuterAxisPolarity() const {	return (DynModel & LDY_REVERSE) ? -1.0f : 1.0f;	}
 
 	//эта часть тела несёт предмет (и принимать толчки/шаги не может)
 	bool HoldsItem() const { return Stepped == 255; }
@@ -347,12 +311,6 @@ USTRUCT(BlueprintType) struct FLimb
 	//выдать компонент опоры из физического тела опоры
 	UPrimitiveComponent* GetComp() { return Floor->OwnerComponent.Get(); }
 
-	//степень контакта с поверхностью, актуальность * соосность 
-	float GetBumpCoaxis() const {  return Stepped ? ((int)Colinea * Stepped) / (float)(255 * STEPPED_MAX) : 0.0f; }
-
-	//нормаль взвешенная коэффициентом значимости касания
-	FVector3f GetWeightedNormal() const { return ImpactNormal * GetBumpCoaxis(); }
-
 	//тело касается модульной опоры типа ветки
 	bool OnBranch() { return (Floor->InstanceBodyIndex != INDEX_NONE); }
 	bool OnCapsule() { if(!Floor->GetBodySetup()) return false;  return (Floor->GetBodySetup()->AggGeom.SphylElems.Num() == 1); }
@@ -363,18 +321,18 @@ USTRUCT(BlueprintType) struct FLimb
 
 	//выдать локальный верх седла ветки, нормали в точке равновесия от съезжаний в бок - дважды векторное произведение
 	//внимание, результат не нормируется, потому что фигурирует в составе процедуры, где и так и так в конце нужна нормирвка
-	FVector3f GetBranchSaddleUp() {
+	FVector GetBranchSaddleUp() {
 		auto lX = GetBranchDirection();		//направление ветки
-		auto lY = lX^FVector3f::UpVector;	//векторное произведение с вертикалью даст или ноль, или вектор в бок
+		auto lY = lX^FVector::UpVector;		//векторное произведение с вертикалью даст или ноль, или вектор в бок
 		lY = lY^lX;							//полученный вектор вбок снова в.п. с направлением ветки - получится тот самый седловой вверх или вниз
 		if(lY.Z<0) lY = -lY;				//выбираем то направление, что вверх (в.п. дает разные знаки от последовательности операндов)
 		return lY;	}
 
 	//если опора ветка, то это будет ее направление (однако, почему Y и насколько это универсально)
-	FVector3f GetBranchDirection () const { return (FVector3f)Floor->GetUnrealWorldTransform().GetUnitAxis(EAxis::Y); }
+	FVector GetBranchDirection () const { return Floor->GetUnrealWorldTransform().GetUnitAxis(EAxis::Y); }
 
 	//направление ветки с учётом желаемого хода - по ветке или против ветки
-	FVector3f GetBranchDirection (const FVector3f& InDir) const { auto g = GetBranchDirection(); if((g|InDir)>0) return g; else return -g;  }
+	FVector GetBranchDirection (const FVector& InDir) const { auto g = GetBranchDirection(); if(FVector::DotProduct(g,InDir)>0) return g; else return -g;  }
 
 	FLimb() {Grabs = 0; LastlyHurt = 0; }
 };
@@ -383,14 +341,14 @@ USTRUCT(BlueprintType) struct FLimb
 UENUM(BlueprintType) enum class EGirdleRay : uint8 { Center, Left, Right, Spine, Tail, MAXRAYS };
 ENUM_CLASS_FLAGS(EGirdleRay);
 
-/*UENUM() enum class EStepDetect : uint8
+UENUM() enum class EStepDetect : uint8
 {
 	None,
 	TraceRare,
 	TraceEveryFrame,
 	Hit,
 	HitAndRetrace
-};*/
+};
 //###################################################################################################################
 // сборка моделей динамики для всех частей пояса конечностей - для структур состояний и самодействий, чтобы
 // иметь компактную переменную для всех частей тела, содержащую только вот это необходимое добро
@@ -420,19 +378,21 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	//вертикаль через констрейнт, жесткая, может покалечить
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Hard Vertical")) bool HardVertical = false;
 
-	//при фиксации разрешить движение за счёт
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Normal Align")) bool NormalAlign = false;
+	//сделать массу моделей ноги особо высокой, чтобы центр тяжести был смещён вниз
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Heavy Legs")) bool HeavyLegs = true;
 
 
 	//насколько пригибать пояс ногами к земле 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Crouch")) float Crouch = 0.0;
 
 	//насколько расставлять или стягивать ноги (безразмерно, на глазок, влияет на рассчет позы в анимации)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread Min (% Length)")) float LegsSpreadMin = -0.1f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread Max (% Length)")) float LegsSpreadMax = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread")) float LegsSpread = 0.0;
 
 	//множитель сил, которые применяются к членам согласно выше заполненным моделям - для подгонки в редакторе
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Forces Mult")) float ForcesMultiplier = 1000.0;
+
+	//вязкость, включаемая для ног при торможении
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Feet Brake")) float FeetBrakeDamping = 50.0;
 
 	//вязкость, подбираемая к другим телам при указании бита
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Damping")) float CommonDampingIfNeeded = 0.01;
@@ -449,43 +409,23 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 {
 	GENERATED_BODY()
-		UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Thorax;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Thorax;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Pelvis;
-
-	// если задействована анимация, то регулировать ее скорость
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Anim Rate")) float AnimRate = 1.0f;
-
-	// удельная прибавка или отъем здоровья	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Health/Sec")) float HealthAdd = 0.0f;
-
-	// удельная прибавка или отъем запаса сил	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Stamina/sec")) float StaminaAdd = 0.0f;
-
-	// ослабление скорости движения	(<1) или, при наличии JumpImpulse, импульс прыжка вперед (+) или назад (-)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Gain/JumpAlong")) float MotionGain = 1.0f;
-
-	//при входе в эту модель начинается накопление сил для прыжка с доли (<0) или сам прыжок с таким импульсом вверх (>0)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Hold/JumpUp", UIMin = "-0.1", UIMax = "1000")) float JumpImpulse = 0.0f;
-
-	// ослабление скорости движения	(<1) или, при наличии JumpImpulse, импульс прыжка вперед (+) или назад (-)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Move w/o Ext Drive")) bool MoveWithNoExtGain = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Anim Rate")) float AnimRate = 1.0f;		// если задействована анимация, то регулировать ее скорость
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Health/Sec")) float HealthAdd = 0.0f;	// удельная прибавка или отъем здоровья	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Stamina/sec")) float StaminaAdd = 0.0f;	// удельная прибавка или отъем запаса сил	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Move Gain")) float MotionGain = 1.0f;	// ослабление скорости движения	
 
 	// звук, который играет, пока существо находится в данном состоянии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") TWeakObjectPtr<USoundBase> Sound;
 	FWholeBodyDynamicsModel() { Thorax.Leading = true; Pelvis.Leading = false; }
-
-	//поскольку MotionGain- многозначная сущность, то для ослабления движения его нужно подобработать
-	float GetMoveWeaken() const { return FMath::Min(1.0f, FMath::Abs(MotionGain)); }
-	float GetJumpAlongImpulse() const { return MotionGain; }
-	float GetJumpUpImpulse() const { return JumpImpulse; }
 };
 
 //отмечать результат попытки зацепиться
 UENUM() enum class EClung : uint8
 {
 	Recreate, Update, Kept,
-	NoWill, NoSurface, NoLeading, BadSurface, BadAngle, NoClimbableSurface, DangerousSpread,
-	NONEED
+	NoWill, NoSurface, NoLeading, BadSurface, BadAngle, NoClimbableSurface, DangerousSpread
 };
 inline bool operator>(EClung A, EClung B) { return (int)A > (int)B; }
 inline bool operator<(EClung A, EClung B) { return (int)A < (int)B; }
@@ -504,8 +444,8 @@ USTRUCT(BlueprintType) struct FBodySectionAnimData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainDirect;		// проекция курса на позвоночник
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainLateral;		// проекция курса на поперёк
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Velocity;			// скаляр скорости
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float FeetSpread;		// расставление ног --|- -|-  - нах теперь
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Curvature;		// степень кривизны поверхности \/ -- /\ - нах теперь
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float FeetSpread;		// расставление ног --|- -|-  -
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Curvature;		// степень кривизны поверхности \/ -- /\ 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Crouch;			// степень пригнутости
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float LeanLeftOrRight;	// степень уклона влево или вправо
 
@@ -516,26 +456,22 @@ USTRUCT(BlueprintType) struct FBodySectionAnimData
 //каналы отображения отладочных линий для векторных данных
 UENUM() enum class ELimbDebug : uint8
 {
-	NONE,
 	LimbAxisX,
 	LimbAxisY,
 	LimbAxisZ,
 	LimbForces,
 	LimbTorques,
 	GirdleGuideDir,
-	GirdleStepWeight,
-	LimbStepped,
+	GirdleStepped,
 	MainDirs,
-	IntegralBumpedNormal,
 	LimbNormals,
-	GirdleConstrainMode,
+	ConstrPri,
 	FeetShoulders,
-	GirdleConstrainOffsets,
+	LimbConstrForceLin,
 	LimbConstrForceAng,
 	CentralConstrForceLin,
 	CentralConstrForceAng,
 	LineTrace,
-	GirdleCrouch,
-	AILookDir,
-	GirdleStandHardness
+	FeetBrakeDamping,
+	AILookDir
 };

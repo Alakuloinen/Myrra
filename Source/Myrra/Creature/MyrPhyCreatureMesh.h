@@ -42,17 +42,17 @@ public:
 	//для централизованного вычисления физики опоры
 	FCalculateCustomPhysics OnCalculateCustomPhysics;
 
+	//общая ориентация тела (надо как-то вичитать по ногам плюс плавно блендить по направлению движения
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector WholeDirection;
+
+	//костыль для настройки правильной силы толкания
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float AdvMoveFactor = 1.0f;
+
 	//доп выключатель урона при касании, чтоб можно было кинематический свип делать
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool InjureAtHit = true;
 
 	//кэш последней настроенной (из BehaveState или SelfAction) модели сил для всех поясов
 	FWholeBodyDynamicsModel* DynModel;
-
-	//часть тела, в которой зафиксирована максимальная упёртость, для коррекции пути
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb MaxBumpedLimb1 = ELimb::NOLIMB;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb MaxBumpedLimb2 = ELimb::NOLIMB;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f IntegralBumpNormal;
-
 
 //статические - только для этого типа скелета
 private:
@@ -102,8 +102,7 @@ protected: //делегаты - отклики на особые события
 public: 
 
 	//получить ось из трансформации, в том числе отрицательную
-	static FVector3f GetAxis(const FTransform3f& T, const EMyrAxis Axis) { return T.TransformVectorNoScale(MyrAxes[(int)Axis]); }
-	static FVector3f GetAxis(const FTransform& T, const EMyrAxis Axis) { return ((FTransform3f)T).TransformVectorNoScale(MyrAxes[(int)Axis]); }
+	static FVector GetAxis(const FTransform& T, const EMyrAxis Axis) { return T.TransformVectorNoScale(MyrAxes[(int)Axis]); }
 
 	//текущее положение плеча
 	FVector GetLimbShoulderHubPosition(ELimb eL);
@@ -125,15 +124,10 @@ public:
 
 	//взять часть тела по индексу (трюк с последовательным расположением в памяти)
 	FLimb& GetLimb(ELimb li)					{ return ((FLimb*)(&Pelvis))[(int)(li)]; }
-	FLimb& cGetLimb(ELimb li)const				{ return ((FLimb*)(&Pelvis))[(int)(li)]; }
 	FLimb& GetLimbParent(ELimb li)				{ return ((FLimb*)(&Pelvis))[(int) Parent[(int)li] ]; }
 	FLimb& GetLimbParent(FLimb Limb)			{ return GetLimbParent(Limb.WhatAmI); }
 	FLimb& GetOppositeLimb(const FLimb& Limb)	{ return GetLimb((DirectOpposite[(int)Limb.WhatAmI])); }
 	int		GetGirdleId(ELimb li)				{ return Section[(int)li]; }
-
-	//части тела, которые упираются во что-то
-	FLimb& Bumper1()							{ return GetLimb(MaxBumpedLimb1); }
-	FLimb& Bumper2()							{ return GetLimb(MaxBumpedLimb2); }
 
 	//механизм-поддержка для части тела
 	int				GetMachineBodyIndex (ELimb Limb)  const			{ return MachineGene(Limb)->TipBodyIndex; }
@@ -167,45 +161,41 @@ public:
 	FBodyInstance*	GetFleshBody		(FLimb& Limb, int DistFromLeaf=0)		{ return Bodies[GetFleshBodyIndex (Limb,DistFromLeaf)]; }
 
 	//целиковые трансформации тел (на самом деле нижележащих костей)
-	FTransform GetLimbTrans(ELimb Limb)  const { return Bodies[GetMachineBodyIndex(Limb)]->GetUnrealWorldTransform(); }
-	FTransform GetLimbTrans(FLimb& Limb)  const { return Bodies[GetMachineBodyIndex(Limb)]->GetUnrealWorldTransform(); }
-
-	//позиция машинной кости части тела
-	FVector GetLimbPos(FLimb& Limb)  const { return GetLimbTrans(Limb).GetLocation(); }
-	FVector GetLimbPos(const ELimb Limb)  const { return GetLimbTrans(Limb).GetLocation(); }
+	FTransform GetLimbTrans(ELimb Limb)  const { return const_cast<UMyrPhyCreatureMesh*>(this)->GetMachineBody(Limb)->GetUnrealWorldTransform(); }
+	FTransform GetLimbTrans(FLimb& Limb)  const { return const_cast<UMyrPhyCreatureMesh*>(this)->GetMachineBody(Limb)->GetUnrealWorldTransform(); }
 
 	//универсальный способ указания оси со знаком (возможно, углубить до матрицы)
-	FVector3f GetLimbAxis(ELimb Limb, const EMyrAxis Axis) const { return GetAxis (GetLimbTrans(Limb), Axis); }
-	FVector3f GetBodyAxis(FBodyInstance* B, const EMyrAxis Axis) const { const auto T = (FTransform3f)B->GetUnrealWorldTransform(); return GetAxis(T, Axis); }
+	FVector GetLimbAxis(ELimb Limb, const EMyrAxis Axis) const { return GetAxis (GetLimbTrans(Limb), Axis); }
+	FVector GetBodyAxis(FBodyInstance* B, const EMyrAxis Axis) const { return GetAxis (B->GetUnrealWorldTransform(), Axis); }
 
 	//универсальный геттер оси членика по ее мнемоническому названию (лево, вверх...)
-	FVector3f GetLimbAxis(ELimb Limb, const EMyrRelAxis Axis) const { return GetAxis (GetLimbTrans(Limb), MBoneAxes().ByEnum(Axis)); }
+	FVector GetLimbAxis(ELimb Limb, const EMyrRelAxis Axis) const { return GetAxis (GetLimbTrans(Limb), MBoneAxes().ByEnum(Axis)); }
 
 	// это попытка подстроиться под кости загруженного скелета, почему имено так, хз
-	FVector3f GetLimbAxisUp(ELimb Limb)  const { return GetLimbAxis(Limb, MBoneAxes().Up); }
-	FVector3f GetLimbAxisDown(ELimb Limb)  const { return GetLimbAxis(Limb, AntiAxis(MBoneAxes().Up)); }
-	FVector3f GetLimbAxisRight(ELimb Limb) const { return GetLimbAxis(Limb, MBoneAxes().Right); }
-	FVector3f GetLimbAxisLeft(ELimb Limb) const { return GetLimbAxis(Limb, AntiAxis(MBoneAxes().Right)); }
-	FVector3f GetLimbAxisForth(ELimb Limb) const { return GetLimbAxis(Limb, MBoneAxes().Forth); }
-	FVector3f GetLimbAxisBack(ELimb Limb) const { return GetLimbAxis(Limb, AntiAxis(MBoneAxes().Forth)); }
+	FVector GetLimbAxisUp(ELimb Limb)  const { return GetLimbAxis(Limb, MBoneAxes().Up); }
+	FVector GetLimbAxisDown(ELimb Limb)  const { return GetLimbAxis(Limb, AntiAxis(MBoneAxes().Up)); }
+	FVector GetLimbAxisRight(ELimb Limb) const { return GetLimbAxis(Limb, MBoneAxes().Right); }
+	FVector GetLimbAxisLeft(ELimb Limb) const { return GetLimbAxis(Limb, AntiAxis(MBoneAxes().Right)); }
+	FVector GetLimbAxisForth(ELimb Limb) const { return GetLimbAxis(Limb, MBoneAxes().Forth); }
+	FVector GetLimbAxisBack(ELimb Limb) const { return GetLimbAxis(Limb, AntiAxis(MBoneAxes().Forth)); }
 
-	FVector3f GetBodyAxisUp(FBodyInstance* B)  const { return GetBodyAxis(B, MBoneAxes().Up); }
-	FVector3f GetBodyAxisDown(FBodyInstance* B)  const { return GetBodyAxis(B, AntiAxis(MBoneAxes().Up)); }
-	FVector3f GetBodyAxisRight(FBodyInstance* B) const { return GetBodyAxis(B, MBoneAxes().Right); }
-	FVector3f GetBodyAxisLeft(FBodyInstance* B) const { return GetBodyAxis(B, AntiAxis(MBoneAxes().Right)); }
-	FVector3f GetBodyAxisForth(FBodyInstance* B) const { return GetBodyAxis(B, MBoneAxes().Forth); }
-	FVector3f GetBodyAxisBack(FBodyInstance* B) const { return GetBodyAxis(B, AntiAxis(MBoneAxes().Forth)); }
+	FVector GetBodyAxisUp(FBodyInstance* B)  const { return GetBodyAxis(B, MBoneAxes().Up); }
+	FVector GetBodyAxisDown(FBodyInstance* B)  const { return GetBodyAxis(B, AntiAxis(MBoneAxes().Up)); }
+	FVector GetBodyAxisRight(FBodyInstance* B) const { return GetBodyAxis(B, MBoneAxes().Right); }
+	FVector GetBodyAxisLeft(FBodyInstance* B) const { return GetBodyAxis(B, AntiAxis(MBoneAxes().Right)); }
+	FVector GetBodyAxisForth(FBodyInstance* B) const { return GetBodyAxis(B, MBoneAxes().Forth); }
+	FVector GetBodyAxisBack(FBodyInstance* B) const { return GetBodyAxis(B, AntiAxis(MBoneAxes().Forth)); }
 
-	FVector3f GetLimbAxisUp(FLimb& Limb)  const { return GetLimbAxisUp(Limb.WhatAmI); }
-	FVector3f GetLimbAxisDown(FLimb& Limb)  const { return GetLimbAxisDown(Limb.WhatAmI); }
-	FVector3f GetLimbAxisRight(FLimb& Limb) const { return GetLimbAxisRight(Limb.WhatAmI); }
-	FVector3f GetLimbAxisLeft(FLimb& Limb) const { return GetLimbAxisLeft(Limb.WhatAmI); }
-	FVector3f GetLimbAxisForth(FLimb& Limb) const { return GetLimbAxisForth(Limb.WhatAmI); }
-	FVector3f GetLimbAxisBack(FLimb& Limb) const { return GetLimbAxisBack(Limb.WhatAmI); }
+	FVector GetLimbAxisUp(FLimb& Limb)  const { return GetLimbAxisUp(Limb.WhatAmI); }
+	FVector GetLimbAxisDown(FLimb& Limb)  const { return GetLimbAxisDown(Limb.WhatAmI); }
+	FVector GetLimbAxisRight(FLimb& Limb) const { return GetLimbAxisRight(Limb.WhatAmI); }
+	FVector GetLimbAxisLeft(FLimb& Limb) const { return GetLimbAxisLeft(Limb.WhatAmI); }
+	FVector GetLimbAxisForth(FLimb& Limb) const { return GetLimbAxisForth(Limb.WhatAmI); }
+	FVector GetLimbAxisBack(FLimb& Limb) const { return GetLimbAxisBack(Limb.WhatAmI); }
 
 	//направление вперед всего тела корневая трасформация - это из корневой кости,
 	//если корневая кость встаёт неправильно, для нее в PhAT делается тело и подвязывается жестким констрейнтом к более стабильным телам
-	FVector3f GetWholeForth() const { return GetLimbAxisForth(const_cast<FLimb&>(Lumbus)); }
+	FVector GetWholeForth() const { return GetComponentTransform().GetScaledAxis(EAxis::Y); }
 
 	//суммарный урон всех частей тела (возможно, ввести коэффициенты важности)
 	UFUNCTION(BlueprintCallable) float GetWholeDamage() const { return Head.Damage + Lumbus.Damage + Thorax.Damage + Tail.Damage + RArm.Damage + LArm.Damage + RLeg.Damage + LLeg.Damage;  }
@@ -216,14 +206,14 @@ public:
 	//выдать правильное физическое тело из компонента в принятой местной нотации по индексам тел
 	FBodyInstance* GetBody(UPrimitiveComponent* C, int8 CB) { return (CB==NO_BODY) ? C->GetBodyInstance() : ((USkeletalMeshComponent*)C)->Bodies[CB]; }
 
+	//лежим боком на земле
+	bool IsLyingDown() const { return (Lumbus.Stepped && Lumbus.ImpactNormal.Z > 0.5) || (Pectus.Stepped && Pectus.ImpactNormal.Z > 0.5); }
+
 	//степень прямохождения
-	float Erection() const { return (GetLimbPos(ELimb::THORAX) - GetLimbPos(ELimb::PELVIS)).Z; }
+	float Erection() const { return 0.5*(GetLimbAxisForth(ELimb::LUMBUS).Z + GetLimbAxisForth(ELimb::PECTUS).Z); }
 
 	//порог опрокидываемости берется по задней-центральной части спины, так как "хабы" могут быть вывернуты из-за подкошенных ног
-	bool IsLyingDown() const { return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisUp(ELimb::LUMBUS).Z < 0.5f; }
-
-	//существо не касается опоры конечностями
-	bool AreFeetInAir() const { return RArm.Stepped + LArm.Stepped + RLeg.Stepped + LLeg.Stepped == 0; }
+	bool IsSpineDown(float Thresh = 0.0f) const { return (GetLimbAxisUp(ELimb::LUMBUS).Z < Thresh); }
 
 	//зацеп включен, но настроен так, чтобы удерживать при отсутствии тяги, а не помогать двигать 
 	bool IsClingAtStop(FConstraintInstance* CI) {	return CI->GetLinearYMotion() == ELinearConstraintMotion::LCM_Locked;	}
@@ -238,48 +228,11 @@ public:
 	bool IsTouchingComponent(UPrimitiveComponent* A) { return Tango(Pelvis, A) || Tango(Lumbus, A) || Tango(Thorax, A) || Tango(Pectus, A) || Tango(RArm, A) || Tango(LArm, A) || Tango(LLeg, A) || Tango(RLeg, A) || Tango(Head, A) || Tango(Tail, A); }
 
 	//детекция намеренного натыкания на стену
-	void CheckLimbForBumpedOrder(FLimb& Limb)
-	{	const float A = Limb.GetBumpCoaxis();
-		if(A > GetLimb(MaxBumpedLimb1).GetBumpCoaxis())
-			MaxBumpedLimb1 = Limb.WhatAmI; else
-		if(A > GetLimb(MaxBumpedLimb2).GetBumpCoaxis())
-			MaxBumpedLimb2 = Limb.WhatAmI; 
-	}
+	float StuckToStepAmount(const FLimb& Limb) const;
 
 	//детекция намеренного натыкания на стену
-	void StuckToStepAmount()
-	{	
-		//по умолчанию уткнутым членом считается голова
-		MaxBumpedLimb1 = MaxBumpedLimb2 = ELimb::HEAD;
-		CheckLimbForBumpedOrder(Head);
-		CheckLimbForBumpedOrder(Pectus);
-		CheckLimbForBumpedOrder(Lumbus);
-		CheckLimbForBumpedOrder(Tail);
-
-		//если нашли реальный уткнутый член, то выгнуть нормаль в его сторону, иначе по умолчанию уткнутость полным передом
-		if (GetLimb(MaxBumpedLimb2).Stepped)
-		{	IntegralBumpNormal += GetLimb(MaxBumpedLimb1).GetWeightedNormal() + GetLimb(MaxBumpedLimb2).GetWeightedNormal();
-			IntegralBumpNormal.Normalize(1.0f);
-		}
-		else IntegralBumpNormal = FMath::Lerp(IntegralBumpNormal, GetLimbAxisBack(Thorax), 0.01);
-	}
-
-	//изогнуть направлятель движения вдоль опоры
-	bool GuideAlongObstacle(FVector3f &Guide, float Amount = 0.5f)
-	{	auto& L = Bumper1();
-		if (L.Stepped > 0 && L.Colinea > 5)
-		{	Guide = FMath::Lerp(
-				Guide,
-				FVector3f::VectorPlaneProject(Guide, IntegralBumpNormal),
-				L.GetBumpCoaxis() * Amount);
-			return true;
-		}
-		return false;
-	}
-
-
-
-
+	float StuckToStepAmount(ELimb& LevelOfContact) const;
+	
 	//стоит ли тушка на этой опоре - берутся только нижние части тела в зависимости от того, есть ноги или нет
 	bool IsStandingOnActor(AActor* A) 
 	{ 	if(HasPhy(LLeg.WhatAmI)) { if(Tango(LLeg, A)||Tango(RLeg, A)) return true; else if(Tango(Lumbus, A)||Tango(Pelvis, A)) return true; }
@@ -289,39 +242,24 @@ public:
 	//тело в режиме восприимчивости к столкновениям, то есть непрозрачно
 	bool IsBumpable() { return GetCollisionObjectType() != ECollisionChannel::ECC_Vehicle; }
 
-	//удар об твердь - насколько опасно
-	float ShockResult(FLimb &L, float Speed, UPrimitiveComponent* Floor);
-
 	//касания верхних частей тела
 	bool HasNonFeetImpacts() const { return (Head.Stepped || Pectus.Stepped || Lumbus.Stepped || Thorax.Stepped || Pelvis.Stepped); }
-
-	//скорости для сокращения
-	FVector3f BodySpeed(FLimb& L) const { return (FVector3f)const_cast<UMyrPhyCreatureMesh*>(this)->GetMachineBody(L)->GetUnrealWorldVelocity(); }
-	FVector3f BodySpeed(ELimb L) const { return (FVector3f)const_cast<UMyrPhyCreatureMesh*>(this)->GetMachineBody(L)->GetUnrealWorldVelocity(); }
-	FVector3f BodySpeed(FLimb& L, uint8 Flesh) const	{ return (FVector3f)const_cast<UMyrPhyCreatureMesh*>(this)->GetFleshBody(L,Flesh)->GetUnrealWorldVelocity();	}
-
-	//уровень упертости членика в препятствие - сонаправленность скорости и нормали к поверхности * давность контакта
-	float GetLimbBump(FLimb &L) const
-	{	if (L.Stepped) return ((int)L.Colinea * L.Stepped) / (float)(255 * STEPPED_MAX);
-		else return 0.0f;
-	}
 
 //свои методы - процедуры
 public:
 
 	//костылик для обработчика физики части тела - получить по битовому полю направление собственной оси, которое недо повернуть
-	FVector3f CalcInnerAxisForLimbDynModel(const FLimb& Limb, FVector3f GloAxis) const;
-	FVector3f CalcOuterAxisForLimbDynModel(const FLimb& Limb) const;
+	FVector CalcAxisForLimbDynModel(const FLimb Limb, FVector GloAxis) const;
 
 	//двигаться на физдвижке по горизонтальной поверхности
 	void Move (FBodyInstance* BodyInst, FLimb& Limb);
 
 	//ориентировать тело силами, поворачивая или утягивая
-	void OrientByForce (FBodyInstance* BodyInst, FLimb& Limb, FVector3f ActualDir, FVector3f DesiredDir, float AdvMult = 1.0);
+	void OrientByForce (FBodyInstance* BodyInst, FLimb& Limb, FVector ActualDir, FVector DesiredDir, float AdvMult = 1.0);
 
 
 	//совершить прыжок
-	void PhyJumpLimb(FLimb& Limb, FVector3f Dir);
+	void PhyJumpLimb(FLimb& Limb, FVector Dir);
 
 	//телепортировать всё тело на седло ветки
 	void TeleportOntoBranch(FBodyInstance* CapsuleBranch);
@@ -356,10 +294,10 @@ public:
 	void ProcessBodyWeights(FLimb& Limb, float DeltaTime);
 
 	//вычислить предпочительное направление движения для этого членика по его опоре
-	FVector3f CalculateLimbGuideDir(FLimb& Limb, const FVector3f& PrimaryCourse, bool SupportOnBranch, float* Stability = nullptr);
+	FVector CalculateLimbGuideDir(FLimb& Limb, const FVector& PrimaryCourse, bool SupportOnBranch, float* Stability = nullptr);
 
 	//принять или отклонить только что обнаруженную новую опору для этого членика
-	int ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, FVector3f NewNormal, FVector NewHitLoc);
+	int ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, FVector NewNormal, FVector NewHitLoc);
 
 	//взять данный предмет за данный членик данной частью тела
 	void Grab (FLimb& GrabberLimb, uint8 ExactBody, FBodyInstance* GrabbedBody, FLimb* GrabbedLimb, FVector ExactAt);

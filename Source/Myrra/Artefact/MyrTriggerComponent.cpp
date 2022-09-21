@@ -478,10 +478,10 @@ bool UMyrTriggerComponent::ReactNotify(FTriggerReason& R, class AMyrPhyCreature*
 //==============================================================================================================
 //сформировать вектор дрейфа по векторному полю, вызывается не отсюда, а из ИИ
 //==============================================================================================================
-FVector3f UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AMyrPhyCreature* C)
+FVector UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AMyrPhyCreature* C)
 {
 	//накопитль вектора
-	FVector3f Accu(0,0,0);
+	FVector Accu(0,0,0);
 	if(!C) return Accu;
 
 	//множитель силы указывается строкой
@@ -493,7 +493,7 @@ FVector3f UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AM
 
 	//если вектор только один, взвешенной суммы не требуется, просто вернуть его
 	if(Children.Num()==1)
-		return (FVector3f)Children[0]->GetComponentTransform().GetUnitAxis(EAxis::X)*Coef;
+		return Children[0]->GetComponentTransform().GetUnitAxis(EAxis::X)*Coef;
 
 	//нормировочный коэффициент = максимальный размер всего объёма, чтобы расстояния до стрелок были весами меньше единицы
 	float Normer = 0.5 / (Bounds.SphereRadius);
@@ -503,7 +503,7 @@ FVector3f UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AM
 		//весовой вклад вектора максимален при близости и ноль при дальности на другом конце поля
 		float Weight = 1.0f - FVector::DistSquared(C->GetActorLocation(), Ch->GetComponentLocation()) * Normer * Normer;
 		if(Weight < 0) Weight = 0;
-		Accu += (FVector3f)Ch->GetComponentTransform().GetUnitAxis(EAxis::X) * Weight;
+		Accu += Ch->GetComponentTransform().GetUnitAxis(EAxis::X) * Weight;
 		Denominator += Weight;
 	}
 	if(Denominator > 1) Accu /= Denominator;
@@ -513,10 +513,10 @@ FVector3f UMyrTriggerComponent::ReactVectorFieldMove(FTriggerReason& R, class AM
 //==============================================================================================================
 //сформировать вектор тяги в пределы зоны
 //==============================================================================================================
-FVector3f UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCreature* C)
+FVector UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCreature* C)
 {
 	//вектор от существа к центру, полноразмерный
-	FVector3f Ra =  (FVector3f)(GetComponentLocation() - C->GetActorLocation());
+	FVector Ra =  (GetComponentLocation() - C->GetActorLocation());
 	float RaDist2 = Ra.SizeSquared();
 
 	//такого не случится, потому что пересёк с существом пропадёт, но вдруг...
@@ -543,7 +543,7 @@ FVector3f UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCr
 		
 		//если внутри области свободного движения, то вектор нулевой
 		if (RaDist2 <= FMath::Square(RadiusToStart))
-			return FVector3f::ZeroVector;
+			return FVector::ZeroVector;
 
 		//при выходе за область вектор начинает расти 
 		else return Ra * Smoothness * (FMath::Sqrt(RaDist2) - RadiusToStart) / (Bounds.SphereRadius - RadiusToStart);
@@ -728,7 +728,7 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 void UMyrTriggerComponent::OverlapEvent(AActor* OtherActor, UPrimitiveComponent* OtherComp, bool ComingOut)
 {
 	//пересечение поясов не должно срабатывать, чтоб не получать множественные
-	//if (OtherComp->IsA<UMyrGirdle>()) return;
+	if (OtherComp->IsA<UMyrGirdle>()) return;
 
 	//только если пересекло существо или артефакт (артефакт, например, перенесся в зубах на место)
 	EWhoCame WhoCame = EWhoCame::NONE;

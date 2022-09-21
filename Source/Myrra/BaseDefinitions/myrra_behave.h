@@ -42,8 +42,8 @@ UENUM(BlueprintType, meta = (Bitflags)) enum class EBehaveState : uint8
 	walk = (uint8)EMacroState::LAND + 1,	// ходьба (от нуля скорости до небыстрого бега) основной режим движения, многие действия возможны на ходу
 	run = (uint8)EMacroState::LAND + 2,		// быстрый бег, отдельная кнопка, невозможны многие действия
 	crouch = (uint8)EMacroState::LAND + 3,	// подкрадывание, отдельная кнопка, атаки действуют по другому, чувствительность и расход энергии другие)
-	walkback = (uint8)EMacroState::LAND + 4,// шагание назад, пячка - чтобы при невозможности резкого разворота иметь настройки с вдущим поясом задним
-	crouchback = (uint8)EMacroState::LAND + 5,// шагание назад, пячка - чтобы при невозможности резкого разворота иметь настройки с вдущим поясом задним
+	sidewalk = (uint8)EMacroState::LAND + 4,// движение боком - просто чтобы иметь другую динамику частей тела
+	turn = (uint8)EMacroState::LAND + 5,	// разворот на месте
 	relocate = (uint8)EMacroState::LAND + 6,// общая кинематическая двигание
 	RESERVED23 = 23	UMETA(Hidden),			// ----- заполнитель для порядка следования, без этого полная хня -------
 
@@ -88,6 +88,42 @@ UENUM(BlueprintType, meta = (Bitflags)) enum class EBehaveState : uint8
 #define MACRO(state) ((EMacroState)((uint8)(state)&248))
 
 //операция сравнения для быстрого выявления макросостояния (если все биты)
-#define IS_MACRO(state, macrostate) ((((uint8)(state)) & ((uint8)(EMacroState::##macrostate))) == ((uint8)(EMacroState::##macrostate)))
+#define IS_MACRO(state, macrostate) ((((uint8)(state)) & ((uint8)(macrostate))) == ((uint8)(EMacroState::##macrostate)))
+
+
+//###################################################################################################################
+//аггрегатор двух состояний - условно старого и нового, используется в хранении и в сообщениях об изменении состояния
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FBehaveFringe
+{
+	GENERATED_USTRUCT_BODY()
+
+
+	//собственно, поле, содержащее состояния
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) EBehaveState CurrentState;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) EBehaveState UpcomingState;
+
+	//стабильный, значит нет процесса перехода между состояниями
+	bool Stable() const { return (UpcomingState == EBehaveState::NO); }
+
+	//утилиты для хэша и прочего
+	uint16&			Integra(void) { return *((uint16*)this); }
+	uint16			cIntegra(void) const { return *((uint16*)this); }
+	bool			operator==	(const FBehaveFringe& o) const { return (o.cIntegra() == cIntegra()); }
+	bool			operator!=	(const FBehaveFringe& o) const { return (o.cIntegra() != cIntegra()); }
+	friend uint32	GetTypeHash(const FBehaveFringe& o) { return GetTypeHash(o.cIntegra()); }
+
+	//получить макросостояние (248 = 0xb11111000) просто вытирая три послених бита
+	EMacroState		Macro() { return (EMacroState)(((uint8)CurrentState) & 248); }
+
+	//конструктор, можно не задавать второе состояние, в таком случае статус сразу стабильный
+	FBehaveFringe(EBehaveState At, EBehaveState To = EBehaveState::NO) : CurrentState(At), UpcomingState(To) {}
+	FBehaveFringe() : CurrentState(EBehaveState::NO), UpcomingState(EBehaveState::NO) {}
+
+	void Retract() { UpcomingState = EBehaveState::NO; }
+	void Achieve() { CurrentState = UpcomingState; UpcomingState = EBehaveState::NO; }
+	void ModGoal(EBehaveState To) { if (To != CurrentState) UpcomingState = To; else EBehaveState::NO; }
+
+};
 
 

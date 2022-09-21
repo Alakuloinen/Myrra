@@ -139,16 +139,16 @@ AMyrDaemon::AMyrDaemon()
 	CaptureTrails = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("Scene Capture 2D"));
 	CaptureTrails->SetupAttachment(RootComponent);
 	CaptureTrails->ProjectionType = ECameraProjectionMode::Orthographic;
-	CaptureTrails->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	CaptureTrails->CaptureSource = ESceneCaptureSource::SCS_BaseColor;
 	CaptureTrails->CompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
 	CaptureTrails->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
 	CaptureTrails->bCaptureOnMovement = false;
 	CaptureTrails->bCaptureEveryFrame = false;	//будет вызываться тот же каждый кадр, но вручную
 	CaptureTrails->bAutoActivate = true;
-	CaptureTrails->bAlwaysPersistRenderingState = true;
 	CaptureTrails->DetailMode = EDetailMode::DM_High;
 	CaptureTrails->SetRelativeLocation(FVector(0, 0, -700));
 	CaptureTrails->SetRelativeRotation(FRotator(90, 0, 90));
+	CaptureTrails->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 	//тут ещё надо ShowFlags устанавливать на одни Decals, но как-то мутно из кода это делается
 
 	CaptureLighting = CreateDefaultSubobject<USceneCaptureComponentCube>(TEXT("Scene Capture Cube Lighting"));
@@ -361,7 +361,6 @@ void AMyrDaemon::Tick(float DeltaTime)
 	//чтобы в небе не заводить 2 тика, покадровый и медленный
 	if (Sky)
 	{
-		//здесь небо изменяет переменную влажности
 		Sky->PerFrameRoutine(DeltaTime, Wetness);
 	}
 
@@ -375,7 +374,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 	if(!OwnedCreature) return;
 
 	//направление действий/атак/головы - куда смотрим, туда и направляем
-	Drive.ActDir = (FVector3f)Controller->GetControlRotation().Vector();
+	Drive.ActDir = Controller->GetControlRotation().Vector();
 	if (IsCameraOnExternalPoser()) Drive.ActDir = OwnedCreature->GetPelvis()->Forward;
 
 	//усиление двоения в глазах при резкой боли - здесь нужно каждый кадр ибо боль скоротечна
@@ -611,7 +610,7 @@ void AMyrDaemon::LowPaceTick(float DeltaTime)
 	if(!IsFirstPerson())
 	{
 		//только если камера смотрит хоть чуть-чуть в сторону лица, если же на спину, то нах не нужно, ибо глаз не видно
-		if( (OwnedCreature->GetLookingVector() | (FVector3f)GetControlRotation().Vector()) < 0 )
+		if( (OwnedCreature->GetLookingVector() | GetControlRotation().Vector()) < 0 )
 		{
 			//собственно, пересчитать освещенность - тяжелая операция
 			CaptureLighting->CaptureSceneDeferred();
@@ -697,7 +696,7 @@ void AMyrDaemon::PoseInsideCreature(bool ResetCameraRot)
 		if(ResetCameraRot) Controller->SetControlRotation(FRotator());
 
 		//вектор движения сделать правильным до того, как само движение поимеет место
-		Drive.MoveDir = (FVector3f)Controller->GetControlRotation().Vector();
+		Drive.MoveDir = Controller->GetControlRotation().Vector();
 	}
 
 	Drive.MoveDir.Z = 0;
@@ -760,7 +759,7 @@ bool AMyrDaemon::MakeMoveDir(bool MoveIn3D)
 	//упрощать ротатор в кватернион бессмысленно - он изначально в контроллере ротатор
 	//если нет резона летать в пространстве, одну из осей нужно сразу убрать, иначе сильные погрешности
 	//нормирования при взгляде сверху вниз. Это неплатно, т.к. контроллер и так хранит углы в ротаторе
-	FRotationMatrix44f RotationMatrix = FRotator3f(
+	FRotationMatrix RotationMatrix = FRotator(
 		MoveIn3D ? Controller->GetControlRotation().Pitch : 0.0f,
 		Controller->GetControlRotation().Yaw,
 		0.0f);
@@ -770,7 +769,7 @@ bool AMyrDaemon::MakeMoveDir(bool MoveIn3D)
 		//взвешенный вектор направления
 		//Nota bene: для матрицы GetUnitAxis тяжелее, чем GetScaledAxis, ибо требует нормализации
 		//а для трансформации, наоборот, GetUnitAxis проще, ибо не требует применения масштаба
-		FVector3f DirToGo =
+		FVector DirToGo =
 			RotationMatrix.GetScaledAxis(EAxis::X) * XGain +
 			RotationMatrix.GetScaledAxis(EAxis::Y) * YGain;
 
@@ -1001,8 +1000,6 @@ void AMyrDaemon::ExpressPress()
 	bExpress = true;
 	if (!OwnedCreature) return;
 
-	//сразу отозвать все самодействия, которые выполнялись, чтоб не мешали
-	OwnedCreature->SelfActionCease();
 
 	//получить список доступных самодействий по теме выражения эмоций, false - самодействия, не релакс-действия
 	AvailableExpressActions.SetNum(0);
@@ -1042,10 +1039,10 @@ void AMyrDaemon::ExpressRelease()
 void AMyrDaemon::SetAttackDir()
 {
 	//направление атаки взять из направления взгляда камеры
-	OwnedCreature->AttackDirection = (FVector3f)Controller->GetControlRotation().Vector();
+	OwnedCreature->AttackDirection = Controller->GetControlRotation().Vector();
 
 	//если направление атаки в зад (например смотрим камерой спереди)
-	if ((-OwnedCreature->GetAxisForth() | OwnedCreature->AttackDirection) < 0)
+	if (FVector::DotProduct(-OwnedCreature->GetAxisForth(), OwnedCreature->AttackDirection) < 0)
 	{
 		//хитро развернуть
 		OwnedCreature->AttackDirection *= -1;
@@ -1286,7 +1283,7 @@ void AMyrDaemon::RemoveMarker()
 //==============================================================================================================
 //найти уровень освещения по заданному вектору взгляда
 //==============================================================================================================
-float AMyrDaemon::GetLightingAtVector(FVector3f V)
+float AMyrDaemon::GetLightingAtVector(FVector V)
 {
 	float Accum = 0.0f;
 	TArray<FFloat16Color> ColorBuffer;

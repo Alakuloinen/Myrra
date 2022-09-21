@@ -200,13 +200,13 @@ USTRUCT(BlueprintType) struct FGoal
 	uint16 Ticks = 0;																// давность присутствия цели - определяет ее важность и скучность
 
 	//курс непосредственно на цель, расстояние до цели 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector3f LookAtDir;				// направление взгляда на цель, всегда НАПРЯМУЮ, единичный вектор
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector LookAtDir;				// направление взгляда на цель, всегда НАПРЯМУЮ, единичный вектор
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) float LookAtDist = 0.0f;			// расстояние до цели (возможно, тогда не нужен вектор, просто радиус домножать)
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) float LookAtDistInv = 0.0f;		// инверсное расстояние до цели (возможно, тогда не нужен вектор, просто радиус домножать)
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) float LookAlign = 0.0f;			// степень прямости взора (тупо скалярное произведение, но чтобы не пересчитывать)
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector ClosestPoint;			// абсолютные координаты ближайшей точки маршрута на цель (это может быть и сама цель)
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector3f MoveToDir;				// направление движения на ближайшую точку маршрута до цели (это может быть и сама цель)
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector MoveToDir;				// направление движения на ближайшую точку маршрута до цели (это может быть и сама цель)
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) float Attraction = 0.0;			// степень тяги к(+) или от(-) цели = из кривых от расстояния,эмоций - кэш, чтобы при восприятии сразу знать, уходить или приходить
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) float Weight = 0.0;				// вес цели сравнительно с другой. так как подсчёт стал очень большим, лучше кешировать

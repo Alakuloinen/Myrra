@@ -4,7 +4,9 @@
 #include "..\Myrra.h"
 #include "MyrCreatureGenePool.generated.h"
 
+class UMyrSelfActionInfo;
 class UMyrActionInfo;
+class UMyrAttackInfo;
 
 
 //###################################################################################################################
@@ -117,6 +119,14 @@ public: // взаимодействие
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Actions") TArray <UMyrActionInfo*> Actions;
 	TMultiMap<ECreatureAction,uint8> ActionMap;
 
+	//все характеристики атак, индекс имеет значение, указывается в CurrentAtack
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Actions") TArray <UMyrAttackInfo*> AttackActions;
+
+	// автоматические действия на себя (почесывания, жесты...)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Actions") TArray <UMyrActionInfo*> SelfActions;
+
+	// анимации входа и выхода из релакса разных типов
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Actions") TArray <UMyrActionInfo*> RelaxActions;
 
 
 //------------------------------------------------

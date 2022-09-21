@@ -36,9 +36,6 @@ USTRUCT(BlueprintType) struct FActionCondition
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) uint8 Chance = 255;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) uint8 ChanceForPlayer = 0;
 
-	//приоритет, самодействия с более высоким приоритетом могут выбиватьужевыполняющиеся самодействия с болеенизким приоритетом
-	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) uint8 Priority = 255;
-
 	//если выпадает делать атаку при незаконченном самодействии, это самодействие резко прерывается
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool SkipDuringAttack = true;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool SkipDuringSpeaking = true;
@@ -106,6 +103,8 @@ USTRUCT(BlueprintType) struct FVictimType
 	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) bool ForbidSelfActions = true;
 
 	//фазы, в какую хватать цель, отпускать, прыгать, жрать
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase JumpHoldPhase		= EActionPhase::NONE;
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase JumpPhase			= EActionPhase::NONE;
 	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase GrabAtTouchPhase	= EActionPhase::NONE;
 	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase UngrabPhase			= EActionPhase::NONE;
 	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase EatHeldPhase		= EActionPhase::NONE;
@@ -173,7 +172,6 @@ public:
 
 	//если противник сам нас атакует, то вот это - его урон, который мы можем отразить этим действием (даже самодействием) как контратакой, если превышает, то прекратить атаку
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) float MaxDamageWeCounterByThis = 0.0f;
-
 
 	//прерывать или отправлять вспять атаку, если произошло столкновение или увечье
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool CeaseAtHit = false;
@@ -253,5 +251,109 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
+
+};
+
+//###################################################################################################################
+// атака - действие на другой объект
+//###################################################################################################################
+UCLASS(Blueprintable, BlueprintType, hidecategories = (Object), meta = (BlueprintSpawnableComponent))
+class MYRRA_API UMyrAttackInfo : public UMyrActionInfo
+{
+	GENERATED_BODY()
+
+public:
+
+	//основная анимация атаки в виде сборки aim offset по параметрам вперед-назад и верх-вниз - отражает механизм нацеливания
+	UPROPERTY(EditAnywhere, Category = "Resources", BlueprintReadWrite) class UAimOffsetBlendSpace* RawTargetAnimation;
+
+	//основная анимация атаки в виде сборки aim offset по параметрам вперед-назад и верх-вниз - отражает механизм нацеливания
+	UPROPERTY(EditAnywhere, Category = "Resources", BlueprintReadWrite) class UAimOffsetBlendSpace* AdvancedTargetAnimation;
+	UPROPERTY(EditAnywhere, Category = "Resources", BlueprintReadWrite) class UBlendSpace* PreciseTargetAnimation;
+
+	//условия срабатывания для агента действия
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FActionCondition ConditionVictim;
+
+	//какие части тела используются при касании противника
+	UPROPERTY(EditAnywhere, Category = "General", BlueprintReadWrite) TMap<ELimb, FActionPhaseSet> WhatLimbsUsed;
+
+	//прямой физический урон той части тела, до которой дотронулись (может быть отрицательным и исцелять)
+	UPROPERTY(EditAnywhere, Category = "General", BlueprintReadWrite) float TactileDamage = 1.0f;
+
+public:
+	
+	//расстояние, на котором атака наиболее эффективна, и размах плеча от 0 до максимума
+	UPROPERTY(EditAnywhere, Category = "Spatial", BlueprintReadWrite) float DistMaxEffect = 30.0f;
+	UPROPERTY(EditAnywhere, Category = "Spatial", BlueprintReadWrite) float DistRange = 15.0f;
+
+	//угловой размах опасной зоны, косинус угла (скалярное произведение) минус единица
+	UPROPERTY(EditAnywhere, Category = "Spatial", BlueprintReadWrite) float AngleCosRange = 0.5f;
+
+public:
+
+	// возможность развернуть и повторить основное ударное действие атаки до ее полного завершения (количество таких ударов без замаха)
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) uint8 NumInstantRepeats = 1;
+
+	// запретить автоматический или любой другой вызов самодействий на всё время дления этой атаки
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) bool ForbidSelfActions = true;
+
+	//фазы, в какую хватать цель и в какую отпускать
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase JumpHoldPhase		= EActionPhase::NONE;
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase JumpPhase			= EActionPhase::NONE;
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase GrabAtTouchPhase	= EActionPhase::NONE;
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase UngrabPhase		= EActionPhase::NONE;
+	UPROPERTY(EditAnywhere, Category = "Advanced", BlueprintReadWrite) EActionPhase EatHeldPhase		= EActionPhase::NONE;
+
+	//посылать сообщение триггеру, буде такой в пересечении с этим существом, что выполнено (возможно запрашиваемое им) активное действие
+	//логика обратножоповая, но это единственный способ для триггера отслеживать, например, кнопку Е без нужды включать тик в самом триггере
+	UPROPERTY(EditAnywhere, Category = "Consequences", BlueprintReadWrite) bool SendApprovalToTriggerOverlapperOnStart = false;
+	UPROPERTY(EditAnywhere, Category = "Consequences", BlueprintReadWrite) bool SendApprovalToTriggerOverlapperOnStrike = false;
+
+public:
+
+	//величина (вероятность) достать цель / получить урон от расстояния до цели
+	float AmountByRadius(float CheckThisDist) { return FMath::Max(0.0f, DistRange - FMath::Abs(DistMaxEffect - CheckThisDist)) / DistRange; }
+
+	//величина (вероятность) достать цель / получить урон от угла между направлением атаки и актуальным азимутом (жесткое смешение с очень тонким переходом)
+	float AmountByAngle(float DirDotAttack) { return FMath::Max(0.0f, 1.0f - 10.0f * FMath::Max(0.0f, AngleCosRange - DirDotAttack)); }
+
+	//порог (попал/не попал) от расстояния (любое вхождение в зону поражения засчитывается)
+	bool CheckByRadius(float CheckThisDist) { return FMath::Abs(DistMaxEffect - CheckThisDist) < DistRange; }
+	bool CheckByRadius2(float CheckThisDist2) { return FMath::Square(CheckThisDist2) < DistMaxEffect + DistRange; }
+
+	//порог (попал/не попал) от от угла между направлением атаки и актуальным азимутом (любое вхождение в зону поражения засчитывается)
+	bool CheckByAngle(float DirDotAttack) { return DirDotAttack > AngleCosRange; }
+	bool CheckByAngle(FVector AMasterAxis, FVector DirToYou) const { return FVector::DotProduct(AMasterAxis, DirToYou) > AngleCosRange; }
+
+	//интегральная мера опасности атаки
+	float IntegralAmount(float Dist, float AngleDot) {	if (!CheckByRadius(Dist)) return 0.0f; else return AmountByRadius(Dist) * AmountByAngle(AngleDot);	}
+
+public:
+
+	//особенность атаки в том, что фазы жестко определены и единственный способ не плодить сущности и неопределенности - завести ровно столько
+	UMyrAttackInfo()
+	{ 
+		//внезапно без этого крэшится при горячей перезаливке
+		if (HasAnyFlags(RF_ClassDefaultObject)) return; 
+
+		//в сборке для атаки важно сразу расставить скорости анимации на разных фазах
+		DynModelsPerPhase.SetNum((int)EActionPhase::NUM);
+		DynModelsPerPhase[(int)EActionPhase::READY].AnimRate = -0.1f;
+		DynModelsPerPhase[(int)EActionPhase::DESCEND].AnimRate = -1.0f;
+
+		//эти флаги введены для самодействий, в атаке они тоже могут быть полезны для бинарных приоритетов
+		//но в целом они просто убивают саму возмжность запуска себя, так что их по умолчанию стоит отменить
+		Condition.SkipDuringAttack = false;
+		ConditionVictim.SkipDuringAttack = false;
+	}
+
+	//форма проверки для ИИ, стоит ли совершать данную атаку по отношению к данной цели
+	EAttackAttemptResult ShouldIStartThisAttack(class AMyrPhyCreature* Owner, UPrimitiveComponent* ExactVictim, FGoal* Goal, bool ByAI = true);
+
+	//проверка возможности попадения в цель, для автонацеливания
+	bool QuickAimResult(class AMyrPhyCreature* Owner, FGoal* Goal, float Accuracy);
+
+	//сравнить дву атаки для текущего существа, чтобы выбрать более подходящую
+	bool IsItBetterThanTheOther(class AMyrPhyCreature* Performer, UMyrAttackInfo *TheOther);
 
 };

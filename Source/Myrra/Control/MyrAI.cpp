@@ -213,7 +213,7 @@ void AMyrAI::Tick(float DeltaTime)
 				Goals[SecondaryGoal].Weight *= Normalizer;
 			
 				//степень раскоряки между 2 целями, если близко к 1.0 - значит по пути, -1.0 = в разных сторонах
-				float MindSplit = (Goals[PrimaryGoal].LookAtDir | Goals[SecondaryGoal].LookAtDir);
+				float MindSplit = FVector::DotProduct(Goals[PrimaryGoal].LookAtDir, Goals[SecondaryGoal].LookAtDir);
 
 				//цели примерно в одном напавлении + главная значительно важнее вторичной = дискретно делить полномочия
 				bool Look2Follow1 = (MindSplit > 0.0f && Goals[PrimaryGoal].Weight > 0.6 * Normalizer);
@@ -372,7 +372,7 @@ void AMyrAI::Tick(float DeltaTime)
 
 	//степень соосности желаемого курса и тела, насколько передом вперед
 	float KeepDir = FMath::Max(0.0f, Drive.MoveDir | me()->GetThorax()->Forward);
-	bool OnAir = !me()->GotLandedAny();
+	bool OnAir = me()->GotUntouched();
 
 	//определение высоты над землёй - пока неясно, нужно ли это для нелетающих
 	if(OnAir)
@@ -740,10 +740,10 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 		VisHit.ImpactPoint = GoalMyr->GetVisEndPoint();
 
 		//предварительный полный радиус-вектор, чтоб прикинуть, нужны ли более сложные вычисления
-		FVector3f TempLookAtDir = (FVector3f)(VisHit.ImpactPoint - me()->GetHeadLocation());
+		FVector TempLookAtDir = VisHit.ImpactPoint - me()->GetHeadLocation();
 
 		//также предварительно ракурс и расстояние
-		Goal.LookAlign = TempLookAtDir | me()->GetLookingVector();
+		Goal.LookAlign = FVector::DotProduct(TempLookAtDir, me()->GetLookingVector());
 		d2 = TempLookAtDir.SizeSquared();
 
 		//если соперник перед лицом (а не за задом) и если соперник на расстоянии меньшем трёх наших длин тел
@@ -756,11 +756,11 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 			//чтобы его сгладить, берется предыдущий полный радиус вектор
 			Goal.LookAtDir = FMath::Lerp(
 				Goal.LookAtDir*Goal.LookAtDist,
-				(FVector3f)(VisHit.ImpactPoint - me()->GetHeadLocation()),
-				0.3f);
+				VisHit.ImpactPoint - me()->GetHeadLocation(),
+				0.3);
 
 			//перерасчёт предвариительного суждение спереди/сзади
-			Goal.LookAlign = Goal.LookAtDir | me()->GetLookingVector();
+			Goal.LookAlign = FVector::DotProduct(Goal.LookAtDir, me()->GetLookingVector());
 
 			//на таком близком расстоянии пора бы проверить наличие непосредственного контакта
 			if (me()->IsTouchingThisComponent(Goal.Object))
@@ -775,12 +775,12 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 	{
 		//смотрим в центр координат габаритов компонента
 		VisHit.ImpactPoint = Goal.Object->Bounds.GetSphere().Center;
-		Goal.LookAtDir = (FVector3f)(VisHit.ImpactPoint - me()->GetHeadLocation());
+		Goal.LookAtDir = VisHit.ImpactPoint - me()->GetHeadLocation();
 
 		//расположение цели по отношению к нашему полю зрения
 		//если цель за затылком, нет смысла вычислять точно
 		//ВНИМАНИЕ, это предвариетнльное ненормированное значение
-		Goal.LookAlign = Goal.LookAtDir | me()->GetLookingVector();
+		Goal.LookAlign = FVector::DotProduct(Goal.LookAtDir, me()->GetLookingVector());
 
 	}
 	
@@ -796,7 +796,7 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 	if(Goal.LookAlign > 0 && Goal.Relativity != EYouAndMe::Touching)
 	{
 		//если в результате трассировки объект виден (нет загораживателей)
-		if(TraceForVisibility(Goal.Object, Gestalt, (FVector)Goal.LookAtDir, &VisHit))
+		if(TraceForVisibility(Goal.Object, Gestalt, Goal.LookAtDir, &VisHit))
 		{	
 			//взять расстояние уже посчитанное из трассировки
 			if(VisHit.Distance>0)
@@ -820,7 +820,7 @@ void AMyrAI::MeasureGoal (FGoal& Goal,	//ячейка цели
 	Goal.LookAlign *= Goal.LookAtDistInv;
 
 	//отладочная информация
-	me()->Line(ELimbDebug::AILookDir, me()->GetHeadLocation(), (FVector)Goal.LookAtDir * Goal.LookAtDist, FColor(Goal.Visibility * 255, Gestalt->NowSeen ? 255 : 0, 255, 255), 1, 0.5);
+	me()->Line(ELimbDebug::AILookDir, me()->GetHeadLocation(), Goal.LookAtDir * Goal.LookAtDist, FColor(Goal.Visibility * 255, Gestalt->NowSeen ? 255 : 0, 255, 255), 1, 0.5);
 
 /*#if DEBUG_LINE_AI
 	UE_LOG(LogMyrAI, Log, TEXT("AI %s MeasureGoal %s, dist %g %s"), *me()->GetName(), *Goal.Object->GetOwner()->GetName(), FMath::Sqrt(d2), *VisHit.Location.ToString());
@@ -990,8 +990,8 @@ ERouteResult AMyrAI::Route(FGoal& MainGoal, FGestaltRelation* Gestalt, FHitResul
 		Drive.Gain = -Drive.Gain;
 
 		//пытаемся посмотреть назад от цели (вопрос пока на какой радиус вдаль рассчитывать)
-		FHitResult Hit2; FVector3f LookBckRadius = -MainGoal.LookAtDir * 100;
-		TraceForVisibility(MainGoal.Object, Gestalt, (FVector)LookBckRadius, &Hit2);
+		FHitResult Hit2; FVector LookBckRadius = -MainGoal.LookAtDir * 100;
+		TraceForVisibility(MainGoal.Object, Gestalt, LookBckRadius, &Hit2);
 
 		//если нашли препятствие, обходим
 		if(Hit2.bBlockingHit)
@@ -1004,7 +1004,7 @@ ERouteResult AMyrAI::Route(FGoal& MainGoal, FGestaltRelation* Gestalt, FHitResul
 //==============================================================================================================
 //сложный алгоритм, что делать, если точно изместно, что перед целью препятствие
 //==============================================================================================================
-ERouteResult AMyrAI::DecideOnObstacle(FVector3f LookDir, FGoal& Goal, FGestaltRelation* Gestalt, FHitResult* Hit, FVector3f& OutMoveDir)
+ERouteResult AMyrAI::DecideOnObstacle(FVector LookDir, FGoal& Goal, FGestaltRelation* Gestalt, FHitResult* Hit, FVector& OutMoveDir)
 {
 	//если направление на объект достаточно пологое, то есть не надо лезть или взлетать
 	if(LookDir.Z < 0.5f)
@@ -1023,7 +1023,7 @@ ERouteResult AMyrAI::DecideOnObstacle(FVector3f LookDir, FGoal& Goal, FGestaltRe
 			if(Myr->IsStandingOnThisActor(Hit->Component->GetOwner()))
 			{
 				//пока пробуем подойти к предмету, а вообще тут надо выбирать, каким боком объодить, как прыгнуть
-				OutMoveDir = (FVector3f)(Hit->Component->GetOwner()->GetActorLocation() - me()->GetHeadLocation());
+				OutMoveDir = Hit->Component->GetOwner()->GetActorLocation() - me()->GetHeadLocation();
 				OutMoveDir.Normalize();
 				return ERouteResult::Towards_Base;//◘◘>
 			}
@@ -1045,7 +1045,7 @@ ERouteResult AMyrAI::DecideOnObstacle(FVector3f LookDir, FGoal& Goal, FGestaltRe
 //==============================================================================================================
 //обойти препятствие, вычислив его размеры
 //==============================================================================================================
-ERouteResult AMyrAI::SimpleWalkAroundObstacle(FVector3f LookDir, FHitResult* Hit, FVector3f& OutMoveDir)
+ERouteResult AMyrAI::SimpleWalkAroundObstacle(FVector LookDir, FHitResult* Hit, FVector& OutMoveDir)
 {
 	//примерная толщина компонента, который надо бы обойти
 	float Thickness = Hit->Component.Get()->Bounds.BoxExtent.X + Hit->Component.Get()->Bounds.BoxExtent.Y;
@@ -1054,11 +1054,11 @@ ERouteResult AMyrAI::SimpleWalkAroundObstacle(FVector3f LookDir, FHitResult* Hit
 	float Altitude = Hit->Component.Get()->Bounds.Origin.Z + Hit->Component.Get()->Bounds.BoxExtent.Z;
 
 	//вектор обхода в сторону - по идее всё равно, идём мы к цели или от цели
-	FVector3f RadicalByPass = LookDir^me()->GetUpVector();
+	FVector RadicalByPass = FVector::CrossProduct(LookDir, me()->GetUpVector());
 
 	//попробовать загодя обойти объект, который мешается
-	FVector3f ClosestPoint = Hit->Location + RadicalByPass * Thickness;
-	FVector3f NewDir = ClosestPoint - (FVector3f)me()->GetHeadLocation();
+	FVector ClosestPoint = Hit->Location + RadicalByPass * Thickness;
+	FVector NewDir = ClosestPoint - me()->GetHeadLocation();
 	NewDir.Normalize();
 	UE_LOG(LogTemp, Log, TEXT("AI %s SimpleWalkAroundObstacle %s"), *me()->GetName(), *Hit->Component->GetOwner()->GetName());
 	return ERouteResult::Simple_Walkaround;
@@ -1447,7 +1447,7 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 //==============================================================================================================
 //непосредственно активировать нашу ранее запущенную атаку в ответ на чужую атакуc
 //==============================================================================================================
-EAttackEscapeResult AMyrAI::CounterStrike(float RealDanger, AMyrPhyCreature* You, FVector3f DirToYou)
+EAttackEscapeResult AMyrAI::CounterStrike(float RealDanger, AMyrPhyCreature* You, FVector DirToYou)
 {
 	//коэффициент силы атаки, пока действует только на силу прыжка
 	//почему такой коэффициент, неясно, уж очень неуниверсально
@@ -1602,7 +1602,7 @@ FCreatureDrive AMyrAI::MixWithOtherDrive(FCreatureDrive* Other)
 //автонацеливание на найденного противника - вызывается из AMyrPhyCreature, управляемого игроком
 //смысл - если мы почти точно целимся в цель ИИ, то ИИ корректирует наш вектор прицела в точности на объект
 //==============================================================================================================
-bool AMyrAI::AimBetter (FVector3f& OutAttackDir, float Accuracy)
+bool AMyrAI::AimBetter (FVector& OutAttackDir, float Accuracy)
 {
 	//закрыто на ремонт в связи с рефакторингом атак
 	if(Goal_1().Object)
@@ -1661,8 +1661,8 @@ bool AMyrAI::AttemptSuicideAsPlayerGone()
 	}
 
 	//подгадываем момент, когда протагонист не смотрит на нас и вообщенаходится вдалеке
-	FVector3f LookAtDir = (FVector3f)(PC->GetHeadLocation() - me()->GetHeadLocation());
-	float LookAlign = LookAtDir | me()->GetLookingVector();
+	FVector LookAtDir = PC->GetHeadLocation() - me()->GetHeadLocation();
+	float LookAlign = FVector::DotProduct(LookAtDir, me()->GetLookingVector());
 	if(LookAlign < -ConfigHearing->HearingRange)
 	{	
 		//проверяем что мы не были изначально установлены на карте - тогда мы будем тут всегда
@@ -1739,7 +1739,9 @@ float AMyrAI::HowClearlyYouPerceiveMe(AMyrPhyCreature* You) const
 		return 0.7 * MeAsGoal->Visibility + 0.3 * MeAsGoal->Audibility;//◘◘>
 
 	//если нет в целях, то насколько он к нам лицом повернут
-	return FMath::Clamp((FVector3f)(me()->GetHeadLocation() - You->GetHeadLocation()) | You->GetLookingVector(), 0.0f, 1.0f);//◘◘>
+	return FMath::Clamp(FVector::DotProduct(
+		me()->GetHeadLocation() - You->GetHeadLocation(),
+		You->GetLookingVector()), 0.0f, 1.0f);//◘◘>
 }
 
 //==============================================================================================================
@@ -1768,12 +1770,12 @@ float AMyrAI::HowDangerousAreYou(UPrimitiveComponent* You) const
 //==============================================================================================================
 //найти цель которая в направлении взгляда, если есть - для подписи внизу экрана
 //==============================================================================================================
-int AMyrAI::FindGoalInView(FVector3f View, const float Devia2D, const float Devia3D, const bool ExactGoal2, AActor*& Result)
+int AMyrAI::FindGoalInView(FVector View, const float Devia2D, const float Devia3D, const bool ExactGoal2, AActor*& Result)
 {
 	Result = nullptr;
 	auto& G = Goals[(int)ExactGoal2];
 	if(G.Object != nullptr)
-		if((FVector2f(G.LookAtDir)|FVector2f(View)) > 1.0f - Devia2D)
+		if(FVector2D::DotProduct(FVector2D(G.LookAtDir), FVector2D(View)) > 1.0f - Devia2D)
 			if(FMath::Abs(G.LookAtDir.Z - View.Z) < Devia3D)
 			{	if(Cast<AMyrPhyCreature>(G.Object->GetOwner()))
 				{	Result = G.Object->GetOwner();

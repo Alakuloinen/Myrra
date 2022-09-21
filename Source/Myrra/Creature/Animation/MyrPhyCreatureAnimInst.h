@@ -156,8 +156,6 @@ public:
 	//получить букет трансформаций конечности в правильном формате из физ-модели существа
 	void SetLimbTransform(const FLimb& Limb, const FLimb& HubLimb, const FLimb& SpineLimb, float* LimbChunk, const float WheelRadius, FAGirdle& AGirdle, const float Handness);
 
-	void SetLegPosition(FLimb& Limb, float* LimbChunk);
-
 	//получить численный параметр угла отклонения между сегментами тела по заданным осям
 	void DriveBodyRotation(float& Dest, bool En, ELimb LLo, EMyrRelAxis LoA, ELimb LHi, EMyrRelAxis HiA, bool Asin = true);
 };

@@ -164,14 +164,11 @@ void UMyrAnimNotify::Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Ani
 
 		//для случая простого самодействия
 		if (MyrPhyCreature->CurrentSelfAction < 255)
-		{	
-			if (MyrPhyCreature->GetSelfAction()->Motion == Anim)
+		{	if (MyrPhyCreature->GetSelfAction()->Motion == Anim)
 				MyrPhyCreature->SelfActionCease();
 			else for(auto A : MyrPhyCreature->GetSelfAction()->AlternativeRandomMotions)
 				if (A == Anim)
 					MyrPhyCreature->SelfActionCease();
-			if(MyrPhyCreature->CurrentSelfAction != 255)
-				UE_LOG(LogTemp, Error, TEXT("WTF Self Action Never Ends!!11"));
 		}
 		else UE_LOG(LogTemp, Error, TEXT("WTF Self Action Anim Ended without beginning!!11")); 
 

@@ -30,35 +30,37 @@ public:
 	//пояс ограничен так, что не может вращаться в стороны, для стабилизации и взбирания в вертикаль
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 NoTurnAround:1;
 
-	//пояс держится фиксированным к опоре через констрейнт
+	//пояс держится фиксированным к опоре
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 FixedOnFloor:1;
-
-	//пояс ползет по вертикальной опоре, обязательно наличие FixedOnFloor
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Climbing : 1;
-
 
 //свойства
 public:
 
-	//кэш скорости ОТНОСИТЕЛЬНО опоры ног, принадлежащих этому поясу
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f VelocityAgainstFloor;
+	//счётчик кадров для размазывания сложных задач
+	uint8 FrameCounter = 0;
+
+	// кэш скорости ОТНОСИТЕЛЬНО опоры ног, принадлежащих этому поясу
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector VelocityAgainstFloor;
 
 	//вектор предпочтительного направления движения с учётом ограничений типа хождения по веткам
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f GuidedMoveDir;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector GuidedMoveDir;
 
 	//вектор "вперед" нужен отдельный, поскольку спина может встать вверх, а ноги подкоситься вперед-назад
 	//возможно, не нужен
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f Forward;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector Forward;
 
 	//степень пригнутости обеих ног (кэш с гистерезисом)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Crouch = 0.0f;
 
+	//кривизна опоры, считается по нормалям двух ног, возможно нах
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Curvature = 0.0f;
+
 	//нормальная длина ноги, для расчётов подогнутия ног на рельефе
 	//вычисляется в начале как разность позиций костей, может быть разной из-за масштаба меша
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) float TargetFeetLength = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float LimbLength = 0.0f;
 
-	//дайджест уровня крепкости стояния на опоре, 0 - совсем в воздухе, 255 = обеими ногами и еще брюхом 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 StandHardness = 0;
+	//дайджест уровня крепкости стояния на опоре, 0 - совсем в воздухе, 1 = обеими ногами
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float StandHardness = 0.0f;
 
 	//указатель на сборку настроек динамики/ориентации для этого пояса
 	//прилетает с разных ветвей иерархии - из состояния BehaveState, далее из настроек (само)действия 
@@ -81,38 +83,30 @@ public:
 
 	//выдать членик и его физ-тело в системе коориднат конкретно этого пояса
 	ELimb			GetELimb(EGirdleRay R) { return GirdleRays[IsThorax][(int)R]; }
-	ELimb			GetELimb(EGirdleRay R) const { return GirdleRays[IsThorax][(int)R]; }
 	FLimb&			GetLimb (EGirdleRay R);
-	const FLimb&	GetLimb (EGirdleRay R) const;
 	FBodyInstance*	GetBody (EGirdleRay R);
 
 	//констрайнт, которым спинная часть пояса подсоединяется к узловой (из-за единой иерархии в разных поясах это с разной стороны)
 	FConstraintInstance* GetGirdleSpineConstraint();
 	FConstraintInstance* GetGirdleArchSpineConstraint();
 
-	//пояс не стоит ногами на опоре
-	bool IsInAir() const { return !GetLimb(EGirdleRay::Center).Stepped; }
-
-	//режим попячки назад
-	bool IsMovingBack() const;
+	//включены ли ноги в виде твердых колес
+	bool AreLegsSolid() const;
 
 	//скаляр скорости в направлении движения
 	float SpeedAlongFront() { return (VelocityAgainstFloor | Forward); }
 
+	//вовне, главным образом в анимацию AnimInst - радиус колеса представлющего конечность
+	float GetLegRadius();
+
 	//вычислить ориентировочное абсолютное положение конца ноги по геометрии скелета
 	FVector GetFootTipLoc(ELimb eL);
 
-	//распаковать вектор на абсолютные координаты
-	FVector3f GetFootRay(FLimb& L);
+	//насколько ноги подгибаются
+	float GetLegAmplitude();
 
-	//загрузить новый радиус вектор ноги из точки касания с опорой
-	void SetFootRay(FLimb& F, FVector3f AbsRay);
-
-	//позиция точки проекции ноги на твердь
-	FVector GetFootVirtualLoc(FLimb& L);
-
-	//идеальная длина ног с учетом подгиба
-	float GetTargetLegLength() const { return TargetFeetLength * (1.0f - 0.5 * Crouch); }
+	//актуальное расстояние от плеча до пятки с учётом пригнутости
+	float GetTargetLegLength() { return LimbLength - 2 * GetLegAmplitude() * Crouch; }
 
 //методы
 public:
@@ -122,6 +116,9 @@ public:
 
 	//при запуске игры
 	virtual void BeginPlay() override;
+
+	//возможно ли этим поясом немедленно прицепиться к опоре (если
+	EClung CanGirdleCling();
 
 	//пересчитать реальную длину ног
 	float GetFeetLengthSq(bool Right = true);
@@ -136,7 +133,7 @@ public:
 	//в общем пока элементарная задача вновь оказывается неформализуемой, поэтому позволить пользователю в редакторе
 	//задать правильное число - и домножить на масштаб всего компонента, который может рандомно меняться
 	//если же 0, значит пользователь не захотел вводить число и доверяет несовершенному алгоритму
-	void UpdateLegLength();
+	void UpdateLegLength() { LimbLength = (LimbLength == 0) ? FMath::Sqrt(GetFeetLengthSq()) : LimbLength * GetComponentScale().Z; }
 
 	//включить или отключить проворот спинной части относительно ног (мах ногами вперед-назад)
 	void SetSpineLock(bool Set);
@@ -144,17 +141,29 @@ public:
 	//влить динамическую модель 
 	void AdoptDynModel(FGirdleDynModels& Models);
 
-	//прощупать поверхность в поисках опоры
-	bool Trace(FVector Start, FVector3f Dst, FHitResult& Hit);
+	//непосредственно кинематически сдвинуть в нужное место
+	void KineMove(FVector Location, FVector CentralNormal, float CurLegLength, float DeltaTime);
 
-	//прощупать поверхность всем поясом и совершить акт движения
-	bool SenseForAFloor(float DeltaTime);
+	//явным образом получить для ноги опору через трассировку, вне зависимости от столкновений
+	FVector TraceFootHitPoint(FLimb& Foot, float HowDeep);
+	FVector TraceGirdle();
+	float ExplicitTraceFoot(FLimb& Foot, float HowDeep, FVector* OutHitPoint = nullptr);
+	float ExplicitTraceFeet(float HowDeep) { if (HasLegs) return 0.5*(ExplicitTraceFoot(GetLimb(EGirdleRay::Right),HowDeep) + ExplicitTraceFoot(GetLimb(EGirdleRay::Left),HowDeep)); else return false; }
 
-	//прощупать опору одной ногой для ее правильной графической постановки
-	void SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralImpact, bool Fallen, int ATurnToCompare);
+	//обработать одну конкретную конечность пояса
+	float ProcedeFoot(FLimb& Foot, FLimb& OppFoot, float FootDamping, float& Asideness, float &WeightAccum, float& FootLength, float DeltaTime);
+
+	//покадрово сдвигать и вращать
+	void Procede(float DeltaTime);
+
+	//обработать весь пояс конечностей простым образом, без физики, и выдать направление приращения
+	FVector ProcedeFastGetDelta(float DeltaTime, FVector* OutHitPoint);
 
 	//физически подпрыгнуть этим поясом конечностей
-	void PhyPrance(FVector3f HorDir, float HorVel, float UpVel);
+	void PhyPrance(FVector HorDir, float HorVel, float UpVel);
+
+	//включить или выключить столкновения для шариков ног
+	void SetSolidLegs(bool Set);
 
 	//выдать все уроны частей тела в одной связки - для блюпринта обновления худа
 	UFUNCTION(BlueprintCallable) FLinearColor GetDamage() const;

@@ -72,12 +72,8 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		CurrentState = EBehaveState::walk;
 	StateTime = Creature->StateTime;
 
-	//случай, если действие резко заменилось без акта окончания - вставить этот акт искусственно, обнулив ролик
-	if (CurrentSelfAction != Creature->CurrentSelfAction)
-	{	SelfAction = nullptr;
-		CurrentSelfAction = Creature->CurrentSelfAction;
-	}
 	//самодействия
+	CurrentSelfAction = Creature->CurrentSelfAction;
 	if (CurrentSelfAction != 255)
 	{
 		//скорость анимации (она изменяетсч каждый кадр потому что могут быть секции с разной скоростью)
@@ -139,13 +135,13 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 
 		//если фаза атаки подразумевает прыжок, то плоскость проекции на карту анимаций - не передняя, а нижняя
 		//чтобы одной сборкой обрабатывать прыжки назад и вперед
-		FVector3f VerOrAx = Creature->NowPhaseToJump() ? Ma->GetLimbAxisForth(Ma->Lumbus) : Ma->GetLimbAxisUp(Ma->Lumbus);
+		FVector VerOrAx = Creature->NowPhaseToJump() ? Ma->GetLimbAxisForth(Ma->Lumbus) : Ma->GetLimbAxisUp(Ma->Lumbus);
 
 		//разложение абсолютного направления по базисам (пока неясно, какие в точности части тела брать, как точнее будет визуально)
-		AttackDirRawLeftRight =		Creature->AttackDirection | Ma->GetLimbAxisRight(Ma->Lumbus);
-		AttackDirRawUpDown =		Creature->AttackDirection | VerOrAx;
-		AttackDirAdvLeftRight =		Creature->AttackDirection | Ma->GetLimbAxisRight(Ma->Pectus);
-		AttackDirAdvUpDown =		Creature->AttackDirection | Ma->GetLimbAxisUp(Ma->Pectus);
+		AttackDirRawLeftRight = FVector::DotProduct(Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Lumbus));
+		AttackDirRawUpDown = FVector::DotProduct(Creature->AttackDirection, VerOrAx);
+		AttackDirAdvLeftRight = FVector::DotProduct(Creature->AttackDirection, Ma->GetLimbAxisRight(Ma->Pectus));
+		AttackDirAdvUpDown = FVector::DotProduct(Creature->AttackDirection, Ma->GetLimbAxisUp(Ma->Pectus));
 
 		//изменятель скорости обмена веществ для этого конкретного действия
 		NewMetabolism *= AttackInfo->MetabolismMult;
@@ -171,7 +167,7 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	else
 	{
 		//глобальный уклон тела - сложный расчёт только для птицы
-		float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->SpeedAlongFront();
+		float WaveOrSoar = FVector::DotProduct(gP->VelocityAgainstFloor, Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->SpeedAlongFront();
 		if (WaveOrSoar < 0)
 			WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
 		else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
@@ -189,8 +185,8 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	else MachineSpineLeftOrRight *= (1 - DeltaTimeX);
 
 	//поворот глаз/ушей
-	EyesLeftOrRight = (Creature->AttackDirection |	Ma->GetLimbAxisRight(Ma->Head));
-	EyesUpOrDown =	(Creature->AttackDirection |	Ma->GetLimbAxisUp(Ma->Head));
+	EyesLeftOrRight = FVector::DotProduct(Creature->AttackDirection,	Ma->GetLimbAxisRight(Ma->Head));
+	EyesUpOrDown =	FVector::DotProduct(Creature->AttackDirection,		Ma->GetLimbAxisUp(Ma->Head));
 
 	//подгон детального скелета под положение каркаса (определяемое физическим взаимодействием)
 	//спины по всем осям (вероятно переделать под single frame и тем самым уйти от тригонометрии к (-1 +1)
@@ -224,11 +220,11 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		{
 			//отклонение кончика хвоста - здесь внезапно всё вышло за пределы блистательной схемы, и приходится использовать "мясо" как каркас
 			auto TipForth = Ma->GetAxis(Ma->GetFleshBody(Ma->Tail, 0)->GetUnrealWorldTransform(), EMyrAxis::Yn);
-			TailTipLeftOrRight = (Ma->GetLimbAxisRight(Ma->Tail) | TipForth);
+			TailTipLeftOrRight = FVector::DotProduct(Ma->GetLimbAxisRight(Ma->Tail), TipForth);
 			if (AllowMoreCalc) TailTipLeftOrRight = 0.5 + FMath::FastAsin(TailTipLeftOrRight) / 3.1415926;
 			else TailTipLeftOrRight = 0.5 + TailTipLeftOrRight / 2;
 
-			TailTipUpOrDown = (Ma->GetLimbAxisDown(Ma->Tail) | TipForth);
+			TailTipUpOrDown = FVector::DotProduct(Ma->GetLimbAxisDown(Ma->Tail), TipForth);
 			if (AllowMoreCalc) TailTipUpOrDown = 0.5 + FMath::FastAsin(TailTipUpOrDown) / 3.1415926;
 			else TailTipUpOrDown = 0.5 + TailTipUpOrDown / 2;
 		}
@@ -259,40 +255,40 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 	if (!PhyGirdle->CurrentDynModel) return;
 
 	//скорость берется 1/100, чтобы проще было ассоциировать с animation Rate, который хорош когда 1.0
-	FVector3f DirVel = PhyGirdle->VelocityAgainstFloor * 0.01;
+	FVector DirVel = PhyGirdle->VelocityAgainstFloor * 0.01;
 
 	//проекции скорости - вдоль туловища и поперек туловища
-	AnimGirdle.GainDirect =		DirVel | PhyGirdle->Forward;
-	AnimGirdle.GainLateral =	DirVel | M->GetLimbAxisLeft(PhyGirdle->GetLimb(EGirdleRay::Center));
+	AnimGirdle.GainDirect = FVector::DotProduct(DirVel, PhyGirdle->Forward);
+	AnimGirdle.GainLateral = FVector::DotProduct(DirVel, M->GetLimbAxisLeft(PhyGirdle->GetLimb(EGirdleRay::Center)));
 
 	//тот пояс, который оказывается оторван от земли, плавно переводить в малоподвижное состояние
-	if (PhyGirdle->StandHardness > 25) AnimGirdle.Stands = PhyGirdle->StandHardness/255.0f;
+	if (PhyGirdle->StandHardness > 0.1f) AnimGirdle.Stands = PhyGirdle->StandHardness;
 	else AnimGirdle.Stands = FMath::Lerp(AnimGirdle.Stands, PhyGirdle->StandHardness, 0.1f);
 
-	//получить адреса выходного пучка данных
-	float& RUpDown = LimbChunk[0];
-	float& LUpDown = LimbChunk[4];
+	//степень расставки лап этого пояса
+	AnimGirdle.LegsSpread = FMath::Lerp(AnimGirdle.LegsSpread,
+		PhyGirdle->CurrentDynModel->LegsSpread,					//основная настройка по дин-модели
+		0.1f + 0.1f* AnimGirdle.GainDirect);					//чем быстрее двигаемся вперед, тем скорее применится новое ногораспахивание
 
 	if (PhyGirdle->HasLegs)
 	{
+		//получить адреса выходного пучка данных
+		float& RUpDown = LimbChunk[0];
+		float& LUpDown = LimbChunk[4];
 
 		//вот через такую жопу добывается радиус сферы - тут важно, чтобы сфера существовала, но проверять надо не здесь
+		float WheelRadius = PhyGirdle->GetLegRadius();
 		const auto CeLimb = PhyGirdle->GetLimb(EGirdleRay::Center);
 		const auto SpLimb = PhyGirdle->GetLimb(EGirdleRay::Spine);
-		//SetLimbTransform(PhyGirdle->GetLimb(EGirdleRay::Right), CeLimb, SpLimb, &RUpDown, WheelRadius, AnimGirdle, -1);
-		//SetLimbTransform(PhyGirdle->GetLimb(EGirdleRay::Left), CeLimb, SpLimb, &LUpDown, WheelRadius, AnimGirdle, 1);
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Right), &RUpDown);
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
+		SetLimbTransform(PhyGirdle->GetLimb(EGirdleRay::Right), CeLimb, SpLimb, &RUpDown, WheelRadius, AnimGirdle, -1);
+		SetLimbTransform(PhyGirdle->GetLimb(EGirdleRay::Left), CeLimb, SpLimb, &LUpDown, WheelRadius, AnimGirdle, 1);
 	}
 	//нет ног
 	else
 	{
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Right), &RUpDown);
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
-
 		//даже если нет ног, FrontBack управляет вытягиванием/махом пояса вперед назад
-		//float& FrontBack = LimbChunk[1];
-		//ROTATE(FrontBack, true, PELVIS, Up, LUMBUS, Front, AllowMoreCalc);
+		float& FrontBack = LimbChunk[1];
+		ROTATE(FrontBack, true, PELVIS, Up, LUMBUS, Front, AllowMoreCalc);
 	}
 }
 
@@ -303,7 +299,7 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& HubLimb, const FLimb& SpineLimb, float* LimbChunk, const float WheelRadius, FAGirdle& AGirdle, const float Handness)
 {
 	//позиция в пространстве условного подвеса конечности
-	FVector3f LimbAxisPos = (FVector3f)Creature->GetMesh()->GetLimbShoulderHubPosition(Limb.WhatAmI);
+	auto LimbAxisPos = Creature->GetMesh()->GetLimbShoulderHubPosition(Limb.WhatAmI);
 
 	//получить адреса выходного пучка данных
 	float& UpDown = LimbChunk[0];
@@ -317,13 +313,13 @@ void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& H
 	float OldLeftRight = LeftRight;
 
 	// центр колеса
-	FVector3f WheelPos = (FVector3f)M->GetMachineBody(Limb)->GetCOMPosition();
+	FVector WheelPos = M->GetMachineBody(Limb)->GetCOMPosition();
 
 	//радиус-вектор от бедренного сустава до центра колеса ноги
-	FVector3f Devia = WheelPos - LimbAxisPos;
+	FVector Devia = WheelPos - LimbAxisPos;
 
 	//длина конечности, амплитуда качаний, инверсная для оптимизации
-	float InvDualLength = 1 / (2 * Girdle->TargetFeetLength);
+	float InvDualLength = 1 / (2 * Girdle->LimbLength);
 
 	//минус радиус по нормали вниз к точке касания = точная позиция точки касания
 	Devia -= Limb.ImpactNormal * WheelRadius;
@@ -335,18 +331,18 @@ void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& H
 	LeftRight =	(Devia | M->GetLimbAxisRight (SpineLimb.WhatAmI))*Handness;
 
 	//для отладки
-	LINE(ELimbDebug::FeetShoulders, (FVector)LimbAxisPos, (FVector)M->GetLimbAxisForth(SpineLimb.WhatAmI) * FrontBack);
-	LINE(ELimbDebug::FeetShoulders, (FVector)LimbAxisPos, (FVector)M->GetLimbAxisUp(SpineLimb.WhatAmI) * UpDown);
-	LINE(ELimbDebug::FeetShoulders, (FVector)LimbAxisPos, (FVector)M->GetLimbAxisRight(SpineLimb.WhatAmI) * LeftRight * Handness);
+	LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisForth(SpineLimb.WhatAmI) * FrontBack);
+	LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisUp(SpineLimb.WhatAmI) * UpDown);
+	LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisRight(SpineLimb.WhatAmI) * LeftRight * Handness);
 
 	//если имеется кинематическая ступня, по ее позиции можно корректировать растяжку ноги
 	if (M->HasFlesh(Limb.WhatAmI))
 	{	
 		// отклонение видимой лапы от колеса = центр кинематической лапы минус центр колеса
-		FVector3f FleshDevia = (FVector3f)M->GetFleshBody(Limb.WhatAmI,0)->GetCOMPosition() - WheelPos;
+		FVector FleshDevia = M->GetFleshBody(Limb.WhatAmI,0)->GetCOMPosition() - WheelPos;		
 
 		//проекция = интересует только 2D-смешение ноги по плоскости, на котором колесо стоит (вперед-назад)
-		FleshDevia = FVector3f::VectorPlaneProject(FleshDevia, Limb.ImpactNormal);
+		FleshDevia = FVector::VectorPlaneProject(FleshDevia, Limb.ImpactNormal);
 
 		//достигая точки пола впереди или сзади от колеса, нога растягивается
 		//расстояние от бедра до точки касания колеса должно корректироваться по вертикали в сторону возрастания
@@ -363,9 +359,9 @@ void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& H
 	//NormalSwing = 0.5 + 0.5 * (Limb.ImpactNormal | M->GetLimbAxisBack(HubLimb.WhatAmI));
 
 	//привести из реальных координат из диапазона (-длина +длина) к диапазону (0  1)
-	FrontBack =		(FrontBack + Girdle->TargetFeetLength)	* InvDualLength;
-	UpDown =		(UpDown    + Girdle->TargetFeetLength)	* InvDualLength;
-	LeftRight =		(LeftRight + Girdle->TargetFeetLength)	* InvDualLength;
+	FrontBack =		(FrontBack + Girdle->LimbLength)	* InvDualLength;
+	UpDown =		(UpDown + Girdle->LimbLength)		* InvDualLength;
+	LeftRight =		(LeftRight + Girdle->LimbLength)	* InvDualLength;
 
 	//финальное значение смещение ноги в сторону
 	//внимание, отступ ноги в сторону, как и все прочие, всё равно в диапазоне 0-1
@@ -383,36 +379,6 @@ void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& H
 
 }
 
-void UMyrPhyCreatureAnimInst::SetLegPosition(FLimb& Limb, float* LimbChunk)
-{
-	//получить адреса выходного пучка данных
-
-	FVector3f* OutPos = (FVector3f*)LimbChunk;
-	float& FootPitch = LimbChunk[3];
-	const auto M = Creature->GetMesh();
-	auto Girdle = Creature->GetGirdle(Limb.WhatAmI);
-
-	
-	//отладка
-	LINEWT(ELimbDebug::FeetShoulders, M->GetLimbShoulderHubPosition(Limb.WhatAmI), (FVector)Girdle->GetFootRay(Limb), Limb.Stepped?1:0.5, 0);
-
-	//перевести координаты в диапазоны blendspace
-	FVector3f NewFootRay = Limb.RelFootRay();
-	if (Limb.IsLeft()) NewFootRay.Z *= -1;
-	NewFootRay = NewFootRay / (2 * Girdle->TargetFeetLength) + FVector3f(0.5f);
-	*OutPos = FMath::Lerp(*OutPos, NewFootRay, 0.3f);
-
-	//загиб ступни вперед/назад
-	FootPitch = Limb.FootPitch();
-
-
-	//для отладки
-	//LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisForth(SpineLimb.WhatAmI) * FrontBack);
-	//LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisUp(SpineLimb.WhatAmI) * UpDown);
-	//LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisRight(SpineLimb.WhatAmI) * LeftRight);
-
-}
-
 
 //==============================================================================================================
 //вычислить параметр для изгиба видимой части тела, подстраиваясь к изгибу нужной физдвижковой части
@@ -421,7 +387,7 @@ void UMyrPhyCreatureAnimInst::SetLegPosition(FLimb& Limb, float* LimbChunk)
 void UMyrPhyCreatureAnimInst::DriveBodyRotation(float& Dest, bool En, ELimb LLo, EMyrRelAxis LoA, ELimb LHi, EMyrRelAxis HiA, bool Asin)
 {
 	if (!En) { Dest = 0.5; return; }
-	Dest = Creature->GetMesh()->GetLimbAxis(LLo, LoA) | Creature->GetMesh()->GetLimbAxis(LHi, HiA);
+	Dest = FVector::DotProduct(Creature->GetMesh()->GetLimbAxis(LLo, LoA), Creature->GetMesh()->GetLimbAxis(LHi, HiA));
 	if (Asin) Dest = 0.5 + FMath::FastAsin(Dest)/3.1415926;
 	else Dest =  0.5 + Dest/2;
 }

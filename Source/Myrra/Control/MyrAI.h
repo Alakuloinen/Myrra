@@ -150,10 +150,10 @@ public:
 	ERouteResult Route(FGoal& Goal, FGestaltRelation* Gestalt, FHitResult* SawMain);
 
 	//сложное вычисление, что делать с препятствием
-	ERouteResult DecideOnObstacle(FVector3f Dir, FGoal& Goal, FGestaltRelation* Gestalt, FHitResult* Hit, FVector3f& OutMoveDir);
+	ERouteResult DecideOnObstacle(FVector Dir, FGoal& Goal, FGestaltRelation* Gestalt, FHitResult* Hit, FVector& OutMoveDir);
 
 	//просто обойти препятствие, вычислив его размеры
-	ERouteResult SimpleWalkAroundObstacle(FVector3f Dir, FHitResult* Hit, FVector3f& OutMoveDir);
+	ERouteResult SimpleWalkAroundObstacle(FVector Dir, FHitResult* Hit, FVector& OutMoveDir);
 
 
 	//обновить видимость и слышимость при поступлении сигнала (гештальт как параметр, чтобы лишний раз не искать в TMap)
@@ -192,7 +192,7 @@ public:
 	EAttackEscapeResult BewareAttack (UPrimitiveComponent* Suspect, FGoal* GoalIfPresent, FGestaltRelation* Gestalt, bool Strike = false);
 
 	//непосредственно запустить нашу атаку в ответ на чужую атаку
-	EAttackEscapeResult CounterStrike(float Danger, AMyrPhyCreature* You, FVector3f NewAttackDir);
+	EAttackEscapeResult CounterStrike(float Danger, AMyrPhyCreature* You, FVector NewAttackDir);
 
 //прочее
 public:
@@ -201,7 +201,7 @@ public:
 	FCreatureDrive MixWithOtherDrive(FCreatureDrive* Other);
 
 	//автонацеливание на найденного противника - вызывается из AMyrPhyCreature, управляемого игроком
-	bool AimBetter (FVector3f& OutAttackDir, float Accuracy = 0.6);
+	bool AimBetter (FVector& OutAttackDir, float Accuracy = 0.6);
 
 	//действия, если актор исчез - удалить из долговременной памяти, и из целей
 	void SeeThatObjectDisappeared(UPrimitiveComponent* ExactObj);
@@ -224,7 +224,7 @@ public:
 	FGoal& Goal_2() { return Goals[SecondaryGoal]; }
 
 	//найти цель которая в направлении взгляда, если есть - для подписи внизу экрана
-	int FindGoalInView(FVector3f View, const float Devia2D, const float Devia3D, const bool ExactGoal2, AActor*& Result);
+	int FindGoalInView(FVector View, const float Devia2D, const float Devia3D, const bool ExactGoal2, AActor*& Result);
 
 	//найти поданный объект среди текущих целей или возвратит 0 - это нужно для отсева лишних вычислений, так как в цели уже все есть
 	FGoal* FindAmongGoals(UPrimitiveComponent* A) { if (Goal_1().Object == A) return &Goal_1(); else if (Goal_2().Object == A) return &Goal_2(); else return nullptr; }
