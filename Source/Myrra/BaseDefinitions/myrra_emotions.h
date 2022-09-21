@@ -24,7 +24,6 @@ USTRUCT(BlueprintType) struct FEmotion
 	//или вот лучше сюда перенести параметр уверенности
 	float& Sure() { return EquiColor.A; }
 
-
 	//двухмерная карта (добро-зло; стремление-избегание)
 	float GetPolarity() const { return 1.0*Love() - 1.0*Rage(); }
 	float GetActivity() const { return 1.0*Rage() + 1.0*Love() - 1.0*Fear(); }

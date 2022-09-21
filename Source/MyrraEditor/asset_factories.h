@@ -97,30 +97,7 @@ public:
 
 
 
-//###################################################################################################################
-// фабрика для создания и обслуживания двухвалентных действий (атак)
-//###################################################################################################################
-UCLASS(hidecategories = (Object))
-class MYRRAEDITOR_API UMyrAttackInfoFactory : public UFactory
-{
-	GENERATED_BODY()
-public:
-	UMyrAttackInfoFactory() { bCreateNew = true; bEditAfterNew = true; SupportedClass = UMyrAttackInfo::StaticClass(); }
-	virtual uint32 GetMenuCategories() const override { return EAssetTypeCategories::Blueprint; }
-	virtual UObject* FactoryCreateNew(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn) override
-	{	return NewObject<UMyrAttackInfo>(InParent, InClass, InName, Flags);	}
-};
-class MYRRAEDITOR_API FAttackInfoActions : public FAssetTypeActions_Base
-{
-public:
-	FAttackInfoActions(EAssetTypeCategories::Type InAssetCategory) : MyAssetCategory(InAssetCategory) {}
-	virtual FText GetName() const override { return FText::FromString(TEXT("Myrra Creature Attack Info")); }
-	virtual FColor GetTypeColor() const override { return FColor(50, 10, 10); }
-	virtual UClass* GetSupportedClass() const override { return UMyrAttackInfo::StaticClass(); }
-	virtual bool HasActions(const TArray<UObject*>& InObjects) const override { return false; }
-	virtual uint32 GetCategories() override { return MyAssetCategory; }
-	EAssetTypeCategories::Type MyAssetCategory;
-};
+
 
 //###################################################################################################################
 // фабрика для создания и обслуживания одновалентных действий
@@ -140,6 +117,7 @@ public:
 class MYRRAEDITOR_API FActionInfoActions : public FAssetTypeActions_Base
 {
 public:
+
 	FActionInfoActions(EAssetTypeCategories::Type InAssetCategory) : MyAssetCategory(InAssetCategory) {}
 	virtual FText GetName() const override { return FText::FromString(TEXT("Myrra Creature Action Info")); }
 	virtual FColor GetTypeColor() const override { return FColor(10, 10, 10); }

@@ -25,7 +25,7 @@ void UMyrMenuWidget::ReactToKey(FKeyEvent InKeyEvent)
 			//убедиться, что имя действия соответствует списку менюшек, найти ид этой менюшки
 			UEnum *Enum = FindObject<UEnum>(ANY_PACKAGE, TEXT("EUIEntry"));
 			if(!Enum) return;
-			auto MenuId = (EUIEntry)Enum->FindEnumIndex(ActionMap.ActionName);
+			auto MenuId = (EUIEntry)Enum->GetIndexByName(ActionMap.ActionName);
 
 			//если нажали ту самую кнопку по которой открывать/закрывать текуще открытое окно = закрыть всё меню до худа
 			if (MenuId == CurrentWidgetId)

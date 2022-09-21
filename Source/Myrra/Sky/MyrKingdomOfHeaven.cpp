@@ -309,7 +309,7 @@ UTextureCube* AMyrKingdomOfHeaven::CreateTexture(UTextureRenderTargetCube* Sourc
 	PathPackage = PathPackage.Replace(*Source->GetName(), *NewTextureName);
 
 	//создать болванку для файла-упаковки для нового ассета
-	UPackage* Package = CreatePackage(nullptr, *PathPackage);
+	UPackage* Package = CreatePackage(*PathPackage);
 	Package->FullyLoad();
 
 
@@ -649,7 +649,8 @@ void AMyrKingdomOfHeaven::PerFrameRoutine(float DeltaTime, float& WetnessToEvapo
 
 	//задуть мокроту
 	WetnessToEvaporate -= 0.001 * (1.0 + WeatherDerived.WindSpeed) * (1.0f + WeatherDerived.Temperature);
-	if (WetnessToEvaporate < 0) WetnessToEvaporate = 0;
+	if (WetnessToEvaporate < 0) WetnessToEvaporate = 0; else
+	if (WetnessToEvaporate > 1) WetnessToEvaporate = 1; 
 }
 
 //====================================================================================================

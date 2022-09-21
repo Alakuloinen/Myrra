@@ -358,7 +358,7 @@ public:
 	UFUNCTION(BlueprintCallable) void RemoveMarker();
 
 	//получить уровень освещенности
-	float GetLightingAtVector(FVector V);
+	float GetLightingAtVector(FVector3f V);
 
 	//среагировать на удар капли по земле
 	UFUNCTION(BlueprintCallable) void ReactOnRainDrop(float Size, FVector Position, FVector Velocity);

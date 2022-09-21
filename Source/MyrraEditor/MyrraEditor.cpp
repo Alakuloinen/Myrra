@@ -43,7 +43,6 @@ void FMyrraEditorModule::StartupModule()
 	auto MyrCategory = AssetTools.RegisterAdvancedAssetCategory(FName(TEXT("Myrra")), FText::FromString("Myrra"));
 	AssetTools.RegisterAssetTypeActions(MakeShareable(new FGenePoolActions(MyrCategory)));
 	AssetTools.RegisterAssetTypeActions(MakeShareable(new FActionInfoActions(MyrCategory)));
-	AssetTools.RegisterAssetTypeActions(MakeShareable(new FAttackInfoActions(MyrCategory)));
 	AssetTools.RegisterAssetTypeActions(MakeShareable(new FBehaveStateInfoActions(MyrCategory)));
 	AssetTools.RegisterAssetTypeActions(MakeShareable(new FDendroInfoActions(MyrCategory)));
 	AssetTools.RegisterAssetTypeActions(MakeShareable(new FArtefactInfoActions(MyrCategory)));

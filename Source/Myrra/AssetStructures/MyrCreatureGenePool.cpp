@@ -101,6 +101,13 @@ void UMyrCreatureGenePool::AnalyseBodyParts ()
 	auto PhA = SkeletalMesh->GetPhysicsAsset();
 	if(!PhA) return;
 
+	//очистить предыдущие
+	for (int i = 0; i < (int)ELimb::NOLIMB; i++)
+	{	Anatomy.GetSegmentByIndex(i).Machine.TipBodyIndex = 255;
+		Anatomy.GetSegmentByIndex(i).Machine.TipConstraintIndex = 255;
+		Anatomy.GetSegmentByIndex(i).Flesh.BodyIndex.SetNum(0);
+	}
+
 	//сохранить точное количество члеников
 	BodyBioData.SetNum (PhA->SkeletalBodySetups.Num());
 
@@ -152,7 +159,7 @@ void UMyrCreatureGenePool::AnalyseBodyParts ()
 
 		//заполнение эталонного массива по членикам - этот массив будет просто копироваться на живые объекты
 		BodyBioData[i].eLimb = cuLimb;
-		BodyBioData[i].DamageWeight = 0.0f;
+		//BodyBioData[i].DamageWeight = 0.0f;
 		auto& LimbGene = Anatomy.GetSegmentByIndex(cuLimb);
 		//Anatomy.GetSegmentByIndex(cuLimb).nPhyBodies++;
 
@@ -221,8 +228,8 @@ void UMyrCreatureGenePool::AnalyseBodyParts ()
 		}
 
 		//звёздочкой помечены членики, которыев принципе могут быть боевыми и приносящими урон при касании
-		if (nmn.Contains(TEXT("*")))
-			BodyBioData[i].NeverDangerous = 0;
+		//if (nmn.Contains(TEXT("*")))
+		//	BodyBioData[i].NeverDangerous = 0;
 
 		UE_LOG(LogTemp, Log, TEXT("GenePool %s, Body %d (seg=%d)"), *GetName(), i, (int)cuLimb);
 
