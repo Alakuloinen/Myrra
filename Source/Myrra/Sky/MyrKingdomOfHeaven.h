@@ -108,8 +108,8 @@ USTRUCT(BlueprintType) struct FWeatherBase
 
 	//представить как полный цвет
 	FLinearColor& AsColor() { return *((FLinearColor*)this); }
-	FVector4& AsV4() { return *((FVector4*)this); }
-	FVector4& AsV4c() const { return *((FVector4*)this); }
+	FVector3f& AsVector() { return *((FVector3f*)this); }
+	FVector3f& AsVector() const { return *((FVector3f*)this); }
 
 	//уровень недождевого тумана
 	float FogAmount(float tC) const { return FMath::Max(0.0f, Depression * (1.0f - tC) - 2.0f * CumulusAmount); }
@@ -118,22 +118,26 @@ USTRUCT(BlueprintType) struct FWeatherBase
 	float Cloudiness(float Fog) const { return FMath::Min(1.0f, CumulusAmount + CirrusAmount * 0.25f + Fog); }
 
 	//сила ветра для разнообразия берется как взвешенная разность не только давлений, но и непосредственно облаков
-	float WindSpeed(const FVector4& New) const { return 0.3f + FMath::Abs(FVector::DotProduct(New - AsV4c(), FVector(2,1,4))); }
+	float WindSpeed(const FLinearColor& New) const 
+	{	auto D = (AsVector() - FVector3f(New));
+		return D | (D * FVector3f(2,1,4));
+	}
 
 	//уровень дождя
 	float RainAmount() const { return FMath::Max(0.0f, (CumulusAmount - 0.8f))*Depression*5.0f; }
 
 	//загрузить данные из карты с плавным приближением, тут же разностно посчитать силу ветра
-	float UpdateFromMap_GetWindSpeed (const FVector4& NewRaw, float MixAlpha, const FWeatherBase& ConstAdd)
+	float UpdateFromMap_GetWindSpeed (const FLinearColor& NewRaw, float MixAlpha, const FWeatherBase& ConstAdd)
 	{	float W = WindSpeed(NewRaw);
-		CumulusAmount = FMath::Lerp(CumulusAmount, ConstAdd.CumulusAmount + NewRaw.X, MixAlpha);
-		CirrusAmount = FMath::Lerp(CirrusAmount, ConstAdd.CirrusAmount + NewRaw.Y, MixAlpha);
-		Depression = FMath::Lerp(Depression, ConstAdd.Depression + NewRaw.Z, MixAlpha);
+		AsVector() = AsVector()*(1 - MixAlpha) + (ConstAdd.AsVector() + FVector3f(NewRaw))* MixAlpha;
+		//CumulusAmount         =		FMath::Lerp (CumulusAmount,		ConstAdd.CumulusAmount + NewRaw.X, MixAlpha);
+		//CirrusAmount =		FMath::Lerp (CirrusAmount,		ConstAdd.CirrusAmount + NewRaw.Y, MixAlpha);
+		//Depression =		FMath::Lerp (Depression,		ConstAdd.Depression + NewRaw.Z, MixAlpha);
 		return W;
 	}
 
 	//добавить другой
-	void Add(FWeatherBase O) { AsV4() = AsV4() + O.AsV4(); }
+	void Add(FWeatherBase O) { AsVector() = AsVector() + O.AsVector(); }
 
 };
 

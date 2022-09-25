@@ -221,7 +221,9 @@ public:
 	void MakeStep(ELimb WhatFoot, bool Raise);
 
 	//пострадать от физических повреждений (всплывает из меша)
-	void Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface);
+	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface);
+	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc)
+	{	Hurt(Limb, Amount, ExactHitLoc, Limb.ImpactNormal, Limb.Surface);	}
 
 	//ментально осознать, что пострадали от действий другого существа или наоборот были им обласканы
 	void SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker);
@@ -248,13 +250,12 @@ public:
 	/////////////////////////////////////////////
 	bool GotUnclung()					{ return !Thorax->Climbing && !Pelvis->Climbing; }
 	bool GotLandedAny(uint8 Thr = 100) { return ((Thorax->StandHardness >= Thr) || (Pelvis->StandHardness >= Thr)); }
+	bool GotLandedBoth(uint8 Thr = 100) { return ((Thorax->StandHardness >= Thr) && (Pelvis->StandHardness >= Thr)); }
 	bool GotSlow(float T = 1)			{ return (Pelvis->VelocityAgainstFloor.SizeSquared() < T && Thorax->VelocityAgainstFloor.SizeSquared() < T); }
 	bool GotSoaringDown(float T = -50)	{ return (Mesh->GetPhysicsLinearVelocity().Z < T); }
-	/////////////////////////////////////////////
 
-	//проверка на провис передней или задней частью тела - внимание, должно вызываться после BewareFall, так как вариант "оба в воздухе" здесь опущен
-	//bool BewareHangTop() { if(Thorax->StandHardness < 0.01f) return AdoptBehaveState(EBehaveState::hang); else return false; }
-	//bool BewareHangBottom() { if(Pelvis->StandHardness < 0.01f) return AdoptBehaveState(EBehaveState::hang); else return false; }
+	//висим низом
+	bool HangBack() { return (Thorax->StandHardness >= 200 && Pelvis->StandHardness <= 35); }
 
 	//////////////////////////////////////////////////////////////////////
 	//действия - начать, ударить, прекратить досрочно

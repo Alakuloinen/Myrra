@@ -973,17 +973,21 @@ int AMyrPhyCreature::FindObjectInFocus(const float Devia2D, const float Devia3D,
 //==============================================================================================================
 //полный спектр действий от (достаточно сильного) удара между этим существом и некой поверхностью
 //==============================================================================================================
-void AMyrPhyCreature::Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface)
+void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface)
 {
 	//для простоты вводится нормаль, а уже тут переводится в кватернион, для позиционирования источника частиц
-	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g at %s"), *GetName(), Amount, *TXTENUM(ELimb, ExactLimb));
+	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g at %s"), *GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
 	FQuat4f ExactHitRot = FRotationMatrix44f::MakeFromX(Normal).ToQuat();
 
+	//сразу здесь увеличить урон, ибо в иных случаях эта переменная не увеличивается
+	Limb.Damage += Amount;
+
+	//привнести толику в общую боль
 	Pain += Amount;
 
 	//█▄▌внести эмоциональный стимул по данному каналу
 	AddEmotionStimulus(EEmoCause::Pain, Pain, this);											
-	AddEmotionStimulus(Mesh->GetDamageEmotionCode(ExactLimb), Mesh->GetDamage(ExactLimb), this);
+	AddEmotionStimulus(Mesh->GetDamageEmotionCode(Limb.WhatAmI), Limb.Damage, this);
 
 	//если выполняется самодействие или действие-период, но указано его отменять при ударе
 	CeaseActionsOnHit();
@@ -995,7 +999,7 @@ void AMyrPhyCreature::Hurt(ELimb ExactLimb, float Amount, FVector ExactHitLoc, F
 	MyrAI()->NotifyNoise(ExactHitLoc, Amount);
 
 	//сборка данных по поверхности, которая осприкоснулась с этим существом
-	FSurfaceInfluence* ExactSurfInfo = GetMyrGameInst()->Surfaces.Find(Mesh->GetLimb(ExactLimb).Surface);
+	FSurfaceInfluence* ExactSurfInfo = GetMyrGameInst()->Surfaces.Find(Limb.Surface);
 	if (!ExactSurfInfo) return;
 
 	//◘здесь генерируется всплеск пыли от шага - сразу два! - касание и отпуск, а чо?!
@@ -1339,7 +1343,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		case EBehaveState::stand:
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fall,		!GotLandedAny());
-			BEWARE(crouch,		bCrouch);
+			BEWARE(crouch,		bCrouch || !GotLandedBoth());
 			BEWARE(soar,		bSoar && MoveGain > 0.1);
 			BEWARE(run,			bRun && Stamina > 0.1f);
 			BEWARE(walk,		MoveGain > 0 || bRun);
@@ -1350,7 +1354,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fall,		!GotLandedAny());
 			BEWARE(stand,		MoveGain==0 && GotSlow(10));
-			BEWARE(mount,		Thorax->GuidedMoveDir.Z>0.7);
+			//BEWARE(mount,		Mesh->Erection() > 0.7 && Mesh->Thorax.IsClimbable());
 			BEWARE(crouch,		bCrouch);
 			BEWARE(soar,		bSoar && MoveGain > 0.1);
 			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
@@ -1395,10 +1399,10 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		//забраться на уступ
 		case EBehaveState::mount:
 			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
 			BEWARE(climb,		bClimb && !GotUnclung());
-			BEWARE(walk,		!Mesh->Bumper1().Stepped || Pelvis->GuidedMoveDir.Z < 0.65);
-			BEWAREELSE(run,walk,bRun && Stamina > 0.1f);
+			BEWARE(fall,		!GotLandedAny() || (Mesh->Erection() > 0.9 && MoveGain == 0));
+			//BEWARE(walk,		!Mesh->Bumper1().Stepped || MoveGain==0 || Mesh->Erection() < 0.5);
+			BEWARE(run,			bRun && Stamina > 0.1f);
 			break;
 
 		//лазанье по проивольно крутым поверхностям
@@ -1650,20 +1654,14 @@ void AMyrPhyCreature::NewAdoptAttackPhase(EActionPhase NewPhase)
 	for (ELimb li = ELimb::PELVIS; li != ELimb::NOLIMB; li = (ELimb)((int)li+1))
 	{
 		//для текущей новой фазы определить, вписана ли текущая часть тела как боевая или нет
-		const bool AtOn = IsLimbAttacking(li);
-
-		//если имеется реальный двигательный членик у этой части тела
+		//во время атаки важно иметь непрерывные траектории, чтобы не проходить через тела и не вызывать распидорашивание
+		//аналогично при падении важно не пробить землю на большой скорости
+		const bool NeedBetterPhy = IsLimbAttacking(li) || IS_MACRO(CurrentState,AIR);
 		if (Mesh->HasPhy(li))
-		{
-			//хз насколько поможет
-			Mesh->GetMachineBody(li)->SetUseCCD(AtOn);
-		}
-		//если имеется реальный кинематический / навесной мясной членик
-		if (Mesh->HasFlesh(li))
-		{
-			//хз насколько поможет
-			Mesh->GetFleshBody(li)->SetUseCCD(AtOn);
-		}
+			Mesh->GetMachineBody(li)->SetUseCCD(NeedBetterPhy);
+
+		if (Mesh->HasFlesh(li) && Mesh->GetFleshBody(li)->bSimulatePhysics)
+			Mesh->GetFleshBody(li)->SetUseCCD(NeedBetterPhy);
 	}
 
 	//текущая новая фаза - отцепить то, что зацеплено было

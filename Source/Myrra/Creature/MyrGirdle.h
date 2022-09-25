@@ -90,6 +90,9 @@ public:
 	FConstraintInstance* GetGirdleSpineConstraint();
 	FConstraintInstance* GetGirdleArchSpineConstraint();
 
+	//ведущий пояс
+	bool Lead() const { return CurrentDynModel->Leading; }
+
 	//пояс не стоит ногами на опоре
 	bool IsInAir() const { return !GetLimb(EGirdleRay::Center).Stepped; }
 
@@ -151,7 +154,7 @@ public:
 	bool SenseForAFloor(float DeltaTime);
 
 	//прощупать опору одной ногой для ее правильной графической постановки
-	void SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralImpact, bool Fallen, int ATurnToCompare);
+	void SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralImpact, float FallSeverity, int ATurnToCompare);
 
 	//физически подпрыгнуть этим поясом конечностей
 	void PhyPrance(FVector3f HorDir, float HorVel, float UpVel);

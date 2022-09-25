@@ -361,6 +361,9 @@ public:
 	//принять или отклонить только что обнаруженную новую опору для этого членика
 	int ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, FVector3f NewNormal, FVector NewHitLoc);
 
+	//взять данные о поверхности опоры непосредственно из стандартной сборки хитрезалт
+	void GetFloorFromHit(FLimb& Limb, FHitResult Hit);
+
 	//взять данный предмет за данный членик данной частью тела
 	void Grab (FLimb& GrabberLimb, uint8 ExactBody, FBodyInstance* GrabbedBody, FLimb* GrabbedLimb, FVector ExactAt);
 	UPrimitiveComponent* UnGrab (FLimb& GrabberLimb);

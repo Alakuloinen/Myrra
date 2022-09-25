@@ -574,11 +574,8 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 	//по сумме от силового удара и от кусачести поверхности поднимаем на уровень всего существа инфу, что больно
 	if (Severity > 0.0f)
 	{	
-		//увеличиваем урон
-		Limb.Damage += Severity;
-
 		//поднимаем сигнал боли наверх, где будет сыгран звук удара и крик
-		MyrOwner()->Hurt(Limb.WhatAmI, Severity, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, Limb.Surface);
+		MyrOwner()->Hurt(Limb, Severity, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, Limb.Surface);
 	}
 
 	//если данный удар призошлел из состояния полета или падения, то 
@@ -627,12 +624,11 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 						//но нахрена она нужна, если не прокачивается и если всё равно каждое увечье - по месту
 						//лучьше внести разные степени восстанаовления разных частей тела
 						dD *= TheirMesh->MachineGene(TheirLimb->WhatAmI)->HitShield;
-						TheirLimb->Damage += dD;
 
 						//сопутствующие действия
 						TheirLimb->LastlyHurt = true;
 						TheirMesh->MyrOwner()->SufferFromEnemy(dD, MyrOwner());									// ментально, ИИ, только насилие
-						TheirMesh->MyrOwner()->Hurt(TheirLimb->WhatAmI, dD, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, TheirLimb->Surface);	// визуально, звуково, общий урон
+						TheirMesh->MyrOwner()->Hurt(*TheirLimb, dD, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, TheirLimb->Surface);	// визуально, звуково, общий урон
 					}
 				}
 				//жертва мертва - пинание трупа
@@ -749,6 +745,15 @@ int UMyrPhyCreatureMesh::ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, F
 	return 0;
 }
 //==============================================================================================================
+//взять данные о поверхности опоры непосредственно из стандартной сборки хитрезалт
+//==============================================================================================================
+void UMyrPhyCreatureMesh::GetFloorFromHit(FLimb& Limb, FHitResult Hit)
+{
+	Limb.Stepped = STEPPED_MAX;
+	Limb.Surface = (EMyrSurface)Hit.PhysMaterial->SurfaceType.GetValue();
+	Limb.Floor = Hit.Component->GetBodyInstance(Hit.BoneName);
+}
+//==============================================================================================================
 //основная покадровая рутина в отношении части тела
 //==============================================================================================================
 void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
@@ -817,6 +822,7 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 				if (Drift > 10) { NewStepped -= 2; } else
 				NewStepped -= 1;
 
+				//взять данные о поверхности опоры непосредственно из стандартной сборки хитрезалт
 				if(NewStepped<=0) Limb.EraseFloor();
 				else Limb.Stepped = NewStepped;
 			}

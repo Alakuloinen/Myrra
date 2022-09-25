@@ -231,7 +231,7 @@ void AMyrKingdomOfHeaven::Tick(float DeltaTime)
 
 			//получение базовых параметров погоды и тут же расчёт первой производной харки = скорости ветра
 			WeatherDerived.UpdateWindSpeed ( 
-				WeatherBase.UpdateFromMap_GetWindSpeed ( (FVector4)FinalWeather, 0.3f * DeltaTime, WeatherExplicitAdd ),
+				WeatherBase.UpdateFromMap_GetWindSpeed ( FinalWeather, 0.3f * DeltaTime, WeatherExplicitAdd ),
 				0.5f*DeltaTime );
 
 			//обновить производные параметры погоды, которые не требуют покадровости

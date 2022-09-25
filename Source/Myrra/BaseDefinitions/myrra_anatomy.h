@@ -329,6 +329,7 @@ USTRUCT(BlueprintType) struct FLimb
 
 	//можно карабкаться в вертикали
 	static bool IsClimbable(EPhysicalSurface S) { return ((EMyrSurface)S == EMyrSurface::Surface_WoodRaw || (EMyrSurface)S == EMyrSurface::Surface_Fabric/* || S == EMyrSurface::Surface_Flesh*/); }
+	static bool IsClimbable(EMyrSurface S) { return IsClimbable((EPhysicalSurface)S); }
 	bool IsClimbable() const { return IsClimbable((EPhysicalSurface)Surface); }
 
 	//эта часть тела хочет быть вертикальной (но не факт, что есть)
@@ -355,11 +356,13 @@ USTRUCT(BlueprintType) struct FLimb
 
 	//тело касается модульной опоры типа ветки
 	bool OnBranch() { return (Floor->InstanceBodyIndex != INDEX_NONE); }
-	bool OnCapsule() { if(!Floor->GetBodySetup()) return false;  return (Floor->GetBodySetup()->AggGeom.SphylElems.Num() == 1); }
-	bool OnSphere() { if(!Floor->GetBodySetup()) return false; return (Floor->GetBodySetup()->AggGeom.SphereElems.Num()>=1); }
+	bool OnCapsule() { if(!Floor) return false; if(!Floor->GetBodySetup()) return false;  return (Floor->GetBodySetup()->AggGeom.SphylElems.Num() == 1); }
+	bool OnSphere() { if (!Floor) return false; if(!Floor->GetBodySetup()) return false; return (Floor->GetBodySetup()->AggGeom.SphereElems.Num()>=1); }
 
 	//радиус ветки/опоры, про которую точно известно, что она оформлена капусл ой
 	float GetBranchRadius() { return Floor->GetBodySetup()->AggGeom.SphylElems[0].Radius; }
+
+	bool OnThinCapsule(float Thr = 5) { if(OnCapsule()) return (GetBranchRadius()<=Thr); else return false; }
 
 	//выдать локальный верх седла ветки, нормали в точке равновесия от съезжаний в бок - дважды векторное произведение
 	//внимание, результат не нормируется, потому что фигурирует в составе процедуры, где и так и так в конце нужна нормирвка
@@ -375,6 +378,11 @@ USTRUCT(BlueprintType) struct FLimb
 
 	//направление ветки с учётом желаемого хода - по ветке или против ветки
 	FVector3f GetBranchDirection (const FVector3f& InDir) const { auto g = GetBranchDirection(); if((g|InDir)>0) return g; else return -g;  }
+	FVector3f GetBranchDirection(const FVector3f& InDir, float& OutCoaxis) const
+	{ 	auto g = GetBranchDirection(); OutCoaxis = g | InDir;
+		if (OutCoaxis > 0) return g;
+		else { OutCoaxis = -OutCoaxis;  return -g; }
+	}
 
 	FLimb() {Grabs = 0; LastlyHurt = 0; }
 };
