@@ -277,8 +277,12 @@ public:
 		return false;
 	}
 
-
-
+	//пересчитать важные компоненты для отрезка между передним и задним поясами
+	void CalcSpineVector(FVector3f &Dir, float &Len)
+	{	((FVector3f)(
+		GetMachineBody(Thorax)->GetCOMPosition() -
+		GetMachineBody(Pelvis)->GetCOMPosition())).ToDirectionAndLength(Dir, Len);
+	}
 
 	//стоит ли тушка на этой опоре - берутся только нижние части тела в зависимости от того, есть ноги или нет
 	bool IsStandingOnActor(AActor* A) 

@@ -171,7 +171,7 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	else
 	{
 		//глобальный уклон тела - сложный расчёт только для птицы
-		float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->SpeedAlongFront();
+		float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->Speed;
 		if (WaveOrSoar < 0)
 			WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
 		else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
@@ -262,7 +262,7 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 	FVector3f DirVel = PhyGirdle->VelocityAgainstFloor * 0.01;
 
 	//проекции скорости - вдоль туловища и поперек туловища
-	AnimGirdle.GainDirect =		DirVel | PhyGirdle->Forward;
+	AnimGirdle.GainDirect =		DirVel | PhyGirdle->GuidedMoveDir;
 	AnimGirdle.GainLateral =	DirVel | M->GetLimbAxisLeft(PhyGirdle->GetLimb(EGirdleRay::Center));
 
 	//тот пояс, который оказывается оторван от земли, плавно переводить в малоподвижное состояние
@@ -391,13 +391,12 @@ void UMyrPhyCreatureAnimInst::SetLegPosition(FLimb& Limb, float* LimbChunk)
 	float& FootPitch = LimbChunk[3];
 	const auto M = Creature->GetMesh();
 	auto Girdle = Creature->GetGirdle(Limb.WhatAmI);
-
 	
 	//отладка
-	LINEWT(ELimbDebug::FeetShoulders, M->GetLimbShoulderHubPosition(Limb.WhatAmI), (FVector)Girdle->GetFootRay(Limb), Limb.Stepped?1:0.5, 0);
+	LINEWT(ELimbDebug::FeetShoulders, M->GetLimbShoulderHubPosition(Limb.WhatAmI), (FVector)Girdle->GetLegRay(Limb), Limb.Stepped?1:0.5, 0);
 
 	//перевести координаты в диапазоны blendspace
-	FVector3f NewFootRay = Limb.RelFootRay();
+	FVector3f NewFootRay = Girdle->GetRelLegRay(Limb);
 	if (Limb.IsLeft()) NewFootRay.Z *= -1;
 	NewFootRay = NewFootRay / (2 * Girdle->TargetFeetLength) + FVector3f(0.5f);
 	*OutPos = FMath::Lerp(*OutPos, NewFootRay, 0.3f);

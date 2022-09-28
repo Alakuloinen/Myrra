@@ -103,7 +103,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FEmoReactionList EmoReactions;
 
 	//кэш расстояния между центрами поясов, для позиционирования ведомого пояса
-	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;			
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;
+
+	//единичный вектор от заднего пояса к переднему
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) FVector3f SpineVector;
 
 	// окрас - только для редактора, чтобы тестировать разные окраски на одном существе		
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 Coat = 0;		
@@ -249,13 +252,14 @@ public:
 
 	/////////////////////////////////////////////
 	bool GotUnclung()					{ return !Thorax->Climbing && !Pelvis->Climbing; }
-	bool GotLandedAny(uint8 Thr = 100) { return ((Thorax->StandHardness >= Thr) || (Pelvis->StandHardness >= Thr)); }
-	bool GotLandedBoth(uint8 Thr = 100) { return ((Thorax->StandHardness >= Thr) && (Pelvis->StandHardness >= Thr)); }
+	bool GotLandedAny(uint8 Thr = 100) { return (Thorax->Stands(Thr) || Pelvis->Stands(Thr)); }
+	bool GotLandedBoth(uint8 Thr = 100) { return (Thorax->Stands(Thr) && Pelvis->Stands(Thr)); }
 	bool GotSlow(float T = 1)			{ return (Pelvis->VelocityAgainstFloor.SizeSquared() < T && Thorax->VelocityAgainstFloor.SizeSquared() < T); }
 	bool GotSoaringDown(float T = -50)	{ return (Mesh->GetPhysicsLinearVelocity().Z < T); }
 
 	//висим низом
-	bool HangBack() { return (Thorax->StandHardness >= 200 && Pelvis->StandHardness <= 35); }
+	bool HangBack()						{ return (Thorax->StandHardness >= 200 && Pelvis->StandHardness <= 35); }
+	//bool GotHungFront()						{ return Thorax->Stands() && !Pelvis->Stands() && SpineVector.Z }
 
 	//////////////////////////////////////////////////////////////////////
 	//действия - начать, ударить, прекратить досрочно

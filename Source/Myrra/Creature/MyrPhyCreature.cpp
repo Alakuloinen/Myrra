@@ -186,9 +186,7 @@ void AMyrPhyCreature::BeginPlay()
 	Thorax->UpdateLegLength();
 
 	//задать начальное, нормальное значение длины спины до того как якоря поясов будут расставлены
-	SpineLength = FVector::Dist(
-		Mesh->GetMachineBody(Mesh->Thorax)->GetCOMPosition(),
-		Mesh->GetMachineBody(Mesh->Pelvis)->GetCOMPosition());
+	Mesh->CalcSpineVector(SpineVector, SpineLength);
 
 	//свойства гашения звука голоса берем из текущего уровня (вероятно, у локаций будут другие)
 	Voice->AttenuationSettings = GetMyrGameMode()->SoundAttenuation;
@@ -223,6 +221,9 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//обработать пояса конечностей
 	Thorax->SenseForAFloor(DeltaTime);
 	Pelvis->SenseForAFloor(DeltaTime);
+
+	//пересчитать вектор прямой спины
+	Mesh->CalcSpineVector(SpineVector, SpineLength);
 
 	//поиск подходящей реакции на затык
 	if(Mesh->Bumper1().Stepped)
@@ -497,7 +498,7 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 					case ETurnMode::RailBack:
 
 						//направление приводится к вектору тела вперед или назад
-						if(CourseOff > 0.0)	MoveDirection = Thorax->Forward;
+						if(CourseOff > 0.0)	MoveDirection = SpineVector;
 						else
 						{	
 							BEWARE(walkback, CurrentState == EBehaveState::walk || CurrentState == EBehaveState::stand);
@@ -1116,7 +1117,7 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 	{
 		//◘ вызвать звук по месту со всеми параметрами
 		SoundOfImpact (StepSurfInfo, ExplicitSurface, ExactStepLoc,
-			0.5f  + 0.05 * Mesh->GetMass()  + 0.001* Girdle->SpeedAlongFront(),
+			0.5f  + 0.05 * Mesh->GetMass()  + 0.001* Girdle->Speed,
 			1.0f - Limb->ImpactNormal.Z,
 			Raise ? EBodyImpact::StepRaise : EBodyImpact::StepHit);
 
@@ -1264,10 +1265,10 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	auto BehaveNewData = GetGenePool()->BehaveStates.Find(NewState);
 	if (!BehaveNewData)	return false;
 
-	//нельзя принимать новое состояние, если текущая скорость меньше минимальной, указанной
+	//нельзя принимать новое состояние, еси текущая скорость меньше минимальной, указанной
 	if ((*BehaveNewData)->MinVelocityToAdopt > 0)
-	if (FMath::Abs(Thorax->SpeedAlongFront()) < (*BehaveNewData)->MinVelocityToAdopt)
-	if (FMath::Abs(Pelvis->SpeedAlongFront()) < (*BehaveNewData)->MinVelocityToAdopt)
+	if (FMath::Abs(Thorax->Speed) < (*BehaveNewData)->MinVelocityToAdopt)
+	if (FMath::Abs(Pelvis->Speed) < (*BehaveNewData)->MinVelocityToAdopt)
 	{	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s AdoptBehaveState %s cancelled by min velocity"), *GetName(), *TXTENUM(EBehaveState, NewState));
 		return false;
 	}
@@ -1343,7 +1344,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		case EBehaveState::stand:
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fall,		!GotLandedAny());
-			BEWARE(crouch,		bCrouch || !GotLandedBoth());
+			BEWARE(crouch,		bCrouch);
 			BEWARE(soar,		bSoar && MoveGain > 0.1);
 			BEWARE(run,			bRun && Stamina > 0.1f);
 			BEWARE(walk,		MoveGain > 0 || bRun);
@@ -1425,7 +1426,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(dying,		Health <= 0);
 			BEWARE(soar,		bSoar);
 			BEWARE(fly,			bFly);
-			BEWARE(land,		StateTime>0.5);
+			BEWARE(land,		StateTime>0.5 && !GotLandedAny(1));
 			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
 			BEWARE(tumble,		Mesh->IsLyingDown());
 			BEWARE(run,			GotLandedAny(200) && bRun);
@@ -1454,7 +1455,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		//опрокидывание (пассивное лежание (выход через действия а не состояния) и активный кувырок помимо воли)
 		case EBehaveState::lie:
 			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
+			BEWARE(fall,		!GotLandedAny(5) || FMath::Abs(SpineVector.Z)>0.5);
 			BEWARE(tumble,		Mesh->IsLyingDown() && MoveGain > 0.1f);
 			BEWARE(crouch,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;

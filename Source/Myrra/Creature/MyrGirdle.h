@@ -42,13 +42,10 @@ public:
 
 	//кэш скорости ОТНОСИТЕЛЬНО опоры ног, принадлежащих этому поясу
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f VelocityAgainstFloor;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Speed;
 
 	//вектор предпочтительного направления движения с учётом ограничений типа хождения по веткам
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f GuidedMoveDir;
-
-	//вектор "вперед" нужен отдельный, поскольку спина может встать вверх, а ноги подкоситься вперед-назад
-	//возможно, не нужен
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f Forward;
 
 	//степень пригнутости обеих ног (кэш с гистерезисом)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Crouch = 0.0f;
@@ -60,9 +57,14 @@ public:
 	//дайджест уровня крепкости стояния на опоре, 0 - совсем в воздухе, 255 = обеими ногами и еще брюхом 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 StandHardness = 0;
 
+	//плечи конечностей в координатах центрального туловища
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f RelFootRayLeft;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f RelFootRayRiht;
+
 	//указатель на сборку настроек динамики/ориентации для этого пояса
 	//прилетает с разных ветвей иерархии - из состояния BehaveState, далее из настроек (само)действия 
 	FGirdleDynModels* CurrentDynModel = nullptr;
+
 
 
 	//полный перечень ячеек отростков для всех двух поясов конечностей
@@ -95,22 +97,25 @@ public:
 
 	//пояс не стоит ногами на опоре
 	bool IsInAir() const { return !GetLimb(EGirdleRay::Center).Stepped; }
+	bool Stands(float Thr = 200) { return (StandHardness >= Thr);  }
 
 	//режим попячки назад
 	bool IsMovingBack() const;
 
 	//скаляр скорости в направлении движения
-	float SpeedAlongFront() { return (VelocityAgainstFloor | Forward); }
+	float SpeedAlongFront() { return (VelocityAgainstFloor | GuidedMoveDir); }
 
 	//вычислить ориентировочное абсолютное положение конца ноги по геометрии скелета
 	FVector GetFootTipLoc(ELimb eL);
 
+	FVector3f& GetRelLegRay(FLimb& L) { return L.IsLeft() ? RelFootRayRiht : RelFootRayLeft; }
+
 	//распаковать вектор на абсолютные координаты
-	FVector3f GetFootRay(FLimb& L);
+	FVector3f GetLegRay(FLimb& L);
 
 	//загрузить новый радиус вектор ноги из точки касания с опорой
-	void SetFootRay(FLimb& F, FVector3f AbsRay);
-
+	void SetLegRay(FLimb& L, FVector3f AbsRay);
+	
 	//позиция точки проекции ноги на твердь
 	FVector GetFootVirtualLoc(FLimb& L);
 

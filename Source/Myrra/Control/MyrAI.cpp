@@ -371,7 +371,7 @@ void AMyrAI::Tick(float DeltaTime)
 
 
 	//степень соосности желаемого курса и тела, насколько передом вперед
-	float KeepDir = FMath::Max(0.0f, Drive.MoveDir | me()->GetThorax()->Forward);
+	float KeepDir = FMath::Max(0.0f, Drive.MoveDir | me()->GetThorax()->GuidedMoveDir);
 	bool OnAir = !me()->GotLandedAny();
 
 	//определение высоты над землёй - пока неясно, нужно ли это для нелетающих
@@ -1486,8 +1486,8 @@ float AMyrAI::RecalcGoalVisibility(FGoal& Goal, AMyrPhyCreature* MyrAim, const F
 			float DistFullVision = 10.0f * (me()->GetBodyLength() + MyrAim->GetBodyLength());
 
 			//расширение дальности полной видимости, если цель движется (для разнообразя берется то одна, то другая часть тела
-			if (Rand0_1())	DistFullVision += MyrAim->GetThorax()->SpeedAlongFront() * 0.1f;
-			else			DistFullVision += MyrAim->GetPelvis()->SpeedAlongFront() * 0.1f;
+			if (Rand0_1())	DistFullVision += MyrAim->GetThorax()->Speed * 0.1f;
+			else			DistFullVision += MyrAim->GetPelvis()->Speed * 0.1f;
 
 			//обратное расстояние, начиная с порога видимость даже при прямом незасящем обзоре падает
 			Goal.Visibility = FMath::Min(1.0f, Goal.LookAtDistInv * DistFullVision);

@@ -376,7 +376,8 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 	//направление действий/атак/головы - куда смотрим, туда и направляем
 	Drive.ActDir = (FVector3f)Controller->GetControlRotation().Vector();
-	if (IsCameraOnExternalPoser()) Drive.ActDir = OwnedCreature->GetPelvis()->Forward;
+
+	if (IsCameraOnExternalPoser()) Drive.ActDir = OwnedCreature->SpineVector;
 
 	//усиление двоения в глазах при резкой боли - здесь нужно каждый кадр ибо боль скоротечна
 	Camera->PostProcessSettings.SceneFringeIntensity = OwnedCreature->Pain;
