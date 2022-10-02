@@ -50,7 +50,7 @@ public: // анатомия, части тела
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy", config) FMeshAnatomy Anatomy;
 
 	//эталонный набор данных по здоровью члеников, генерируется перед игрой (при спавне реального объекта просто копируется в него)
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy", config) TArray<FBODY_BIO_DATA> BodyBioData;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") TArray<FBODY_BIO_DATA> BodyBioData;
 
 	//оси костей каркаса существа, какая ось вверх, какая в бок, какая вперед - потому что 3d редактор + экспорт + импорт, и в каждой модельке они выходят свои
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") FLimbOrient MachineBonesAxes;
@@ -59,12 +59,10 @@ public: // анатомия, части тела
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") FBodyFreedom BodyDegreesOfFreedom;
 
 	// индекс членика (по нулям, чтобы не огребать ошибок) - хз, насколько теперь это нужно
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy", config) uint8 PelvisBodyIndex = 0;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy", config) uint8 ThoraxBodyIndex = 0;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy", config) uint8 RootBodyIndex = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") uint8 RootBodyIndex = 0;
 
-	//импульс прыжка - неясно, стоит держать его здесь или внедрить в ассеты атак
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") float JumpVelocityBase = 600;
+	// индекс членика (по нулям, чтобы не огребать ошибок) - хз, насколько теперь это нужно
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") TWeakObjectPtr<UPhysicalMaterial> AntiSlideMaterial;
 
 	//характеристика существа как еды и того, что после съедения остаётся
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy")	FDigestiveEffects DigestiveEffects;

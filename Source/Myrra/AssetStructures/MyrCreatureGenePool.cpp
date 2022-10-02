@@ -4,6 +4,7 @@
 #include "MyrCreatureAttackInfo.h"				//для сортировки атак
 
 #include "PhysicsEngine/PhysicsConstraintTemplate.h"//для разбора списка физ-связок в регдолле
+#include "PhysicalMaterials/PhysicalMaterial.h"			// для выкорчевывания материала поверхности пола
 
 //==============================================================================================================
 // после инициализации свойств
@@ -190,8 +191,6 @@ void UMyrCreatureGenePool::AnalyseBodyParts ()
 				//почленно собрать некоторые рассыпанные данные
 				switch (cuLimb)
 				{
-				case ELimb::PELVIS: PelvisBodyIndex = i; break; //это для нового существа нах избыточно
-				case ELimb::THORAX: ThoraxBodyIndex = i; break;
 				case ELimb::L_ARM:
 				case ELimb::R_ARM:
 

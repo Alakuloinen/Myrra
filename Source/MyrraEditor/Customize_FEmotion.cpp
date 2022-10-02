@@ -3,12 +3,7 @@
 #include "SlateBasics.h"
 #include "SlateCore.h"
 #include "Runtime/Launch/Resources/Version.h"
-#if (ENGINE_MAJOR_VERSION >= 5)	
 #include "SEnumCombo.h"
-#endif
-#if (ENGINE_MAJOR_VERSION == 4)	
-#include "SEnumComboBox.h"
-#endif
 #include "PropertyEditorModule.h"
 #include "PropertyEditorDelegates.h"
 #include "DetailWidgetRow.h"

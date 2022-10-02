@@ -66,23 +66,6 @@ public:
 
 };
 
-//###################################################################################################################
-// набор опций
-//###################################################################################################################
-UENUM(BlueprintType) enum class EMyrOptions : uint8
-{
-	VSync,
-	Screen,
-	FrameRate,
-	ViewDist,
-	Antialiasing,
-	Shading,
-	Textures,
-	Shadows,
-	PostProc,
-	VisualEffects
-};
-
 
 class URoleParameter;
 //###################################################################################################################
@@ -128,7 +111,7 @@ public: // супер глобальные свойства
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMaterialInterface* MaterialToHistorifyTrails;
 
 	//настройки для меню
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UGameUserSettings* Options;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMyrraGameUserSettings* Options;
 
 	//настройки отображения эмоциональных реакций в меню самой игры
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  TMap<EEmoCause, FEmoReactionsUI> EmoReactionWhatToDisplay;
@@ -223,9 +206,12 @@ public: //свои методы
 	void MyrLogicEventCheckForStory(EMyrLogicEvent Event, class AMyrPhyCreature* Instigator, float Amount, UObject* Victim);
 
 	//для меню настроек
-	UFUNCTION(BlueprintCallable) void  FetchOptions();
+	UFUNCTION(BlueprintCallable) void  LoadOptions();
+	UFUNCTION(BlueprintCallable) void  SaveOptions();
+	UFUNCTION(BlueprintCallable) void  DiscardOptions();
 	UFUNCTION(BlueprintCallable) int32 GetOption(const EMyrOptions O) const;
 	UFUNCTION(BlueprintCallable) void  SetOption(EMyrOptions O, int V);
+	UFUNCTION(BlueprintCallable) void  SetVol(EMyrOptions Nu);
 
 //--------------------------------------------------------------------------------
 public: //возвращуны

@@ -345,3 +345,30 @@ USTRUCT(BlueprintType) struct FGameStats
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float TotalTimeSleeping = 0;
 
 };
+
+//###################################################################################################################
+// набор опций
+//###################################################################################################################
+UENUM(BlueprintType) enum class EMyrOptions : uint8
+{
+	VSync,
+	Screen,
+	FrameRate,
+	ViewDist,
+	Antialiasing,
+	Shading,
+	Textures,
+	Shadows,
+	PostProc,
+	VisualEffects,
+
+	GRAPHMAX,
+
+	SoundAmbient,
+	SoundSubjective,
+	SoundNoises,
+	SoundVoice,
+	SoundMusic,
+
+	AUDIOMAX
+};

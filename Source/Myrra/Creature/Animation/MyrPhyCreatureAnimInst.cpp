@@ -91,6 +91,7 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 			if (auto NR = Creature->GetSelfAction()->AlternativeRandomMotions.Num())
 				if (FMath::RandBool())
 					SelfAction = Creature->GetSelfAction()->AlternativeRandomMotions[FMath::RandRange(0, NR - 1)];
+
 			//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
 			SelfAnimLocalSpace = (SelfAction->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
 
@@ -120,20 +121,24 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	//переписать новые значения компонентов общей эмоции существа, чтоб отразить в позах
 	Creature->TransferIntegralEmotion(EmotionRage, EmotionFear, EmotionPower, EmotionAmount);
 
+	//случай, если атака резко заменилась без акта окончания - вставить этот акт искусственно, обнулив ролик
+	if (CurrentAttack != Creature->CurrentAttack)
+	{
+		AttackCurvesAnimation = nullptr;
+		CurrentAttack = Creature->CurrentAttack;
+	}
 	//атаки (если в материнском объекте атака на задана, то и тут ничего не надо делать)
 	if (Creature->CurrentAttack != 255)
 	{
-		auto AttackInfo = Creature->GetAttackAction();
-
-		//аним-ролики атаки меняются только при изменении номера атаки
-		if (CurrentAttack != Creature->CurrentAttack)
-		{
-			CurrentAttack = Creature->CurrentAttack;
+		//аним-ролики атаки меняются только при изменении номера атаки, признак этого - пустая анимация
+		if (AttackCurvesAnimation == nullptr)
+		{	CurrentAttack = Creature->CurrentAttack;
 			AttackAnimation = Creature->GetAttackActionVictim().RawTargetAnimation;
 			AttackPreciseAnimation = Creature->GetAttackActionVictim().PreciseTargetAnimation;
 			AttackCurvesAnimation = Creature->GetAttackAction()->Motion;
 		}
 		//фаза меняется при неизменной атаке
+		auto AttackInfo = Creature->GetAttackAction();
 		CurrentAttackPhase = Creature->CurrentAttackPhase;
 		CurrentAttackPlayRate = AttackInfo->DynModelsPerPhase[(int)Creature->CurrentAttackPhase].AnimRate;
 
@@ -150,7 +155,8 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		//изменятель скорости обмена веществ для этого конкретного действия
 		NewMetabolism *= AttackInfo->MetabolismMult;
 	}
-	else CurrentAttack = 255;
+	//вне атак поддерживать указатель на ролик с кривыми пустым
+	else AttackCurvesAnimation = nullptr;
 
 	//метаболизм - очень плавное изменение: чем больше расход (со знаком минус), тем сильнее метаболизм
 	Metabolism = FMath::Lerp(Metabolism, NewMetabolism, DeltaTimeX * 0.5);
@@ -300,89 +306,6 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 //==============================================================================================================
 //получить букет трансформаций конечности в правильном формате из физ-модели существа
 //==============================================================================================================
-void UMyrPhyCreatureAnimInst::SetLimbTransform(const FLimb& Limb, const FLimb& HubLimb, const FLimb& SpineLimb, float* LimbChunk, const float WheelRadius, FAGirdle& AGirdle, const float Handness)
-{
-	//позиция в пространстве условного подвеса конечности
-	FVector3f LimbAxisPos = (FVector3f)Creature->GetMesh()->GetLimbShoulderHubPosition(Limb.WhatAmI);
-
-	//получить адреса выходного пучка данных
-	float& UpDown = LimbChunk[0];
-	float& FrontBack = LimbChunk[1];
-	float& LeftRight = LimbChunk[2];
-	float& NormalSwing = LimbChunk[3];
-	const auto M = Creature->GetMesh();
-	auto Girdle = Creature->GetGirdle(Limb.WhatAmI);
-	
-	//старое значение - для плавного изменения - возможно и для других осей надо завести такие же
-	float OldLeftRight = LeftRight;
-
-	// центр колеса
-	FVector3f WheelPos = (FVector3f)M->GetMachineBody(Limb)->GetCOMPosition();
-
-	//радиус-вектор от бедренного сустава до центра колеса ноги
-	FVector3f Devia = WheelPos - LimbAxisPos;
-
-	//длина конечности, амплитуда качаний, инверсная для оптимизации
-	float InvDualLength = 1 / (2 * Girdle->TargetFeetLength);
-
-	//минус радиус по нормали вниз к точке касания = точная позиция точки касания
-	Devia -= Limb.ImpactNormal * WheelRadius;
-
-	//прописать результаты в порцию выходных переменных, связанную с этой конечностью
-	//береётся спинной членик, потому что центральный зафиксирован по углу pitch и FrontBack всегда будет нулевым,
-	FrontBack = (Devia | M->GetLimbAxisForth (SpineLimb.WhatAmI));
-	UpDown =	(Devia | M->GetLimbAxisUp	 (SpineLimb.WhatAmI));
-	LeftRight =	(Devia | M->GetLimbAxisRight (SpineLimb.WhatAmI))*Handness;
-
-	//для отладки
-	LINE(ELimbDebug::FeetShoulders, (FVector)LimbAxisPos, (FVector)M->GetLimbAxisForth(SpineLimb.WhatAmI) * FrontBack);
-	LINE(ELimbDebug::FeetShoulders, (FVector)LimbAxisPos, (FVector)M->GetLimbAxisUp(SpineLimb.WhatAmI) * UpDown);
-	LINE(ELimbDebug::FeetShoulders, (FVector)LimbAxisPos, (FVector)M->GetLimbAxisRight(SpineLimb.WhatAmI) * LeftRight * Handness);
-
-	//если имеется кинематическая ступня, по ее позиции можно корректировать растяжку ноги
-	if (M->HasFlesh(Limb.WhatAmI))
-	{	
-		// отклонение видимой лапы от колеса = центр кинематической лапы минус центр колеса
-		FVector3f FleshDevia = (FVector3f)M->GetFleshBody(Limb.WhatAmI,0)->GetCOMPosition() - WheelPos;
-
-		//проекция = интересует только 2D-смешение ноги по плоскости, на котором колесо стоит (вперед-назад)
-		FleshDevia = FVector3f::VectorPlaneProject(FleshDevia, Limb.ImpactNormal);
-
-		//достигая точки пола впереди или сзади от колеса, нога растягивается
-		//расстояние от бедра до точки касания колеса должно корректироваться по вертикали в сторону возрастания
-		//при этом за продольное вихляние отвечает кинематическая анимация, ее нельзя искажать опорными позами
-		//однако, похоже, этот алгоритм может приводить к самоусилению, так как увеличение UpDown приводит к вытяжке ноги
-		//вытяжка ноги приводит к еще большему смещению ноги... надо как-то сделать так, чтобы вносимое upDown не приводило к продольному смещению
-		//однако как это сделать пока неясно, пока костыль - при около-перпендикулярности нормали и оси лапы нахрен выключать эту опцию
-		//DrawDebugLine(Creature->GetWorld(), WheelPos, WheelPos + FleshDevia, FColor(0, 255, 0, 10), false, 0.02f, 100, 1);
-		if((Limb.ImpactNormal | M->GetLimbAxisUp(HubLimb.WhatAmI))>0.5)
-			UpDown += FleshDevia | M->GetLimbAxisUp(HubLimb.WhatAmI);
-	}
-
-	NormalSwing = 0.5 + 0.5 * FMath::FastAsin(Limb.ImpactNormal | M->GetLimbAxisBack(HubLimb.WhatAmI))/ 1.57;
-	//NormalSwing = 0.5 + 0.5 * (Limb.ImpactNormal | M->GetLimbAxisBack(HubLimb.WhatAmI));
-
-	//привести из реальных координат из диапазона (-длина +длина) к диапазону (0  1)
-	FrontBack =		(FrontBack + Girdle->TargetFeetLength)	* InvDualLength;
-	UpDown =		(UpDown    + Girdle->TargetFeetLength)	* InvDualLength;
-	LeftRight =		(LeftRight + Girdle->TargetFeetLength)	* InvDualLength;
-
-	//финальное значение смещение ноги в сторону
-	//внимание, отступ ноги в сторону, как и все прочие, всё равно в диапазоне 0-1
-	//поэтому коэффициенты будут вгонять его в насыщение на большую часть диапазона, если подобраны неверно
-	LeftRight =
-
-		//из посчитанной точки контакта физического колеса с опорой (с весом из текущего режима движения)
-		Creature->BehaveCurrentData->AffectSideSlopeOnLegOffset * LeftRight
-
-		//и общепоясной настройки ног (аддитивно: + расставить - сжать), также взвешенной 
-		+ AGirdle.LegsSpread * Creature->BehaveCurrentData->AffectLegsSpreadOnLegOffset;
-
-	//резко нельзя, нереалистично, но для наземного - достаточно резко
-	LeftRight = StepTo( OldLeftRight, LeftRight, Limb.Stepped ? 0.05 : 0.01);
-
-}
-
 void UMyrPhyCreatureAnimInst::SetLegPosition(FLimb& Limb, float* LimbChunk)
 {
 	//получить адреса выходного пучка данных

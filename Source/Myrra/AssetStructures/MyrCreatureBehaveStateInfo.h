@@ -79,16 +79,6 @@ public:
 	// типичный метаболизм для состояния, определяет скорость анимации дыхания
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float MetabolismBase = 1.0f;
 
-	// домножатель силы, если требуется переть в горку, а стандартного усилия не хватает
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float UphillForceFactor = 10.0f;
-
-	// домножатель силы, общий, для движения по плоскости, чтобы компенсировать вязкости, трения и т.п.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float PlainForceFactor = 1.0f;
-
-	// слагаемое, прибавляемое к расставке ног в зависимости от кривизны поверхности
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float AffectSideSlopeOnLegOffset = 1.0;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float AffectLegsSpreadOnLegOffset = 1.0;
-
 	// коэффициент заметности (1.0 - полная заметность, 0.0, полная незметность)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float StealthPenalty = 1.0f;
 

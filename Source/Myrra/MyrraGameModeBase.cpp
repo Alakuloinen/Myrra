@@ -52,8 +52,11 @@ void AMyrraGameModeBase::InitGame(const FString& MapName, const FString& Options
 //==============================================================================================================
 void AMyrraGameModeBase::BeginPlay()
 {
-	Music->Play();
 	Super::BeginPlay();
+
+	//загрузить настройки графики, звука, применить
+	GetMyrGameInst()->LoadOptions();
+	Music->Play();
 
 	//загрузка сохранения
 	if (GetMyrGameInst()->JustLoadedSlot)

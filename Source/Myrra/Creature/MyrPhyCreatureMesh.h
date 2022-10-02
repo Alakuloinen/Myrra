@@ -217,6 +217,7 @@ public:
 	FBodyInstance* GetBody(UPrimitiveComponent* C, int8 CB) { return (CB==NO_BODY) ? C->GetBodyInstance() : ((USkeletalMeshComponent*)C)->Bodies[CB]; }
 
 	//степень прямохождения
+	//не нужно, есть spinevector
 	float Erection() const { return (GetLimbPos(ELimb::THORAX) - GetLimbPos(ELimb::PELVIS)).Z; }
 
 	//порог опрокидываемости берется по задней-центральной части спины, так как "хабы" могут быть вывернуты из-за подкошенных ног
@@ -226,9 +227,11 @@ public:
 	bool AreFeetInAir() const { return RArm.Stepped + LArm.Stepped + RLeg.Stepped + LLeg.Stepped == 0; }
 
 	//зацеп включен, но настроен так, чтобы удерживать при отсутствии тяги, а не помогать двигать 
+	//ненужно, убрать
 	bool IsClingAtStop(FConstraintInstance* CI) {	return CI->GetLinearYMotion() == ELinearConstraintMotion::LCM_Locked;	}
 
-	//функция перехода к вертикали, жесткая вертикаль еще не установлена 
+	//функция перехода к вертикали, жесткая вертикаль еще не установлена
+	//не нужен, убрать
 	bool IsVerticalTransition(FConstraintInstance* CI) { return CI->ProfileInstance.AngularDrive.SwingDrive.bEnablePositionDrive; }
 
 	//касается ли данная тушка данной частью тела данного актора
@@ -297,6 +300,7 @@ public:
 	float ShockResult(FLimb &L, float Speed, UPrimitiveComponent* Floor);
 
 	//касания верхних частей тела
+	//скорее всего не нужен
 	bool HasNonFeetImpacts() const { return (Head.Stepped || Pectus.Stepped || Lumbus.Stepped || Thorax.Stepped || Pelvis.Stepped); }
 
 	//скорости для сокращения
@@ -359,9 +363,6 @@ public:
 	//обновить веса физики и увечья для этой части тела
 	void ProcessBodyWeights(FLimb& Limb, float DeltaTime);
 
-	//вычислить предпочительное направление движения для этого членика по его опоре
-	FVector3f CalculateLimbGuideDir(FLimb& Limb, const FVector3f& PrimaryCourse, bool SupportOnBranch, float* Stability = nullptr);
-
 	//принять или отклонить только что обнаруженную новую опору для этого членика
 	int ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, FVector3f NewNormal, FVector NewHitLoc);
 
@@ -384,6 +385,12 @@ public:
 
 	//включить или выключить физику у всех костей, которые могут быть физическими
 	void SetMachineSimulatePhysics(bool Set);
+
+	//изменить силы упругости в спинном сцепе
+	void SetSpineStiffness(float Factor);
+
+	//обнаружение частичного провала под поверхность/зажатия медлу плоскостью
+	ELimb DetectPasThrough();
 
 	UFUNCTION(BlueprintCallable) float GetDamage(ELimb eLimb) const { return ((FLimb*)(&Pelvis))[(int)(eLimb)].Damage; }
 

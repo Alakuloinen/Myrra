@@ -268,6 +268,17 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//по идее здесь тичат компоненты
 	Super::Tick(DeltaTime);
 
+	//обнаруживание проваливания под землю и вырыв оттуда немедленно
+	auto eL = Mesh->DetectPasThrough();
+	if (eL != ELimb::NOLIMB)
+	{
+		FTransform T = GetActorTransform();
+		T.SetLocation(T.GetLocation() + FVector(0, 0, SpineLength));
+		TeleportToPlace(T);
+		UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s DetectPasThrough %s"),
+			*GetName(), *TXTENUM(ELimb, (EPhene)eL));
+	}
+
 
 	//фаза кинематической костыльной доводки до места или удержания на объекте
 /*	if (bKinematicRefine)
@@ -705,6 +716,9 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 		//сохранить модель
 		Mesh->DynModel = DynModel;
 
+		//напрячь или расслабить спину
+		Mesh->SetSpineStiffness(DynModel->SpineStiffness * FMath::Min(Health*5, 1.0f));
+
 		//фаза подготовки и стартовая доля силы
 		if (DynModel->JumpImpulse < 0) AttackForceAccum = -DynModel->JumpImpulse;
 
@@ -729,9 +743,9 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 //==============================================================================================================
 void AMyrPhyCreature::KinematicMove(FTransform Dst)
 {
-	//здесь предполагается, что все настро
-	FHitResult Hit;
-	Mesh->SetWorldTransform(Dst, false, &Hit, ETeleportType::TeleportPhysics);
+	Mesh->SetWorldTransform(Dst, false, nullptr, ETeleportType::TeleportPhysics);
+	Thorax->ForceMoveToBody();
+	Pelvis->ForceMoveToBody();
 }
 
 //==============================================================================================================
@@ -895,6 +909,10 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 {
 	//исключить метаболизм параметров в мертвом состоянии
 	if (Health <= 0) return;
+
+	//напрячь или расслабить спину
+	if(Health < 0.2)
+		Mesh->SetSpineStiffness(Mesh->DynModel->SpineStiffness * Health * 5);
 
 	//учёт воздействия поверхности, к которой мы прикасаемся любой частью тела, на здоровье
 	EMyrSurface CurSu = EMyrSurface::Surface_0;
@@ -1347,7 +1365,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(crouch,		bCrouch);
 			BEWARE(soar,		bSoar && MoveGain > 0.1);
 			BEWARE(run,			bRun && Stamina > 0.1f);
-			BEWARE(walk,		MoveGain > 0 || bRun);
+			BEWARE(walk,		MoveGain > 0 || bRun || !GotLandedBoth());
 			break;
 
 		//шаг по поверхности (боимся упасть, опрокинуться и сбавить скорость до стояния)

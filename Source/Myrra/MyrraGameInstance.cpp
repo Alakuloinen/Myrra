@@ -31,7 +31,10 @@
 
 #include "ImageUtils.h"									// загрузка скриншотов как текстур
 
-#include "GameFramework/GameUserSettings.h"				// стандартные опции для меню настроек
+#include "MyrraGameUserSettings.h"						//  опции для меню настроек
+
+#include "AudioDeviceManager.h"							// для манипуляции громкостями звуков из кода
+#include "AudioDevice.h"								// для манипуляции громкостями звуков из кода
 
 //====================================================================================================
 //====================================================================================================
@@ -256,54 +259,57 @@ TArray<FString> UMyrraGameInstance::GetAllScreenshots()
 }
 
 //для меню настроек
-void UMyrraGameInstance::FetchOptions()
-{
-	Options = UGameUserSettings::GetGameUserSettings();
+void UMyrraGameInstance::LoadOptions()
+{	
+	//инициализировать свою сборку настроек, загрузить ее откуда-то хз откуда
+	GEngine->GameUserSettingsClass = UMyrraGameUserSettings::StaticClass();
+	Options = (UMyrraGameUserSettings*)GEngine->GetGameUserSettings();
+	Options->ApplySettings(false);
+
+	//отдельно применить загруженные настройки звука
+	SetVol(EMyrOptions::SoundAmbient);
+	SetVol(EMyrOptions::SoundSubjective);
+	SetVol(EMyrOptions::SoundNoises);
+	SetVol(EMyrOptions::SoundVoice);
+	SetVol(EMyrOptions::SoundMusic);
 }
-int32 UMyrraGameInstance::GetOption(const EMyrOptions O) const
+void UMyrraGameInstance::SaveOptions()
 {
-	switch (O)
-	{
-	case EMyrOptions::VSync:		return (int32)Options->IsVSyncEnabled();
-	case EMyrOptions::Screen:		return (int32)Options->GetFullscreenMode();
-	case EMyrOptions::Antialiasing:	return (int32)Options->GetAntiAliasingQuality();
-	case EMyrOptions::Shading:		return (int32)Options->GetShadingQuality();
-	case EMyrOptions::Shadows:		return (int32)Options->GetShadowQuality();
-	case EMyrOptions::Textures:		return (int32)Options->GetTextureQuality();
-	case EMyrOptions::ViewDist:		return (int32)Options->GetViewDistanceQuality();
-	case EMyrOptions::VisualEffects:return (int32)Options->GetVisualEffectQuality();
-	case EMyrOptions::PostProc:		return (int32)Options->GetPostProcessingQuality();
-	case EMyrOptions::FrameRate:
-		int fr = Options->GetFrameRateLimit();
-		switch (fr)
-		{	case 30: return 0;
-			case 60: return 1;
-			case 120: return 2;
-			case 0: return 3;
-		}
-	}
-	return 0;
+	//применить и сохранить настройки куда-то в файл
+	Options->ApplySettings(false);
+	Options->SaveSettings();
 }
-void UMyrraGameInstance::SetOption(EMyrOptions O, int V)
+void UMyrraGameInstance::DiscardOptions()
 {
-	switch (O)
-	{	case EMyrOptions::VSync:		Options->SetVSyncEnabled((bool)V);					break;
-		case EMyrOptions::Screen:		Options->SetFullscreenMode((EWindowMode::Type)V);	break;
-		case EMyrOptions::Antialiasing:	Options->SetAntiAliasingQuality(V);					break;
-		case EMyrOptions::Shading:		Options->SetShadingQuality(V);						break;
-		case EMyrOptions::Shadows:		Options->SetShadowQuality(V);						break;
-		case EMyrOptions::Textures:		Options->SetTextureQuality(V);						break;
-		case EMyrOptions::ViewDist:		Options->SetViewDistanceQuality(V);					break;
-		case EMyrOptions::VisualEffects:Options->SetVisualEffectQuality(V);					break;
-		case EMyrOptions::PostProc:		Options->SetPostProcessingQuality(V);				break;
-		case EMyrOptions::FrameRate:
-			switch (V)
-			{	case 0: Options->SetFrameRateLimit(30.0f); break;
-				case 1: Options->SetFrameRateLimit(60.0f); break;
-				case 2: Options->SetFrameRateLimit(120.0f); break;
-				case 3: Options->SetFrameRateLimit(0.0f); break;
-			}
-		}
+	//перезагрузить последние сохраненные настройки
+	Options->LoadSettings();
+	Options->ResetToCurrentSettings();
+
+	//отдельно применить загруженные настройки звука
+	SetVol(EMyrOptions::SoundAmbient);
+	SetVol(EMyrOptions::SoundSubjective);
+	SetVol(EMyrOptions::SoundNoises);
+	SetVol(EMyrOptions::SoundVoice);
+	SetVol(EMyrOptions::SoundMusic);
+}
+int32 UMyrraGameInstance::GetOption(const EMyrOptions O) const	{ return	Options->GetOption(O);		}
+void UMyrraGameInstance::SetOption(EMyrOptions O, int V)		{			Options->SetOption(O, V);	}
+
+//====================================================================================================
+//изменить громкость класса звуков 
+//====================================================================================================
+void UMyrraGameInstance::SetVol(EMyrOptions Nu)
+{
+	//перевести константу из сквозной нумерации опций в номер именно адуио настройки
+	int Ind = ((int)Nu) - (int)EMyrOptions::SoundAmbient;
+	if (Ind < 0 || Ind > 4) return;
+
+	//выкорчевать микс из каких-то глобальных настроек, надеюсь в релизе они останутся
+	auto SoundMix = GetWorld()->GetAudioDevice()->GetDefaultBaseSoundMixModifier();
+	UGameplayStatics::SetSoundMixClassOverride(
+		GetWorld(), SoundMix,
+		SoundMix->SoundClassEffects[Ind].SoundClassObject,
+		(float)Options->GetSoundVolume(Ind) / 100.0f, 1.0f, 0.1f, true);
 }
 
 

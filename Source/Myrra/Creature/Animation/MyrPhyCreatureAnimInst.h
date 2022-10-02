@@ -154,8 +154,6 @@ public:
 //	void UpdateAttackPlayRates(float strikeRate);
 
 	//получить букет трансформаций конечности в правильном формате из физ-модели существа
-	void SetLimbTransform(const FLimb& Limb, const FLimb& HubLimb, const FLimb& SpineLimb, float* LimbChunk, const float WheelRadius, FAGirdle& AGirdle, const float Handness);
-
 	void SetLegPosition(FLimb& Limb, float* LimbChunk);
 
 	//получить численный параметр угла отклонения между сегментами тела по заданным осям

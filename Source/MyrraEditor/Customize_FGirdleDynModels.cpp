@@ -25,9 +25,12 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 	TSharedPtr<IPropertyHandle> HandleHealthAdd = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, HealthAdd));
 	TSharedPtr<IPropertyHandle> HandleStaminaAdd = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, StaminaAdd));
 	TSharedPtr<IPropertyHandle> HandleMotionGain = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, MotionGain));
-	TSharedPtr<IPropertyHandle> HandleMoveNoGain = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, MoveWithNoExtGain));
 	TSharedPtr<IPropertyHandle> HandleJumpImp = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, JumpImpulse));
+	TSharedPtr<IPropertyHandle> HandleAutoMove = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, MoveWithNoExtGain));
+	TSharedPtr<IPropertyHandle> HandlePreJump = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, PreJump));
+	TSharedPtr<IPropertyHandle> HandleFlyFixed = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, FlyFixed));
 	TSharedPtr<IPropertyHandle> HandleSound = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Sound));
+	TSharedPtr<IPropertyHandle> HandleSpineStiffness = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, SpineStiffness));
 
 	//дл€ заголовка таким вот тупым образом распознать цифры и к ним добавить эквиваленты этих цифр, как если бы они были константами фаз атаки
 	FString FullHead = StructPropertyHandle->GetPropertyDisplayName().ToString();
@@ -65,12 +68,22 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 	[
 		//в остальные 4 €чейки левой половины заголовка засунуть 4 float свойства, друг за другом
 		SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().FillWidth(10)	[	SNew(SProperty, HandleAnimRate).ShouldDisplayName(true)		]
-		+ SHorizontalBox::Slot().FillWidth(10)	[	SNew(SProperty, HandleHealthAdd).ShouldDisplayName(true)	]
-		+ SHorizontalBox::Slot().FillWidth(10)	[	SNew(SProperty, HandleStaminaAdd).ShouldDisplayName(true)	]
-		+ SHorizontalBox::Slot().FillWidth(10)	[	SNew(SProperty, HandleMotionGain).ShouldDisplayName(true)	]
-		+ SHorizontalBox::Slot().FillWidth(10)	[	SNew(SProperty, HandleJumpImp).ShouldDisplayName(true)		]
-		+ SHorizontalBox::Slot().FillWidth(10)	[	SNew(SProperty, HandleMoveNoGain).ShouldDisplayName(true)	]
+		+ SHorizontalBox::Slot().FillWidth(10).HAlign(HAlign_Right)	[	HandleAnimRate->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleAnimRate->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(13).HAlign(HAlign_Right)	[	HandleHealthAdd->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleHealthAdd->CreatePropertyValueWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleStaminaAdd->CreatePropertyValueWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(13).HAlign(HAlign_Right) [	HandleMotionGain->CreatePropertyNameWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleMotionGain->CreatePropertyValueWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleJumpImp->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(10).HAlign(HAlign_Right)	[	HandleSpineStiffness->CreatePropertyNameWidget()]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleSpineStiffness->CreatePropertyValueWidget()]
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	HandleAutoMove->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(2)						[	HandleAutoMove->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	HandlePreJump->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(2)						[	HandlePreJump->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	HandleFlyFixed->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(2)						[	HandleFlyFixed->CreatePropertyValueWidget()		]
 
 	];
 }

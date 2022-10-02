@@ -818,12 +818,14 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 				//плавное снижение желания отдернуться от препятствия (зависит от скорости - стоит ли извлекать корень или оставить бешенные нули?)
 				//возможно, брать только проекцию скорости на нормаль
 				int NewStepped = Limb.Stepped;
-				if (Drift > 100) { NewStepped -= 3; } else
-				if (Drift > 10) { NewStepped -= 2; } else
-				NewStepped -= 1;
+				if (Drift > 100) { NewStepped -= 3; }
+				else
+					if (Drift > 10) { NewStepped -= 2; }
+					else
+						NewStepped -= 1;
 
 				//взять данные о поверхности опоры непосредственно из стандартной сборки хитрезалт
-				if(NewStepped<=0) Limb.EraseFloor();
+				if (NewStepped <= 0) Limb.EraseFloor();
 				else Limb.Stepped = NewStepped;
 			}
 		}
@@ -841,6 +843,9 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 		LINELIMB(ELimbDebug::LimbNormals, Limb, (FVector)Limb.ImpactNormal * 15);
 
 	}
+
+	//для бесплотных члеников, как виртуальные ноги, скорость сброса опоры значительно больше
+	else Limb.Stepped = Limb.Stepped >> 1;
 }
 
 //==============================================================================================================
@@ -1010,6 +1015,15 @@ void UMyrPhyCreatureMesh::AdoptDynModelForLimb(FLimb& Limb, uint32 Model, float 
 	//гравитация изменяется только в момент переключения модели
 	Body->SetEnableGravity((Model & LDY_GRAVITY) == LDY_GRAVITY);
 
+
+	if ((Model & LDY_FRICTION) != (Limb.DynModel & LDY_FRICTION))
+	{	
+		Body->SetPhysMaterialOverride(
+			(Model & LDY_FRICTION) ? MyrOwner()->GetGenePool()->AntiSlideMaterial.Get() : nullptr);
+	}
+
+	//присвоение флагов - они оживают динамически каждый кадр
+	Limb.DynModel = Model;
 }
 
 //==============================================================================================================
@@ -1089,6 +1103,36 @@ void UMyrPhyCreatureMesh::SetMachineSimulatePhysics(bool Set)
 
 	}
 	else SetAllBodiesSimulatePhysics(false);
+}
+
+//==============================================================================================================
+//изменить силы упругости в спинном сцепе
+//==============================================================================================================
+void UMyrPhyCreatureMesh::SetSpineStiffness(float Factor)
+{
+	auto CI = GetMachineConstraint(Pectus);
+	auto aCI = GetArchMachineConstraint(Pectus);
+	CI->SetAngularDriveParams(
+		aCI->ProfileInstance.AngularDrive.SlerpDrive.Stiffness * Factor,
+		aCI->ProfileInstance.AngularDrive.SlerpDrive.Damping * Factor,
+		aCI->ProfileInstance.AngularDrive.SlerpDrive.MaxForce);
+}
+
+//==============================================================================================================
+//обнаружение частичного провала под поверхность/зажатия медлу плоскостью
+//==============================================================================================================
+ELimb UMyrPhyCreatureMesh::DetectPasThrough()
+{
+	if (Tail.Stepped && Lumbus.Stepped)
+		if ((Tail.ImpactNormal | Lumbus.ImpactNormal) < -0.9)
+			return (Tail.ImpactNormal.Z > Lumbus.ImpactNormal.Z) ? ELimb::TAIL : ELimb::LUMBUS;
+	if (Lumbus.Stepped && Pectus.Stepped)
+		if ((Lumbus.ImpactNormal | Pectus.ImpactNormal) < -0.9)
+			return (Lumbus.ImpactNormal.Z > Pectus.ImpactNormal.Z) ? ELimb::LUMBUS : ELimb::PECTUS;
+	if (Pectus.Stepped && Head.Stepped)
+		if ((Pectus.ImpactNormal | Head.ImpactNormal) < -0.9)
+			return (Pectus.ImpactNormal.Z > Head.ImpactNormal.Z) ? ELimb::PECTUS : ELimb::HEAD;
+	return ELimb::NOLIMB;
 }
 
 //==============================================================================================================

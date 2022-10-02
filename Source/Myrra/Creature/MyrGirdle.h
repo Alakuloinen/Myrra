@@ -96,7 +96,7 @@ public:
 	bool Lead() const { return CurrentDynModel->Leading; }
 
 	//пояс не стоит ногами на опоре
-	bool IsInAir() const { return !GetLimb(EGirdleRay::Center).Stepped; }
+	bool IsInAir() const { return (GetLimb(EGirdleRay::Center).Stepped != STEPPED_MAX); }
 	bool Stands(float Thr = 200) { return (StandHardness >= Thr);  }
 
 	//режим попячки назад
@@ -160,6 +160,9 @@ public:
 
 	//прощупать опору одной ногой для ее правильной графической постановки
 	void SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralImpact, float FallSeverity, int ATurnToCompare);
+
+	//переместить в нужное место (центральный членик)
+	void ForceMoveToBody();
 
 	//физически подпрыгнуть этим поясом конечностей
 	void PhyPrance(FVector3f HorDir, float HorVel, float UpVel);

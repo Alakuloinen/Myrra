@@ -53,6 +53,7 @@ UENUM(BlueprintType) enum class ELDY : uint8
 	OnGround			UMETA(DisplayName = "+ Only If On Ground"),
 	NotOnGround			UMETA(DisplayName = "+ Only If Off Ground"),
 	EvenIfFixed			UMETA(DisplayName = "+ Even If Fixed"),
+	Friction			UMETA(DisplayName = "+ FRICTION")
 };
 
 //стандартный перечислитель, не анриловский, так как андрил не понимает перечислители-классы больше 8 бит
@@ -89,7 +90,9 @@ ENUM_CLASS_FLAGS(ELDY); enum LDY
 	LDY_NOEXTGAIN = 1 << (int)ELDY::NoExtGain,
 	LDY_ONGROUND = 1 << (int)ELDY::OnGround,
 	LDY_NOTONGROUND = 1 << (int)ELDY::NotOnGround,
-	LDY_EVENIFFIXED = 1 << (int)ELDY::EvenIfFixed
+	LDY_EVENIFFIXED = 1 << (int)ELDY::EvenIfFixed,
+
+	LDY_FRICTION = 1 << (int)ELDY::Friction
 
 };
 
@@ -183,7 +186,8 @@ USTRUCT(BlueprintType) struct FFleshLimbAnatomy
 	//номер финального членика, для этого скелета
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, config) TArray<uint8> BodyIndex;
 
-	// имя кости стопы, всё из-за того, что OnHit выдает имя кости, а не индекс тела
+	// имя кости стопы, всё из-за того, что ебучий OnHit выдает имя кости, а не индекс тела
+	// может, уже не нужно, заюзать грабсокет
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, config) FName StepBoneName;
 
 	//может ли этот членик хватать предметы
@@ -382,14 +386,7 @@ USTRUCT(BlueprintType) struct FLimb
 UENUM(BlueprintType) enum class EGirdleRay : uint8 { Center, Left, Right, Spine, Tail, MAXRAYS };
 ENUM_CLASS_FLAGS(EGirdleRay);
 
-/*UENUM() enum class EStepDetect : uint8
-{
-	None,
-	TraceRare,
-	TraceEveryFrame,
-	Hit,
-	HitAndRetrace
-};*/
+
 //###################################################################################################################
 // сборка моделей динамики для всех частей пояса конечностей - для структур состояний и самодействий, чтобы
 // иметь компактную переменную для всех частей тела, содержащую только вот это необходимое добро
@@ -440,6 +437,15 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	uint8 At(const EGirdleRay Where) const { return ((uint8*)(&Center))[(int)Where]; }
 };
 
+UENUM(BlueprintType) enum class EWholeDynModelFlags : uint8
+{ 
+	MoveWithNoExtGain,
+	StayFixedInAir,
+	GetReadyForJump,
+};
+ENUM_CLASS_FLAGS(EWholeDynModelFlags);
+
+
 
 //###################################################################################################################
 //сборка динамических моделей, чтоб разом менять для состояний поведения, а поверх них - для действий в разных фазах
@@ -448,37 +454,47 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 {
 	GENERATED_BODY()
-		UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Thorax;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Thorax;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Pelvis;
 
 	// если задействована анимация, то регулировать ее скорость
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Anim Rate")) float AnimRate = 1.0f;
 
 	// удельная прибавка или отъем здоровья	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Health/Sec")) float HealthAdd = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Health,Stamina/Sec")) float HealthAdd = 0.0f;
 
 	// удельная прибавка или отъем запаса сил	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Stamina/sec")) float StaminaAdd = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float StaminaAdd = 0.0f;
 
 	// ослабление скорости движения	(<1) или, при наличии JumpImpulse, импульс прыжка вперед (+) или назад (-)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Gain/JumpAlong")) float MotionGain = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Gain Forth,Up")) float MotionGain = 1.0f;
 
 	//при входе в эту модель начинается накопление сил для прыжка с доли (<0) или сам прыжок с таким импульсом вверх (>0)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Hold/JumpUp", UIMin = "-0.1", UIMax = "1000")) float JumpImpulse = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float JumpImpulse = 0.0f;
 
-	// ослабление скорости движения	(<1) или, при наличии JumpImpulse, импульс прыжка вперед (+) или назад (-)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Move w/o Ext Drive")) bool MoveWithNoExtGain = false;
+	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмет на WASD
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Automove")) bool MoveWithNoExtGain = false;
+
+	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмет на WASD
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "PreJump")) bool PreJump = false;
+
+	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмет на WASD
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fly Fixed")) bool FlyFixed = false;
+
+	// коэффициент масштаба сил, сдерживающих поворот спины по любым осям
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float SpineStiffness = 1.0f;
+
 
 	// звук, который играет, пока существо находится в данном состоянии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") TWeakObjectPtr<USoundBase> Sound;
-	FWholeBodyDynamicsModel() { Thorax.Leading = true; Pelvis.Leading = false; }
 
 	//поскольку MotionGain- многозначная сущность, то для ослабления движения его нужно подобработать
 	float GetMoveWeaken() const { return FMath::Min(1.0f, FMath::Abs(MotionGain)); }
 	float GetJumpAlongImpulse() const { return MotionGain; }
 	float GetJumpUpImpulse() const { return JumpImpulse; }
+	FWholeBodyDynamicsModel() { Thorax.Leading = true; Pelvis.Leading = false; }
 };
-
+/*
 //отмечать результат попытки зацепиться
 UENUM() enum class EClung : uint8
 {
@@ -492,12 +508,12 @@ inline bool operator==(EClung A, EClung B) { return (int)A == (int)B; }
 inline bool operator>=(EClung A, EClung B) { return (int)A >= (int)B; }
 inline bool operator<=(EClung A, EClung B) { return (int)A <= (int)B; }
 
-
+*/
 //###################################################################################################################
 // сборка производных параметров анимации для целого шарика - старая
 // MyrAnimInst_BodySection.cpp
 //###################################################################################################################
-USTRUCT(BlueprintType) struct FBodySectionAnimData
+/*USTRUCT(BlueprintType) struct FBodySectionAnimData
 {
 	GENERATED_BODY()
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainDirect;		// проекция курса на позвоночник
@@ -510,7 +526,7 @@ USTRUCT(BlueprintType) struct FBodySectionAnimData
 
 	// перевычислить данные для секции тела, пригодные для непосредственной анимации
 	void Update(class UMyrBodyContactor* Body, class AMyrraCreature* Owner, float AdvancedCrouch = 0.0);
-};
+};*/
 
 //каналы отображения отладочных линий для векторных данных
 UENUM() enum class ELimbDebug : uint8
