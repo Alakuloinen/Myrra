@@ -38,7 +38,8 @@ public class Myrra : ModuleRules
                 "GameplayTasks",
                 "MoviePlayer",
                 "Niagara",
-                "Paper2D"
+                "Paper2D",
+                "PhysicsCore"       //для UPhysicalMaterial
             }
             );
 

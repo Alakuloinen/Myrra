@@ -29,8 +29,12 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 	TSharedPtr<IPropertyHandle> HandleAutoMove = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, MoveWithNoExtGain));
 	TSharedPtr<IPropertyHandle> HandlePreJump = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, PreJump));
 	TSharedPtr<IPropertyHandle> HandleFlyFixed = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, FlyFixed));
-	TSharedPtr<IPropertyHandle> HandleSound = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Sound));
 	TSharedPtr<IPropertyHandle> HandleSpineStiffness = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, SpineStiffness));
+
+	TSharedPtr<IPropertyHandle> HandleSound = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Sound));
+
+	HandleUse = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Use));
+	HandleUse->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrDynModelTypeCustomization::OnUsedChanged));
 
 	//для заголовка таким вот тупым образом распознать цифры и к ним добавить эквиваленты этих цифр, как если бы они были константами фаз атаки
 	FString FullHead = StructPropertyHandle->GetPropertyDisplayName().ToString();
@@ -55,6 +59,10 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 			.Font(IDetailLayoutBuilder::GetDetailFontBold())
 		]
 		//последние ячейка - под название и виджет ассета звука без громоздкого ярлыка (надо как-то добавить фильтр)
+		+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Right)
+		[	HandleUse->CreatePropertyNameWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(2).HAlign(HAlign_Right)
+			[HandleUse->CreatePropertyValueWidget()]
 		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)
 		[	HandleSound->CreatePropertyNameWidget()	]
 		+ SHorizontalBox::Slot().FillWidth(10)
@@ -96,6 +104,8 @@ void FMyrDynModelTypeCustomization::CustomizeChildren(
 	IDetailChildrenBuilder& StructBuilder,
 	IPropertyTypeCustomizationUtils& StructCustomizationUtils)
 {
+	PropertyUtilities = StructCustomizationUtils.GetPropertyUtilities();
+
 	//подбираем те свойства, которые мы хотим видеть в таблице ПОД заголовком
 	TSharedPtr<IPropertyHandle> HandleThorax = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Thorax));
 	TSharedPtr<IPropertyHandle> HandlePelvis = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Pelvis));
@@ -103,6 +113,45 @@ void FMyrDynModelTypeCustomization::CustomizeChildren(
 	//просто добавляем строки с содержимым по умолчанию для данного типа свойств
 	IDetailPropertyRow& PropertyThoraxRow = StructBuilder.AddProperty(HandleThorax.ToSharedRef());
 	IDetailPropertyRow& PropertyPelvisRow = StructBuilder.AddProperty(HandlePelvis.ToSharedRef());
+
+	
+	if(PropertyThoraxRow.CustomNameWidget())
+		ThoN = PropertyThoraxRow.CustomNameWidget()->Widget;
+	else PropertyThoraxRow.GetDefaultWidgets(ThoN, ThoV);
+
+	if (PropertyThoraxRow.CustomValueWidget())
+		ThoV = PropertyThoraxRow.CustomValueWidget()->Widget;
+	else PropertyThoraxRow.GetDefaultWidgets(ThoV, ThoV);
+
+	if (PropertyPelvisRow.CustomNameWidget())
+		PelN = PropertyPelvisRow.CustomNameWidget()->Widget;
+	else PropertyPelvisRow.GetDefaultWidgets(PelN, PelV);
+
+	if (PropertyPelvisRow.CustomValueWidget())
+		PelV = PropertyPelvisRow.CustomValueWidget()->Widget;
+	else PropertyPelvisRow.GetDefaultWidgets(PelV, PelV);
+}
+
+//==============================================================================================================
+//обработчик события
+//==============================================================================================================
+void FMyrDynModelTypeCustomization::OnUsedChanged()
+{
+	if (!HandleUse.IsValid()) return;
+	bool Val; HandleUse->GetValue(Val);
+	if (Val)
+	{
+		ThoN->SetVisibility(EVisibility::Visible);
+		ThoV->SetVisibility(EVisibility::Visible);
+	}
+	else
+	{
+		ThoN->SetVisibility(EVisibility::Collapsed);
+		ThoV->SetVisibility(EVisibility::Collapsed);
+
+	}
+	if (PropertyUtilities.IsValid())
+		PropertyUtilities->RequestRefresh();
 }
 
 //№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
@@ -130,11 +179,17 @@ void FMyrGirdleModelTypeCustomization::CustomizeHeader(
 	//найти объявленное где-то в исходном коде перечисление 
 	EnumPtr = FindObject<UEnum>(ANY_PACKAGE, TEXT("ELDY"), true);
 
+	//это свойство надо оживить подвязкой обработчика изменений
+	HandleUsed = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, Use));
+	HandleUsed->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrGirdleModelTypeCustomization::OnUsedChanged));
+
+
 	//столбец заголовка (левый)
 	HeaderRow.NameContent()
+		.HAlign(EHorizontalAlignment::HAlign_Fill)
 	[
 		SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().FillWidth(10)
+		+ SHorizontalBox::Slot().AutoWidth()
 		[
 			//текст названия пояса, thprax,pelvis
 			SNew(STextBlock)
@@ -142,11 +197,16 @@ void FMyrGirdleModelTypeCustomization::CustomizeHeader(
 			.ColorAndOpacity(FLinearColor(255, 255, 0, 255))
 			.Font(IDetailLayoutBuilder::GetDetailFontBold())
 		]
-		+ SHorizontalBox::Slot().FillWidth(4)
+		+ SHorizontalBox::Slot().FillWidth(10).HAlign(EHorizontalAlignment::HAlign_Left)
 		[
-			//чекбокс свойства "Leading"
-			SNew(SProperty, StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, Leading))).ShouldDisplayName(true)
+			//чекбокс свойства "Used"
+			SNew(SProperty, HandleUsed).ShouldDisplayName(true)
 		]
+		//чекбокс свойства "Leading"
+		+ SHorizontalBox::Slot().AutoWidth()
+		[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, Leading))->CreatePropertyNameWidget()	]
+		+ SHorizontalBox::Slot().AutoWidth()
+		[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, Leading))->CreatePropertyValueWidget()		]
 
 	]
 
@@ -205,11 +265,8 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 		//вроде как подвязка обработчика события изменения значения свойства
 		HandleLimbs[i].Get()->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrGirdleModelTypeCustomization::OnChanged));
 
-		//строка для свойства
-		StructBuilder.AddCustomRow(HandleLimbs[i]->GetPropertyDisplayName())
-
-			//левая часть - имя свойства и всё
-			.NameContent()
+		//левая часть - имя свойства и всё
+		RowWidgets[i] = StructBuilder.AddCustomRow(HandleLimbs[i]->GetPropertyDisplayName()).NameContent()
 			[
 				SNew(STextBlock)
 				.Text(FText::FromString(TEXT("===")))
@@ -217,7 +274,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 			]
 			//правая часть, помимо собственно битов частей тела тут ещё куча всего, так как много места 
 			.ValueContent().HAlign(HAlign_Fill)
-				[
+			[
 					//в одной ячейке стандартный виджет свойства, комбобокс с битами, поуже, во второй - строка расшифровки
 					SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().MaxWidth(80)
@@ -255,7 +312,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 					[
 						HandleB[i]->CreatePropertyValueWidget()
 					]
-				];
+			];
 	}
 
 }
@@ -307,6 +364,32 @@ void FMyrGirdleModelTypeCustomization::OnChanged()
 		DigestColor[i] = MakeDigestString(Val, Digest[i]);
 		Mnemo[i]->SetText(FText::FromString(Digest[i]));
 		Mnemo[i]->SetColorAndOpacity(DigestColor[i]);
+	}
+	if (PropertyUtilities.IsValid())
+		PropertyUtilities->RequestRefresh();
+}
+
+void FMyrGirdleModelTypeCustomization::OnUsedChanged()
+{
+	if(!HandleUsed.IsValid()) return;
+	bool Val; HandleUsed->GetValue(Val);
+	if(Val)
+	{
+		for (int i = 0; i < 5; i++)
+		{
+			RowWidgets[i].WholeRowContent().Widget->SetVisibility(EVisibility::Visible);
+			RowWidgets[i].ValueWidget.Widget->SetVisibility(EVisibility::Visible);
+			RowWidgets[i].NameWidget.Widget->SetVisibility(EVisibility::Visible);
+		}
+	}
+	else
+	{
+		for (int i = 0; i < 5; i++)
+		{
+			RowWidgets[i].WholeRowContent().Widget->SetVisibility(EVisibility::Collapsed);
+			RowWidgets[i].ValueWidget.Widget->SetVisibility(EVisibility::Collapsed);
+			RowWidgets[i].NameWidget.Widget->SetVisibility(EVisibility::Collapsed);
+		}
 	}
 	if (PropertyUtilities.IsValid())
 		PropertyUtilities->RequestRefresh();

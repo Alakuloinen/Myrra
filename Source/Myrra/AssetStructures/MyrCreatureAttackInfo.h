@@ -23,6 +23,7 @@ USTRUCT(BlueprintType) struct FActionCondition
 	//список состояний тела, в которых можно или нельзя выполнять это действие
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool StatesForbidden = true;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) TSet<EBehaveState> States;
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool StopIfNewStateForbids = false;
 
 	//список типов поверхностей, на которых это действие возможно... или, наоборот, запрещено
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool SurfacesForbidden = true;
@@ -167,9 +168,6 @@ public:
 
 	//новый способ совместить атаки и самодействия - массив типов жертв, обычно в нём только одна строчка
 	UPROPERTY(EditAnywhere, Category = "Victim", BlueprintReadWrite) TArray<FVictimType> VictimTypes;
-
-	//для прыжка поменять траекторию с направления атаки на минус направление атаки
-	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool ReverseJumpDir;
 
 	//если противник сам нас атакует, то вот это - его урон, который мы можем отразить этим действием (даже самодействием) как контратакой, если превышает, то прекратить атаку
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) float MaxDamageWeCounterByThis = 0.0f;

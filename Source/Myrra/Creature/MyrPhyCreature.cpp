@@ -110,7 +110,7 @@ void AMyrPhyCreature::PreInitializeComponents()
 	//подготовка к игре под капотом
 	Super::PreInitializeComponents();
 
-	//инициализируем начальное состояние поведение, чтобы не нарваться на пустоту
+	//инициализируем начальное состояние поведения, чтобы не нарваться на пустоту
 	if(GetGenePool()) BehaveCurrentData = *GetGenePool()->BehaveStates.Find(EBehaveState::walk);
 }
 
@@ -203,6 +203,9 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	if (HasAnyFlags(RF_ClassDefaultObject)) return;
 	if (IsTemplate()) return;
 
+	//для мертвого ничего больше не нужно, но что конкетно опустить, пока до конца не ясно
+	if (CurrentState == EBehaveState::dead) return;
+
 	//набор мощи для атаки/прыжка
 	if (AttackForceAccum > 0.0f && AttackForceAccum < 1.0f)
 		AttackForceAccum += DeltaTime;
@@ -232,14 +235,25 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 			if (LaunchResult == EAttackAttemptResult::STARTED) break;
 		}
 
-	//боль - усиленная разность старого, высокого здоровья и нового, сниженного мгновенным уроном. 
-	Pain *= 1 - DeltaTime * 0.7 * Health;
-
 	//восстановление запаса сил (используется та же функция, что и при трате)
 	StaminaChange (Mesh->DynModel->StaminaAdd * DeltaTime );										
 
+	//обнаруживание проваливания под землю и вырыв оттуда немедленно
+	auto eL = Mesh->DetectPasThrough();
+	if (eL != ELimb::NOLIMB)
+	{
+		FTransform T = GetActorTransform();
+		T.SetLocation(T.GetLocation() + FVector(0, 0, SpineLength));
+		TeleportToPlace(T);
+		UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s DetectPasThrough %s"),
+			*GetName(), *TXTENUM(ELimb, (EPhene)eL));
+	}
+
 	//обработка движений по режимам поведения 
 	ProcessBehaveState(DeltaTime);
+
+	//боль - усиленная разность старого, высокого здоровья и нового, сниженного мгновенным уроном. 
+	Pain *= 1 - DeltaTime * 0.7 * Health;
 
 	//включение и выключение режима кинематики может происходить в любой кадр, в зависимости от лода
 	bool needkin =  GetBehaveCurrentData()->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel();
@@ -267,18 +281,6 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 
 	//по идее здесь тичат компоненты
 	Super::Tick(DeltaTime);
-
-	//обнаруживание проваливания под землю и вырыв оттуда немедленно
-	auto eL = Mesh->DetectPasThrough();
-	if (eL != ELimb::NOLIMB)
-	{
-		FTransform T = GetActorTransform();
-		T.SetLocation(T.GetLocation() + FVector(0, 0, SpineLength));
-		TeleportToPlace(T);
-		UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s DetectPasThrough %s"),
-			*GetName(), *TXTENUM(ELimb, (EPhene)eL));
-	}
-
 
 	//фаза кинематической костыльной доводки до места или удержания на объекте
 /*	if (bKinematicRefine)
@@ -578,7 +580,6 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 		D->DoThis = ECreatureAction::NONE;
 		D->Release = false;
 	}
-
 }
 
 
@@ -708,22 +709,35 @@ void AMyrPhyCreature::MakePossessedByDaemon(AActor* aDaemon)
 //==============================================================================================================
 //применить пришедшую извне модель сил для всего тела
 //==============================================================================================================
-void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel, bool Fully)
+void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel)
 {
-	//полная замена дин модели, не только звук
-	if (Fully)
-	{
-		//сохранить модель
-		Mesh->DynModel = DynModel;
+	//явная ошибка
+	if (!DynModel) return;
 
+	//голос/общий звук прикреплен к дин-модели, хотя не физика/хз, нужно ли здесь и как управлять силой
+	MakeVoice(DynModel->Sound.Get(), 1, false);
+
+	//если предлагаемая модель не предназначена для внедрения, найти в стеке более раннюю
+	if (!DynModel->Use)
+	{	auto Subst = GetPriorityModel();
+		if (Mesh->DynModel == Subst) return; else
+			Mesh->DynModel = Subst;
+	}
+	else Mesh->DynModel = DynModel;
+
+	//если не для галочки, принять общие настройки для всех поясов
+	if (Mesh->DynModel->Use)
+	{
 		//напрячь или расслабить спину
-		Mesh->SetSpineStiffness(DynModel->SpineStiffness * FMath::Min(Health*5, 1.0f));
+		Mesh->SetSpineStiffness(Mesh->DynModel->SpineStiffness * FMath::Min(Health * 5, 1.0f));
 
 		//фаза подготовки и стартовая доля силы
-		if (DynModel->JumpImpulse < 0) AttackForceAccum = -DynModel->JumpImpulse;
+		if (Mesh->DynModel->PreJump)
+			AttackForceAccum = 0.1f;
 
 		//текущая фаза - прыгнуть
-		if (DynModel->JumpImpulse > 0) JumpAsAttack();
+		if (Mesh->DynModel->JumpImpulse > 0 || Mesh->DynModel->MotionGain > 1)
+			JumpAsAttack();
 
 		//применить новые настройки динамики движения/поддержки для частей тела поясов
 		Thorax->AdoptDynModel(DynModel->Thorax);
@@ -732,10 +746,7 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 		//в дин-моделях есть замедлитель тяги, чтобы его прменить, нужно вызвать вот это
 		UpdateMobility();
 	}
-
-	//голос/общий звук прикреплен к дин-модели, хотя не физика/хз, нужно ли здесь и как управлять силой
-	MakeVoice(DynModel->Sound.Get(), 1, false);
-
+	
 }
 
 //==============================================================================================================
@@ -743,13 +754,16 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 //==============================================================================================================
 void AMyrPhyCreature::KinematicMove(FTransform Dst)
 {
+	//сначала безусловно подвинуть тушку в нужное место
 	Mesh->SetWorldTransform(Dst, false, nullptr, ETeleportType::TeleportPhysics);
+
+	//затем вручную пристыковать якоря к поясам конечностей, так как они не наследуют движение
 	Thorax->ForceMoveToBody();
 	Pelvis->ForceMoveToBody();
 }
 
 //==============================================================================================================
-//телепортировать на место - разовая акция
+//телепортировать на место - разовая акция, теперь возможно, лишнее
 //==============================================================================================================
 void AMyrPhyCreature::TeleportToPlace(FTransform Dst)
 {
@@ -787,48 +801,24 @@ void AMyrPhyCreature::SetKinematic(bool Set)
 //==============================================================================================================
 void AMyrPhyCreature::ClimbTryActions()
 {
-	//удачно зацепились
+	//удачно зацепились - прервать все действия, чтоб не мешались
 	if (Thorax->Climbing || Pelvis->Climbing)
 		CeaseActionsOnHit();
+
+	//не получилось сразу зацепиться, выяснить почему
 	else
 	{
+		//поверхность не пригодна для лазанья
 		if (!Mesh->Thorax.IsClimbable())
 		{
-			if (Mesh->Erection() < 0.7)
+			//попытаться все же подпрыгнуть одной из чстей тела
+			if (SpineVector.Z < 0.7)
 				ActionFindStart(ECreatureAction::SELF_PRANCE1);
 			else ActionFindStart(ECreatureAction::SELF_PRANCE_BACK);
 		}
 	}
+	//это хз зачем здесь
 	bWannaClimb = false;
-	//подробная реализация, с подпрыгом, если нужно
-	//Mesh->ClingGetReady(Set);
-	
-	//только происходит включение
-/*	if (bClimb)
-	{
-		//флаг, что получилось зацепиться вот прям сразу
-		auto CanCling = Thorax->CanGirdleCling();
-		UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: ClingGetReady %s"), *GetOwner()->GetName(), *TXTENUM(EClung, CanCling));
-		switch (CanCling)
-		{
-			//можно цепляться прямо сейчас
-			case EClung::Recreate:
-				//UpdateCentralConstraint(gThorax, gThorax.Vertical, gThorax.NoTurnAround, true);
-				break;
-
-			//нормально не стоим - попытаться сначала встать
-			case EClung::BadAngle:
-				ActionFindStart(ECreatureAction::SELF_WRIGGLE1);
-				break;
-
-			//нет нормальной опоры - попытаться встать на дыбы передом или задом (это больше для прочих дел)
-			case EClung::BadSurface:
-			case EClung::NoClimbableSurface:
-				if (Mesh->Erection() < 0.7)
-					ActionFindStart(ECreatureAction::SELF_PRANCE1);
-				else ActionFindStart(ECreatureAction::SELF_PRANCE_BACK);
-		}
-	}*/
 }
 
 
@@ -974,7 +964,7 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 }
 
 //==============================================================================================================
-//найти объект в фокусе - для демона, просто ретранслятор из ИИ, чтобы демон не видел ИИ
+//найти объект в фокусе - для духа игрока, просто ретранслятор из ИИ, чтобы дух не видел ИИ
 //==============================================================================================================
 int AMyrPhyCreature::FindObjectInFocus(const float Devia2D, const float Devia3D, AActor*& Result, FText& ResultName)
 {
@@ -998,7 +988,7 @@ void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVect
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s Hurt %g at %s"), *GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
 	FQuat4f ExactHitRot = FRotationMatrix44f::MakeFromX(Normal).ToQuat();
 
-	//сразу здесь увеличить урон, ибо в иных случаях эта переменная не увеличивается
+	//увеличить урон сразу здесь, ибо в иных случаях эта переменная не увеличивается
 	Limb.Damage += Amount;
 
 	//привнести толику в общую боль
@@ -1210,7 +1200,7 @@ void AMyrPhyCreature::SoundOfImpact(FSurfaceInfluence* StepSurfInfo, EMyrSurface
 //запустить брызг частиц пыли и т.п. из чего состоит заданная поверхность
 // здесь, возможно, ещё задавать цвет, чтобы, например, черный кот не брызгал белой шерстью
 //==============================================================================================================
-void AMyrPhyCreature::SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale)
+/*void AMyrPhyCreature::SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale)
 {
 	//◘ создать ad-hoc компонент источник и тут же запустить на нем найденную сборку частиц
 	auto ParticleSystem = UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), Dust,
@@ -1227,9 +1217,11 @@ void AMyrPhyCreature::SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, F
 	ParticleSystem->SetFloatParameter(TEXT("Amount"), Scale);
 	ParticleSystem->SetFloatParameter(TEXT("Velocity"), Scale);
 	ParticleSystem->SetFloatParameter(TEXT("FragmentStartAlpha"), Scale);
-}
+}*/
 
+//==============================================================================================================
 //новая версия с ниагарой
+//==============================================================================================================
 void AMyrPhyCreature::SurfaceBurst(UNiagaraSystem* Dust, FVector ExactHitLoc, FQuat4f ExactHitRot, float BodySize, float Scale)
 {
 	auto ParticleSystem = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Dust, ExactHitLoc, FRotator((FQuat)ExactHitRot), FVector(1, 1, 1), true);
@@ -1266,7 +1258,6 @@ void AMyrPhyCreature::MakeVoice(USoundBase* Sound, uint8 strength, bool interrup
 		Voice->SetIntParameter(TEXT("Strength"), strength);
 		Voice->Play();
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s MakeVoice %s"), *GetName(), *Sound->GetName());
-
 	}
 }
 
@@ -1290,7 +1281,6 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	{	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s AdoptBehaveState %s cancelled by min velocity"), *GetName(), *TXTENUM(EBehaveState, NewState));
 		return false;
 	}
-
 
 	//сбросить счетчик секунд на состояние
 	StateTime = 0.0f;
@@ -1322,20 +1312,24 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	//урон физическими ударами может быть включен или отключен
 	Mesh->InjureAtHit = BehaveCurrentData->HurtAtImpacts;
 
-	//если самодействие может только в отдельных состояниях и новое состояние в таковые не входит - тут же запустить выход
+	//если действие может только в отдельных состояниях и новое состояние в таковые не входит - тут же запустить выход
 	if (DoesSelfAction())
-	{	if (GetSelfAction()->Condition.States.Contains(NewState) == GetSelfAction()->Condition.StatesForbidden)
+	{	if (GetSelfAction()->Condition.States.Contains(NewState) == GetSelfAction()->Condition.StatesForbidden && GetSelfAction()->Condition.StopIfNewStateForbids)
 			SelfActionCease();
 	}
+	if (DoesAttackAction())
+	{	if (GetAttackAction()->Condition.States.Contains(NewState) == GetAttackAction()->Condition.StatesForbidden && GetAttackAction()->Condition.StopIfNewStateForbids)
+			NewAttackEnd();
+	}
 	if (!NoRelaxAction())
-	{	if (GetRelaxAction()->Condition.States.Contains(NewState) == GetRelaxAction()->Condition.StatesForbidden)
+	{	if (GetRelaxAction()->Condition.States.Contains(NewState) == GetRelaxAction()->Condition.StatesForbidden && GetRelaxAction()->Condition.StopIfNewStateForbids)
 			RelaxActionStartGetOut();
 	}
 
 	//применить новые настройки динамики движения/поддержки для частей тела поясов
 	//ВНИМАНИЕ, только когда нет атаки, в атаках свои дин-модели по фазам, если применить, эти фазы не отработают
 	if(NoAnyAction())
-		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
+		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel);
 
 	//если управляется демоном игрока
 	if (Daemon)
@@ -1470,7 +1464,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(crouch,		GotLandedAny(200));
 			break;
 
-		//опрокидывание (пассивное лежание (выход через действия а не состояния) и активный кувырок помимо воли)
+		//опрокидывание (пассивное лежание выход через действия а не состояния) 
 		case EBehaveState::lie:
 			BEWARE(dying,		Health <= 0);
 			BEWARE(fall,		!GotLandedAny(5) || FMath::Abs(SpineVector.Z)>0.5);
@@ -1478,9 +1472,10 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(crouch,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;
 
+		//кувыркание, активная попытка встать со спины на ноги
 		case EBehaveState::tumble:
 			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
+			BEWARE(fall,		!GotLandedAny(5));
 			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain < 0.1f);
 			BEWARE(crouch,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;
@@ -1495,6 +1490,9 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			bClimb = 0;
 			Health = 0.0f;
 			Stamina = -1;
+			Pain = 0.0f;
+			Thorax->DetachFromBody();
+			Pelvis->DetachFromBody();
 			break;
 
 		//окончательная смерть с окоченением, поджиманием лапок
@@ -1511,9 +1509,9 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 
 
 //==============================================================================================================
-//начать атаку (внимание, проверок нет, применимость атаки должна проверяться заранее)
+//начать атаку (внимание, сложных проверок нет, применимость атаки должна проверяться заранее)
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::NewAttackStart(int SlotNum, int VictimType)
+EAttackAttemptResult AMyrPhyCreature::AttackActionStart(int SlotNum, int VictimType)
 {
 	//в генофонде ни одна атака не заполнена на кнопку, из которой вызвалась эта функция
 	if (SlotNum == 255) return EAttackAttemptResult::WRONG_PHASE;//◘◘>;
@@ -1533,7 +1531,7 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStart(int SlotNum, int VictimType
 	//отправить просто звук атаки, чтобы можно было разбегаться (кстати, ввести эту возможность)
 	MyrAI()->LetOthersNotice(EHowSensed::ATTACKSTART);
 
-	//врубить атаку текущей
+	//теперь эта атака точно разрешена к началу, врубить атаку текущей
 	CurrentAttack = SlotNum;
 	CurrentAttackVictimType = VictimType;
 	NewAdoptAttackPhase(EActionPhase::ASCEND);
@@ -1558,7 +1556,7 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStart(int SlotNum, int VictimType
 	}
 
 	//настроить физику членов в соответствии с фазой атаки (UpdateMobility внутри)
-	AdoptWholeBodyDynamicsModel(&Action->DynModelsPerPhase[(int)CurrentAttackPhase], true);
+	AdoptWholeBodyDynamicsModel(&Action->DynModelsPerPhase[(int)CurrentAttackPhase]);
 
 	//обнаружить, что мы пересекаем умный объём и передать ему, что мы совершаем, возможно, судьбоносное действие
 	if (VictimMod.SendApprovalToTriggerOverlapperOnStart)
@@ -1575,7 +1573,7 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStart(int SlotNum, int VictimType
 //==============================================================================================================
 // вызвать переход атаки из подготовки в удар (внимание, проверок нет, применимость атаки должна проверяться заранее)
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::NewAttackStrike()
+EAttackAttemptResult AMyrPhyCreature::AttackActionStrike()
 {
 	//если просят применить атаку, а ее нет
 	if (CurrentAttack == 255) return EAttackAttemptResult::WRONG_PHASE;//◘◘>
@@ -1595,9 +1593,9 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStrike()
 			NewAdoptAttackPhase(EActionPhase::RUSH);
 			return EAttackAttemptResult::RUSHED_TO_STRIKE;//◘◘>
 
-		//подготовка завершена, можно вдарить
+		//подготовка завершена, можно вдарить сразу
 		case EActionPhase::READY:
-			return NewAttackStrikePerform();//№№№◘◘>
+			return AttackActionStrikePerform();//№№№◘◘>
 
 		//переудар поверх удара - пока есть бюджет повторов, отправить вспять, чтобы ударить повторно
 		case EActionPhase::STRIKE:
@@ -1618,7 +1616,7 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStrike()
 //==============================================================================================================
 //непосредственное применение атаки - переход в активную фазу
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::NewAttackStrikePerform()
+EAttackAttemptResult AMyrPhyCreature::AttackActionStrikePerform()
 {
 	//полная связка настроек
 	auto Action = GenePool->Actions[CurrentAttack];
@@ -1653,12 +1651,12 @@ EAttackAttemptResult AMyrPhyCreature::NewAttackStrikePerform()
 	GetMyrGameInst()->Statistics.AttacksMade++;
 
 	//диагностика
-	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s NewAttackStrikePerform %d"), *GetName(), CurrentAttack);
+	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s AttackActionStrikePerform %d"), *GetName(), CurrentAttack);
 	return EAttackAttemptResult::STROKE;//◘◘>
 }
 
 //==============================================================================================================
-//переключить фазу атаки со всеми сопутстивующими
+//переключить фазу атаки со всеми сопутствующими
 //==============================================================================================================
 void AMyrPhyCreature::NewAdoptAttackPhase(EActionPhase NewPhase)
 {
@@ -1687,7 +1685,7 @@ void AMyrPhyCreature::NewAdoptAttackPhase(EActionPhase NewPhase)
 	if(OnVictim.UngrabPhase == CurrentAttackPhase) UnGrab();
 
 	//настроить физику членов в соответствии с фазой атаки (UpdateMobility внутри)
-	AdoptWholeBodyDynamicsModel(&Action->DynModelsPerPhase[(int)CurrentAttackPhase], Action->UseDynModels);
+	AdoptWholeBodyDynamicsModel(&Action->DynModelsPerPhase[(int)CurrentAttackPhase]);
 
 }
 
@@ -1706,13 +1704,13 @@ void AMyrPhyCreature::NewAttackGetReady()
 		//только если данный тип атаки позволяет делать дополнительные повторы в требуемом количестве
 		//иначе так и остаться на режиме DESCEND до самого края анимации
 		if(GetAttackActionVictim().NumInstantRepeats > CurrentAttackRepeat)
-		{	NewAttackStrikePerform();
+		{	AttackActionStrikePerform();
 			CurrentAttackRepeat++;
 		}
 	}
 
 	//если атака одобрена заранее, мы домчались до порога и просто реализуем атаку
-	else if (CurrentAttackPhase == EActionPhase::RUSH) NewAttackStrikePerform ();
+	else if (CurrentAttackPhase == EActionPhase::RUSH) AttackActionStrikePerform ();
 }
 
 //==============================================================================================================
@@ -1727,10 +1725,6 @@ void AMyrPhyCreature::NewAttackEnd()
 
 	//аварийный сброс всех удерживаемых предметов, буде таковые имеются
 	UnGrab();
-
-	//возвратить режимноуровневые настройки динамики для поясов конечностей
-	//тут некорректно, если выполняется еще и самодействие, но пуская пока так
-	AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
 
 	//если атака сопровождалась эффектами размытия в движении, 
 	if (Daemon)
@@ -1749,6 +1743,9 @@ void AMyrPhyCreature::NewAttackEnd()
 	CurrentAttackPhase = EActionPhase::NONE;
 	CurrentAttack = 255;
 	CurrentAttackRepeat = 0;
+
+	//снять дин-модель, данную этой завершенной атакой, в пользу нижележащей (обычно это из behavestate)
+	AdoptWholeBodyDynamicsModel(GetPriorityModel());
 
 }
 
@@ -1787,7 +1784,7 @@ bool AMyrPhyCreature::NewAttackNotifyGiveUp()
 //==============================================================================================================
 void AMyrPhyCreature::NewAttackNotifyFinish()
 {
-	//если до этого атака была в активной фазе, то
+	//если до этого атака была в активной фазе, то финиш - это ее логичное окончание
 	if(CurrentAttackPhase == EActionPhase::STRIKE)
 	{
 		//если в атаке использовалось автонацеливание, завершить его, полностью передать управление игроку
@@ -1797,6 +1794,12 @@ void AMyrPhyCreature::NewAttackNotifyFinish()
 
 		//перевести ее в фазу финального закругления
 		NewAdoptAttackPhase(EActionPhase::FINISH);
+	}
+	else
+	{
+		UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s NewAttackNotifyFinish %s WTF wrong state, phase = %s"),
+		*GetName(), *GetCurrentAttackName(), *TXTENUM(EActionPhase, CurrentAttackPhase));
+		NewAttackEnd();
 	}
 }
 
@@ -1818,6 +1821,11 @@ void AMyrPhyCreature::NewAttackNotifyEnd()
 //==============================================================================================================
 bool AMyrPhyCreature::JumpAsAttack()
 {
+	if (IS_MACRO(CurrentState, AIR))
+	{
+		return false;
+	}
+
 	//пересчитать подвижность безотносительно тяги(которой может не быть если WASD не нажаты)
 	UpdateMobility(false);	
 
@@ -1856,15 +1864,17 @@ bool AMyrPhyCreature::JumpAsAttack()
 		//техническая часть прыжка - одновременное гарцевание обоими поясами
 		Thorax->PhyPrance(JumpDir, Long, Up);
 		Pelvis->PhyPrance(JumpDir, Long, Up);
+		AttackForceAccum = 0;
+		return true;
 	}
 	//если импуль вышел нулевым, это от усталости или ран, нужно выдать самодействия
 	else
 	{
 		ActionFindStart(ECreatureAction::COMPLAIN_TIRED);
+		AttackForceAccum = 0;
+		return false;
 	}
 
-
-	AttackForceAccum = 0;
 	return false;
 }
 
@@ -2107,7 +2117,7 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
 			//а мы условились, что ИИ не вызывает эту функцию для пользовательских атак
 			//ИИ перебирает их отдельно и вызывает у NewAttackStart себя сам
 			if (GenePool->Actions[BestAction]->IsAttack())
-				R = NewAttackStart(BestAction);
+				R = AttackActionStart(BestAction);
 
 			//это действие - релакс, так как 3 фазы четко соответствуют входу, пребыванию, выходу
 			else if(GenePool->Actions[BestAction]->IsRelax())
@@ -2143,17 +2153,29 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindRelease(ECreatureAction Type, UP
 	//по умолчанию для неудачи непонятной
 	R = EAttackAttemptResult::FAILED_TO_STRIKE;
 
-	//если выполняется действие-атака
+	//если выполняется действие-атака и именно то выполняетсяч действие, которое мы хотим продолжить
 	if (DoesAttackAction() && GetAttackAction()->Type == Type)
 	{
 		//не проверяем, муторно - этот тракт не вызывается из ИИ - сразу вдаряем
-		R = NewAttackStrike();
+		R = AttackActionStrike();
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindRelease %s %s"), *GetName(),
 			*GetAttackAction()->GetName(), *TXTENUM(EAttackAttemptResult, R));
 	}
 	//выполняется действие-релакс - отжатие есть старт выхода из релакса
 	else if(DoesRelaxAction() && GetRelaxAction()->Type == Type)
 		RelaxActionStartGetOut();
+
+	//такое не бывает, но надо предусмотреть
+	else if (DoesSelfAction() && GetSelfAction()->Type == Type)
+	{	UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s ActionFindRelease WTF SelfAction Release %s"), *GetName(),
+			*TXTENUM(ECreatureAction, Type ));
+	}
+
+	//прочие соотношения, неясно, стоит или их рассматривать
+	else
+	{
+
+	}
 
 	//неведомое умолчание
 	return R;
@@ -2180,7 +2202,7 @@ void AMyrPhyCreature::SelfActionStart(int SlotNum)
 
 		//теперь можно стартовать
 		CurrentSelfAction = SlotNum;
-		AdoptWholeBodyDynamicsModel(&GetSelfAction()->DynModelsPerPhase[SelfActionPhase], GetSelfAction()->UseDynModels);
+		AdoptWholeBodyDynamicsModel(&GetSelfAction()->DynModelsPerPhase[SelfActionPhase]);
 
 		//отправить символический звук выражения, чтобы очевидцы приняли во внимание и эмоционально пережили
 		//здесь вообще-то нужно не для каждого самодействия, а только для значимых и видных
@@ -2201,7 +2223,7 @@ void AMyrPhyCreature::SelfActionNewPhase()
 	//если слот самодействия доступен
 	if (CurrentSelfAction != 255)
 	{	SelfActionPhase++;
-		AdoptWholeBodyDynamicsModel(&GetSelfAction()->DynModelsPerPhase[SelfActionPhase], GetSelfAction()->UseDynModels);
+		AdoptWholeBodyDynamicsModel(&GetSelfAction()->DynModelsPerPhase[SelfActionPhase]);
 	}
 }
 
@@ -2228,8 +2250,8 @@ void AMyrPhyCreature::SelfActionCease()
 		CurrentSelfAction = 255;
 		SelfActionPhase = 0;
 
-		//применить новые настройки динамики движения/поддержки для частей тела поясов
-		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
+		//сняв модель самодействия, вернуть нижележащую модель
+		AdoptWholeBodyDynamicsModel(GetPriorityModel());
 
 		//удалить в худе имя начатого действия
 		if (Daemon) Daemon->HUDOfThisPlayer()->OnAction(1, false);
@@ -2277,7 +2299,7 @@ void AMyrPhyCreature::RelaxActionStart(int Slot)
 	RelaxActionPhase = 0;
 
 	//применить новые настройки динамики движения/поддержки для частей тела поясов
-	AdoptWholeBodyDynamicsModel(&GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase], GetRelaxAction()->UseDynModels);
+	AdoptWholeBodyDynamicsModel(&GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase]);
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s RelaxActionStart %s"), *GetName(), *GetRelaxAction()->GetName());
 
 }
@@ -2295,7 +2317,7 @@ void AMyrPhyCreature::RelaxActionReachPeace()
 		if(RelaxActionPhase==0) RelaxActionPhase = 1;
 
 		//в обоих случаях применить новую фазу на уровне физики тела
-		AdoptWholeBodyDynamicsModel(&GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase], GetRelaxAction()->UseDynModels);
+		AdoptWholeBodyDynamicsModel(&GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase]);
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s RelaxActionReachPeace %s"), *GetName(), *GetRelaxAction()->GetName());
 
 		//отметить событие
@@ -2327,13 +2349,13 @@ void AMyrPhyCreature::RelaxActionReachEnd()
 	//если реально делаем жест отдыха в фазе установившегося действия - перейти к следующей фазе, закруглению
 	if (CurrentRelaxAction != 255 && RelaxActionPhase == 2)
 	{		
-		//вернуть настройки динамики уровня выше - уровня состояния поведения
-		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel, true);
-
 		//отметить событие
 		CatchMyrLogicEvent(EMyrLogicEvent::SelfRelaxEnd, 1.0f, GetRelaxAction());
 		RelaxActionPhase = 0;
 		CurrentRelaxAction = 255;
+
+		//вернуть настройки динамики уровня выше - уровня состояния поведения
+		AdoptWholeBodyDynamicsModel(GetPriorityModel());
 	}
 }
 

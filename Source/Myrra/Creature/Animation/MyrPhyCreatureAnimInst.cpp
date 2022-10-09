@@ -54,6 +54,10 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	if (!Ma->Bodies.Num()) return;
 	if (!Ma->DynModel) return;
 
+	//телосложенине
+	if(Creature->GetGenePool()->PhysiquePoses.Num() > Creature->Physique)
+		Physique = Creature->GetGenePool()->PhysiquePoses[Creature->Physique];
+
 	//тело рисуется в максимальной детализации, это первые два лода
 	//нулевой лод это вообще ультра прямо перед глазами, поэтому берется еще и первый
 	const bool AllowMoreCalc = (GetLODLevel() <= 1);
@@ -265,7 +269,8 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 	if (!PhyGirdle->CurrentDynModel) return;
 
 	//скорость берется 1/100, чтобы проще было ассоциировать с animation Rate, который хорош когда 1.0
-	FVector3f DirVel = PhyGirdle->VelocityAgainstFloor * 0.01;
+	//делится на масштаб, чтобы маленький котенок чаще семенил ногами
+	FVector3f DirVel = PhyGirdle->VelocityAgainstFloor * 0.01 / M->GetComponentScale().X;
 
 	//проекции скорости - вдоль туловища и поперек туловища
 	AnimGirdle.GainDirect =		DirVel | PhyGirdle->GuidedMoveDir;
@@ -281,12 +286,9 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 
 	if (PhyGirdle->HasLegs)
 	{
-
 		//вот через такую жопу добывается радиус сферы - тут важно, чтобы сфера существовала, но проверять надо не здесь
 		const auto CeLimb = PhyGirdle->GetLimb(EGirdleRay::Center);
 		const auto SpLimb = PhyGirdle->GetLimb(EGirdleRay::Spine);
-		//SetLimbTransform(PhyGirdle->GetLimb(EGirdleRay::Right), CeLimb, SpLimb, &RUpDown, WheelRadius, AnimGirdle, -1);
-		//SetLimbTransform(PhyGirdle->GetLimb(EGirdleRay::Left), CeLimb, SpLimb, &LUpDown, WheelRadius, AnimGirdle, 1);
 		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Right), &RUpDown);
 		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
 	}

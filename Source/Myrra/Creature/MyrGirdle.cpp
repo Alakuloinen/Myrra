@@ -128,7 +128,7 @@ void UMyrGirdle::BeginPlay()
 	CI->SetLinearPositionDrive(false, false, false);
 	CI->SetLinearDriveParams(6000, 100, 10000);
 	CI->SetAngularDriveMode(EAngularDriveMode::TwistAndSwing);
-	CI->SetAngularDriveParams(8000, 200, 10000);
+	CI->SetAngularDriveParams(9000, 200, 10000);
 	CI->SetOrientationDriveTwistAndSwing(false, false);
 
 
@@ -238,19 +238,25 @@ void UMyrGirdle::SetSpineLock(bool Set)
 //==============================================================================================================
 //влить динамическую модель 
 //==============================================================================================================
-void UMyrGirdle::AdoptDynModel(FGirdleDynModels& Models)
+bool UMyrGirdle::AdoptDynModel(FGirdleDynModels& Models)
 {
+	FGirdleDynModels* ExtIfNotUse = MyrOwner()->GetPriorityModel(IsThorax);
+
+	//если текущая модель просто для порядка следования и не используется
+	if (!Models.Use)
+		CurrentDynModel = MyrOwner()->GetPriorityModel(IsThorax);
+
 	//сохранить связку, так как в процессе понадобится уточнять
-	CurrentDynModel = &Models;
+	else CurrentDynModel = &Models;
 
 	//влить почленно
-	me()->AdoptDynModelForLimb(LMB(Center), Models.Center, Models.CommonDampingIfNeeded);
-	me()->AdoptDynModelForLimb(LMB(Spine), Models.Spine, Models.CommonDampingIfNeeded);
-	me()->AdoptDynModelForLimb(LMB(Tail), Models.Tail, Models.CommonDampingIfNeeded);
+	me()->AdoptDynModelForLimb(LMB(Center), CurrentDynModel->Center, CurrentDynModel->CommonDampingIfNeeded);
+	me()->AdoptDynModelForLimb(LMB(Spine), CurrentDynModel->Spine, CurrentDynModel->CommonDampingIfNeeded);
+	me()->AdoptDynModelForLimb(LMB(Tail), CurrentDynModel->Tail, CurrentDynModel->CommonDampingIfNeeded);
 
 	//запретить ногам махать вдоль спины - сомнительная надобность, опасно
-	SetSpineLock(Models.LegsSwingLock);
-
+	SetSpineLock(CurrentDynModel->LegsSwingLock);
+	return CurrentDynModel->Use;
 }
 
 
@@ -287,20 +293,30 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	//противоположный пояс - нужен при расчётё ведомого
 	auto Opposite = MyrOwner()->GetAntiGirdle(this);
 
-	//направление - по умолчанию по оси таза вниз
+	//нормальное приятие поверхности = она пологая или по ней можно карабкаться
+	bool Steppable = StartLimb.ImpactNormal.Z > 0.5 || Climbing;
+
+	//направление - по умолчанию по оси таза вниз, крутится вместе с телом
 	FVector3f LookAt = LAXIS(StartLimb, Down);
 
-	//дописать расчёт и передачу в функцию расчёта ног
-	float Curvature = 0;
-
-	//если уже есть твердь, то можно уточнить, куда щупать
+	//если уже есть твердь, то мы знаем нормаль и суть поверхности, можно уточнить, куда щупать
 	if (StartLimb.Stepped >= STEPPED_MAX-2)
 	{
-		//на тонкой ветви надо жестко ориентироваться в центр цилиндра, иначе будет качаться
+		//на ветви ориентироваться в центр цилиндра, иначе будет качаться
 		if (StartLimb.OnCapsule())
-		{	LookAt = (FVector3f)(StartLimb.Floor->GetCOMPosition() - Start);
-			PROJ(LookAt,StartLimb.GetBranchDirection());
-			LookAt.Normalize();
+		{	
+			//если мы на капсуле не просто так, а реально способны удержаться
+			if (Steppable)
+			{
+				//сначала смотрим из холки в центр масс капсулы
+				LookAt = (FVector3f)(StartLimb.Floor->GetCOMPosition() - Start);
+
+				//проецируем этот косой длинный вектор на плоскость круглого среза ветки
+				//получается вектор, направленный на ближайшую точку оси капсулы
+				PROJ(LookAt, StartLimb.GetBranchDirection());
+				LookAt.Normalize();
+			}
+			else LookAt = LAXIS(StartLimb, Down);
 		}
 
 		//если жесткая вертикаль, то вне зависимости от крена таза щупать строго вниз
@@ -360,7 +376,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	float FallSeverity = 0.0f;
 
 	//нормальное приятие поверхности = она пологая или по ней можно карабкаться
-	bool Steppable = StartLimb.ImpactNormal.Z > 0.5 || Climbing;
+	Steppable = Hit.ImpactNormal.Z > 0.5 || Climbing;
 
 	//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 	//нашупали правильную опору
@@ -368,6 +384,16 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	{
 		//считанная нормаль
 		auto NewNormal = (FVector3f)Hit.ImpactNormal;
+
+		//для хода по капсуле (ветке) 
+		if (StartLimb.OnCapsule() && Steppable)
+		{
+			//не допускать загиба нормали на залупах капсулы
+			PROJ(NewNormal, StartLimb.GetBranchDirection());
+
+			//коррекция точки контакта, чтобы позиция туловища, точка контакта и точка на оси были на одной прямой
+			Hit.ImpactPoint = (Hit.ImpactPoint - Start).ProjectOnToNormal(Hit.ImpactNormal) + Start;
+		}
 
 		//если извне хочется лазать по цепкой поверхности
 		if (MyrOwner()->bClimb)
@@ -380,8 +406,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 
 			//условия поддержания состояния лазанья
 			else
-			{
-				if (!Climbable)
+			{	if (!Climbable)
 					UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s: SenseForAFloor No Climbable!"), *GetOwner()->GetName());
 				Climbing = Climbable;
 			}
@@ -401,8 +426,8 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 			//безусловно вписать новую опору, чтобы расчитать силу удара  - пусть даже эта повторится ниже
 			me()->GetFloorFromHit(StartLimb, Hit);
 
-			//сила удара, урон
-			FallSeverity = me()->ShockResult(StartLimb, me()->BodySpeed(StartLimb).Z, Hit.Component.Get());
+			//сила удара, урон, скорость берется по оси нормали, чтобы избежать касательных быстрот, но общий модуль тоже учитывается
+			FallSeverity = me()->ShockResult(StartLimb, (VelocityAgainstFloor | (-NewNormal)) + Speed * 0.1, Hit.Component.Get());
 
 			//если долго летели, то сильно пригнуться, так проще, чем брать скорость или урон
 			Crouch = Crouch + FallSeverity * 5;
@@ -459,7 +484,8 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 			else DueUp = FVector3f::UpVector;
 
 			//скорректировать относительную скорость 
-			RelativeSpeedAtPoint -= (FVector3f)StartLimb.Floor->GetUnrealWorldVelocityAtPoint(Hit.ImpactPoint) * Weight;
+			if(StartLimb.Floor->OwnerComponent->Mobility == EComponentMobility::Movable)
+				RelativeSpeedAtPoint -= (FVector3f)StartLimb.Floor->GetUnrealWorldVelocityAtPoint(Hit.ImpactPoint) * Weight;
 
 			//отладка веса шага
 			LINELIMBWTC(ELimbDebug::GirdleStepWeight, StartLimb, (FVector)StartLimb.ImpactNormal * 15, 1, 0.03, Weight);
@@ -467,7 +493,9 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		//нащупали недостижимую поверхность
 		else
 		{
+			//сорваться/соскользнуть
 			FixedOnFloor = false;
+
 			//фэйковая точка контакта для расчёта раскоряки ног SenseFootAtStep
 			Hit.ImpactPoint = Start + (FVector)LAXIS(StartLimb, Down) * Elevation;
 		}
@@ -500,20 +528,6 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 				if (BumpInAmount > 0)
 					GuidedMoveDir.Z += (Climbing ? 2 : 1) * BumpInAmount * FMath::Sign(NoLookDown);
 			}
-
-			//если ползем по ветке, дополнительно сдерживать курс вдоль ветки
-			if (StartLimb.OnCapsule() && Steppable)
-			{
-				//направление вдоль ветки в сторону уже выработанного курса
-				float Coaxis = 0.0f;
-				auto DirAlong = StartLimb.GetBranchDirection(GuidedMoveDir, Coaxis);
-
-				//добавить направление вдоль ветки
-				GuidedMoveDir += DirAlong * Coaxis;
-
-				//добавить направление вверх, чтобы переместиться в седло ветки
-				GuidedMoveDir += FVector3f::UpVector * (1 - DirAlong.Z * DirAlong.Z) * (1 - StartLimb.ImpactNormal.Z);
-			}
 		}
 		//вектор курса для ведомого
 		else
@@ -524,6 +538,21 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 			//костыль: если верх уже зацепился, а низ пришпилен к земле, отпустить низ и подтянуть к верху
 			if (Opposite->Climbing && !Climbing)
 				FixedOnFloor = false;
+		}
+
+		//если ползем по ветке, дополнительно сдерживать курс вдоль ветки
+		//это для всех поясов, и ведомых тоже
+		if (FixedOnFloor && StartLimb.OnCapsule() && Steppable)
+		{
+			//направление вдоль ветки в сторону уже выработанного курса
+			float Coaxis = 0.0f; // и выдать степень соосности, чтобы поправлять только если пользователь действительно направил вдоль
+			auto DirAlong = StartLimb.GetBranchDirection(GuidedMoveDir, Coaxis);
+
+			//добавить направление вдоль ветки
+			GuidedMoveDir += DirAlong * Coaxis;
+
+			//добавить направление вверх, чтобы переместиться в седло ветки
+			GuidedMoveDir += FVector3f::UpVector * (1 - DirAlong.Z * DirAlong.Z) * (1 - StartLimb.ImpactNormal.Z);
 		}
 
 		//если имеется сильная уткнутость, то обтекаем препятствие
@@ -540,11 +569,17 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		{
 			//порог разрыва мал при лазаньи, иначе велик, но уменьшается на высокой скорости и при упертости
 			float UnSplit = Opposite->GuidedMoveDir | GuidedMoveDir;
-			if (UnSplit < (Climbing ? 0.5f : (-0.5 + Speed * 0.002 + me()->Bumper1().GetBumpCoaxis() * 0.4)))
+			if (Climbing)
 			{
-				//крайний случай - просто оторвать ведомый от поверхности и предоставить слово физдвижку
-				FixedOnFloor = false;
+				//сильное отклонение - просто оторвать ведомый от поверхности и предоставить слово физдвижку
+				if(UnSplit < 0.0f) FixedOnFloor = false; else
+
+				//при небольшом отклонении заново вернуть ведомому простое направление на ведущий
+				if(UnSplit<0.5) GuidedMoveDir = MyrOwner()->SpineVector * (IsThorax ? -1 : 1);
 			}
+			//для нелазательного движения только терминальный случай, когда разрыв велик, но уменьшается на высокой скорости и при упертости
+			else if (UnSplit < -0.5 + Speed * 0.002 + me()->Bumper1().GetBumpCoaxis() * 0.4)
+				FixedOnFloor = false;
 		}
 
 		//ориентировать якорь по посчитанному
@@ -562,26 +597,46 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 			UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s: SenseForAFloor No Climbable! - No Floor"), *GetOwner()->GetName());
 
 		//если нет опоры, то не на что цепляться
-		if (!MyrOwner()->BehaveCurrentData->KeepVerticalEvenInAir)
+		if (!me()->DynModel->FlyFixed)
 		{	FixedOnFloor = false;
 			Climbing = false;
 		}
 		if (!MyrOwner()->BehaveCurrentData->KeepVerticalEvenInAir)
 			Vertical = false;
 
-		//это не правильно, нужно отдельно для полета, отдельно для падения
-		GuidedMoveDir = FMath::Lerp(GuidedMoveDir, MyrOwner()->MoveDirection, DeltaTime);
-
-		//даже в воздухе если имеется сильная уткнутость, то обтекаем препятствие
-		if(me()->GuideAlongObstacle(GuidedMoveDir)) GuidedMoveDir.Normalize();
-
-		//ортогональна постановка фиктивной нормали вверх
+		//ведущий пояс в воздухе
 		if (Lead())
-		{	StartLimb.ImpactNormal = GuidedMoveDir ^ (LAXIS(StartLimb,Right));
+		{
+			//если модель велит фиксированный кинематически полет, то сразу назначить свободный курс, иначе плавно 
+			if (me()->DynModel->FlyFixed) GuidedMoveDir = MyrOwner()->MoveDirection;
+
+			//случай, если в полете в принципе курс имеет значения, но меняется очень постепенно 
+			else if (me()->DynModel->MotionGain > 0 && MyrOwner()->MoveGain > 0)
+				GuidedMoveDir = FMath::Lerp(GuidedMoveDir, MyrOwner()->MoveDirection, DeltaTime);
+
+			//прочие случаи, когда в воздухе не важен курс, принимается локальная ось туловища
+			else GuidedMoveDir = LAXIS(StartLimb, Forth);
+
+			//нормаль ортогонализируется относительно курса
+			StartLimb.ImpactNormal = GuidedMoveDir ^ (LAXIS(StartLimb,Right));
 			if((StartLimb.ImpactNormal | BAXIS(BDY(Center), Up)) < 0) StartLimb.ImpactNormal *= -1;
 		}
-		else StartLimb.ImpactNormal += FVector3f(0, 0, -5 * DeltaTime);
+		//ведомый пояс в воздухе
+		else
+		{
+			//по направлению на ведущий
+			GuidedMoveDir = MyrOwner()->SpineVector * (IsThorax ? -1 : 1);
+
+			//костыль который возможно поможет смягчить виляние на ветке
+			//if(StartLimb.OnCapsule() && (GuidedMoveDir| Opposite->GuidedMoveDir) > 0.7) GuidedMoveDir = Opposite->GuidedMoveDir;
+
+			// нормаль плавно  переходить вниз, хотя зачем?
+			StartLimb.ImpactNormal += FVector3f(0, 0, -5 * DeltaTime);
+		}
 		StartLimb.ImpactNormal.Normalize();
+
+		//даже в воздухе если имеется сильная уткнутость, то обтекаем препятствие
+		if (me()->GuideAlongObstacle(GuidedMoveDir)) GuidedMoveDir.Normalize();
 
 		//фэйковая точка контакта для расчёта раскоряки ног SenseFootAtStep
 		Hit.ImpactPoint = Start + (FVector)LookAt * Elevation;
@@ -597,7 +652,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 
 	//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 	//вычислить желаемую позицию для якоря, а также приращение
-	if (FixedOnFloor)
+	if (FixedOnFloor || me()->DynModel->FlyFixed)
 	{
 		//плавно подводим якорь спины в нужную точку
 		DueLoc = FMath::Lerp(StableLoc,								//с места собственного положения якоря с предыдущего кадра
@@ -613,6 +668,9 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 
 		//для режима управляемости - просто добавляем сдвиг в сторону желаемого курса
 		else DueLoc += (FVector)GuidedMoveDir * DriftStep;
+
+		if(StartLimb.Floor->OwnerComponent->Mobility == EComponentMobility::Movable)
+			DueLoc -= StartLimb.Floor->GetUnrealWorldVelocityAtPoint(Hit.ImpactPoint);
 	}
 	//не цепляемся за поверхность, возможно, вообще в воздухе
 	else
@@ -635,13 +693,18 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	//включение сил, держащих спину по заданным углам
 	CI->SetOrientationDriveTwistAndSwing(NoTurnAround, Vertical || CurrentDynModel->NormalAlign);
 
+	if (CurrentDynModel->NormalAlign != (CI->ProfileInstance.ConeLimit.Swing1Motion == EAngularConstraintMotion::ACM_Locked))
+	{	int Sw = CurrentDynModel->NormalAlign ? 0 : 180; 
+		me()->SetAngles(CI, Sw, Sw, 180);
+	}
+
 	//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 	// прощупь найденной поверхности виртуальными ногами, чтоб понять, как их ставить
 	SenseFootAtStep (DeltaTime, LMB(Right), Hit.ImpactPoint, FallSeverity, 2 * IsThorax);
 	SenseFootAtStep (DeltaTime, LMB(Left), Hit.ImpactPoint, FallSeverity, 2 * IsThorax + 1);
 
 	//ноги также оказывают влияние на чувство опоры, если две ноги не нашли опору, то брюшной сенсор не играет роли, всё равно нет земли
-	if (LMB(Right).Stepped + LMB(Right).Stepped == 0) StartLimb.EraseFloor();
+	if (LMB(Right).Stepped + LMB(Right).Stepped == 0 && !StartLimb.OnCapsule()) StartLimb.EraseFloor();
 	//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
 	//отладка устойчивости - только после обработки ног
@@ -692,7 +755,7 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 	FVector EndPoint = Start + (FVector)CurFootRay;
 
 	//размах ноги в сторону - обратная связь для коррекции размаха
-	float SwingAlpha = 0.1;
+	float SwingAlpha = 0.0;
 
 	//скорость обновления размаха ног
 	float SpeedAlpha = 0.1;
@@ -714,8 +777,9 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 	{
 		if (FallSeverity > 0 || MyTime)
 		{
-			//глубина трассировки вниз
+			//глубина трассировки вниз (для бега надо глубже)
 			float Depth = (1 + Crouch) * 1.2;
+			if (Speed > 100) Depth *= 1 + (Speed - 100) * 0.002;
 
 			//###############################
 			//сюда скидывать результаты
@@ -727,8 +791,9 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 				if (FM) Foot.Surface = (EMyrSurface)FM->SurfaceType.GetValue();
 
 				//дополнение случая приземления через ногу - пересчитать силу удара конкретно для этой ноги
+				//скорость берется по оси нормали, чтобы избежать касательных быстрот, но общий модуль тоже учитывается
 				if (IS_MACRO(MyrOwner()->CurrentState, AIR))
-					FallSeverity = me()->ShockResult(Foot, me()->BodySpeed(CNTR).Z, Hit.Component.Get());
+					FallSeverity = me()->ShockResult(Foot, (VelocityAgainstFloor | (-(FVector3f)Hit.Normal)) + Speed*0.1, Hit.Component.Get());
 
 				//сохранить часть данных сразу в ногу
 				me()->GetFloorFromHit(Foot, Hit);
@@ -738,20 +803,23 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 				//вариация размаха ног при касании опоры - только во время шага или в момент падения
 				if (MyrOwner()->MoveGain > 0 || FallSeverity > 0)
 				{
-					//кривизна в ноге: + опора выпуклая или кренимся в другую сторону, - опора вогнутая или кренимся в эту сторону
-					//очевидно, что расставка ног должна быть обратна этому
-					float FootUneven = Foot.ImpactNormal | Lateral;
-
-					//крен в центре, кривизну поверхности не определяет, для обеих ног идентичен до знака
-					//очевидно, что расставка ног должна быть с обратным знаком
-					float CenterUneven = CNTR.ImpactNormal | Lateral;
 
 					//расчёт показаеля отставки или вжатия ноги с этой стороны
-					//влияние вертикальности через нормаль в центре - на пологой ровной поверхности ноги луче сжать, на вертикальной - максимально расставить
-					SwingAlpha = -CNTR.ImpactNormal.Z - CenterUneven - FootUneven;
+					if (CNTR.OnThinCapsule()) SwingAlpha = 0;
+					else
+					{
+						//кривизна в ноге: + опора выпуклая или кренимся в другую сторону, - опора вогнутая или кренимся в эту сторону
+						//очевидно, что расставка ног должна быть обратна этому
+						float FootUneven = Foot.ImpactNormal | Lateral;
 
-					//перевод из [-1;+1] в [0;+1]
-					SwingAlpha = FMath::Clamp(0.5 * SwingAlpha + 0.5, 0.0f, 1.0f);
+						//крен в центре, кривизну поверхности не определяет, для обеих ног идентичен до знака
+						//очевидно, что расставка ног должна быть с обратным знаком
+						float CenterUneven = CNTR.ImpactNormal | Lateral;
+
+						//влияние вертикальности через нормаль в центре - на пологой ровной поверхности ноги луче сжать, на вертикальной - максимально расставить
+						SwingAlpha = -CNTR.ImpactNormal.Z - CenterUneven - FootUneven;
+						SwingAlpha = FMath::Clamp(0.5 * SwingAlpha + 0.5, 0.0f, 1.0f);//перевод из [-1;+1] в [0;+1]
+					}
 
 					//скорость приближения к желаемому отгибу ноги пропроциональна скорости
 					SpeedAlpha = DeltaTime * 4 * FMath::Min(FMath::Abs(Speed) * 0.01f, 1.0f);
@@ -766,16 +834,21 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 			else
 			{
 				//на воздухе пусть будет вариация между размахами ног через уровень вертикальности
-				SwingAlpha = FMath::Max(LAXIS(CNTR, Up).Z, 0.0f);
-				SpeedAlpha = 0.5;
+				if (CNTR.OnCapsule()) SwingAlpha = 0;
+				else SwingAlpha = FMath::Max(LAXIS(CNTR, Up).Z, 0.0f);
+
+				//стремление к желаемой расокряке - как и для трассировки, при стоянии не происходит
+				SpeedAlpha = (MyrOwner()->MoveGain > 0) ? 0.5 : 0.0f;
 			}
 		}
 		//междутактье нормальной трассировки
 		else
 		{
 			//стойкость обнуляется извне каждый кадр вне зависимости от чередов ног, ее нужно обновлять
-			if (Foot.Stepped) StandHardness += 100;
-			SpeedAlpha = 0.01;
+			if (Foot.Stepped || Climbing) StandHardness += 100;
+
+			//стремление к желаемой расокряке - как и для трассировки, при стоянии не происходит
+			SpeedAlpha = MyrOwner()->MoveGain > 0 ? 0.01 : 0.0f;
 		}
 	}
 	//просчёт по простому пути без трассировки
@@ -802,13 +875,15 @@ void UMyrGirdle::SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralIm
 		MyrOwner()->Hurt(Foot, FallSeverity, EndPoint, LMB(Center).ImpactNormal, Foot.Surface);
 
 	//самое желаемое положение ноги без оглядки на реальные точки земли
-	// точка из центра + вектор в сторону на длину размаха - точка, откуда нога растет
+	// внимание, здесь не учитывается кривизна поверхности, как будто бы в плоскости
 	FVector3f DesiredRay = (FVector3f)(
-		CentralImpact
-		+ (FVector)Lateral * FMath::Lerp(SwingMin, SwingMax, SwingAlpha)
-		- Start);
+		CentralImpact										// центральная точка поверхности спущенная из туловища
+		+ (FVector)(LAXIS(CNTR, Down)).ProjectOnToNormal(GuidedMoveDir)
+		+ (FVector)Lateral									// вектор в сторону этой ноги от центра
+			* FMath::Lerp(SwingMin, SwingMax, SwingAlpha)	// желаемая расставка ног
+		- Start);											// начальная точка, откуда нога растет, ибо отрезок
 
-	//новый вектор (плечо - ступня) в абсолютных координатах
+	//окончательный вектор (плечо - ступня) в абсолютных координатах
 	CurFootRay = FMath::Lerp(CurFootRay, DesiredRay, SpeedAlpha);
 
 	//костыль, чтоб не качались, при жесткой вертикали резко поддержать вертикальность в плоскости хода
@@ -832,6 +907,17 @@ void UMyrGirdle::ForceMoveToBody()
 	FVector3f DueUp = BAXIS(BDY(Center), Up);
 	FVector DueLoc = BDY(Center)->GetUnrealWorldTransform().GetLocation();
 	SetWorldTransform(FTransform((FVector)DueFront, (FVector)(DueFront ^ DueUp), (FVector)DueUp, DueLoc));
+}
+
+//==============================================================================================================
+//полностью разорвать привязь к якорю, для мертвых
+//==============================================================================================================
+void UMyrGirdle::DetachFromBody()
+{
+	//подстройка притяжения к зацепу
+	auto CI = BDY(Center)->DOFConstraint;
+	me()->SetFreedom(CI, -1, -1, -1, 180, 180, 180);
+
 }
 
 

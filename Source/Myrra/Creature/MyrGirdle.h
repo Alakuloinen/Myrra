@@ -61,6 +61,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f RelFootRayLeft;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f RelFootRayRiht;
 
+
 	//указатель на сборку настроек динамики/ориентации для этого пояса
 	//прилетает с разных ветвей иерархии - из состояния BehaveState, далее из настроек (само)действия 
 	FGirdleDynModels* CurrentDynModel = nullptr;
@@ -150,7 +151,7 @@ public:
 	void SetSpineLock(bool Set);
 
 	//влить динамическую модель 
-	void AdoptDynModel(FGirdleDynModels& Models);
+	bool AdoptDynModel(FGirdleDynModels& Models);
 
 	//прощупать поверхность в поисках опоры
 	bool Trace(FVector Start, FVector3f Dst, FHitResult& Hit);
@@ -163,6 +164,9 @@ public:
 
 	//переместить в нужное место (центральный членик)
 	void ForceMoveToBody();
+
+	//полностью разорвать привязь к якорю, для мертвых
+	void DetachFromBody();
 
 	//физически подпрыгнуть этим поясом конечностей
 	void PhyPrance(FVector3f HorDir, float HorVel, float UpVel);

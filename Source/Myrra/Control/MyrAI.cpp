@@ -5,7 +5,6 @@
 #include "../Creature/MyrPhyCreature.h"						// управляемое существо
 #include "../Artefact/MyrLocation.h"						// локация - для нацеливания на компоненты маячки в составе целиковой локации
 #include "../Artefact/MyrArtefact.h"						// артефакт - тоже может быть целью
-#include "../Dendro/MyrDendroMesh.h"						// для обработки вариантов поведения от сидения на дереве
 #include "../MyrraGameInstance.h"							// глобальный мир игры
 #include "../MyrraGameModeBase.h"							// уровень - брать протагониста
 #include "../AssetStructures/MyrLogicEmotionReactions.h"	// эмоции по событиям
@@ -285,7 +284,7 @@ void AMyrAI::Tick(float DeltaTime)
 			if(ActOk(R))	
 			{	PrimaryActorTick.TickInterval = 0.15;				// быстрое обновление 
 				Drive.ActDir = Goals[PrimaryGoal].LookAtDir;		// смотреть строго на цель атаки
-				R = me()->NewAttackStrike();						// попытаться запустить напрямую
+				R = me()->AttackActionStrike();						// попытаться запустить напрямую
 				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackStrike cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult, R));
 			}
 			//если атаку нельзя продолжить по материальным причинам, а не потому что уже фаза не та
@@ -313,7 +312,7 @@ void AMyrAI::Tick(float DeltaTime)
 			{
 				//направить ее на обидчика и стартануть
 				Drive.ActDir = Goal_1().LookAtDir;
-				ME()->NewAttackStart(i, VictimType);
+				ME()->AttackActionStart(i, VictimType);
 			}
 
 			//самодействие
@@ -1365,7 +1364,7 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 							{	
 								//направить ее на обидчика и стартануть
 								ME()->AttackDirection = SuspectAsMyGoal->LookAtDir;
-								ME()->NewAttackStart(i, VictimType);
+								ME()->AttackActionStart(i, VictimType);
 
 								//если начало атаки удалось
 								if (me()->Attacking())
@@ -1457,7 +1456,7 @@ EAttackEscapeResult AMyrAI::CounterStrike(float RealDanger, AMyrPhyCreature* You
 	ME()->AttackDirection = DirToYou;
 
 	//запустить немедленный переход к активной фазе (сама фаза, может, наступит не сразу)
-	auto R = ME()->NewAttackStrike ();
+	auto R = ME()->AttackActionStrike ();
 	UE_LOG(LogTemp, Warning, TEXT("AI %s CounterStrike AttackStrike %s, accum=%d"), *me()->GetName(), *TXTENUM(EAttackAttemptResult, R), ME()->AttackForceAccum);
 	
 	//если в том или ином виде удалось запустить активную фазу

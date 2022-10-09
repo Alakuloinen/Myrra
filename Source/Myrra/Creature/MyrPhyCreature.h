@@ -108,8 +108,11 @@ public:
 	//единичный вектор от заднего пояса к переднему
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FVector3f SpineVector;
 
-	// окрас - только для редактора, чтобы тестировать разные окраски на одном существе		
+	// окрас, номер текстуры из списка в генофонде		
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 Coat = 0;		
+
+	// телосложение - номер локальной 1-кадровогой анимации из генофонда	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 Physique = 0;
 
 #if WITH_EDITORONLY_DATA
 
@@ -197,7 +200,7 @@ public:
 	void MakePossessedByDaemon(AActor* aDaemon);
 
 	//применить пришедшую извне модель сил для всего тела
-	void AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel, bool Fully);
+	void AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynModel);
 
 	//кинематически телепортировать в новое место
 	void TeleportToPlace(FTransform Dst);
@@ -264,9 +267,9 @@ public:
 	//////////////////////////////////////////////////////////////////////
 	//действия - начать, ударить, прекратить досрочно
 	
-	EAttackAttemptResult NewAttackStart(int SlotNum, int VictimType = 0);
-	EAttackAttemptResult NewAttackStrike();
-	EAttackAttemptResult NewAttackStrikePerform();
+	EAttackAttemptResult AttackActionStart(int SlotNum, int VictimType = 0);
+	EAttackAttemptResult AttackActionStrike();
+	EAttackAttemptResult AttackActionStrikePerform();
 	void NewAdoptAttackPhase(EActionPhase NewPhase);
 	void NewAttackGetReady();
 	void NewAttackEnd();					//завершение 
@@ -421,6 +424,26 @@ public:
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetSelfAction() const			{ return GenePool->Actions[(int)CurrentSelfAction]; }
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetRelaxAction() const			{ return GenePool->Actions[(int)CurrentRelaxAction]; }
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetAction(int i) const			{ return GenePool->Actions[i]; }
+	//************************************************************
+
+	//************************************************************
+	FWholeBodyDynamicsModel* GetAttackDynModel()	{ return DoesAttackAction() ? &GetAttackAction()->DynModelsPerPhase[(int)CurrentAttackPhase] : nullptr; }
+	FWholeBodyDynamicsModel* GetSelfDynModel()		{ return DoesSelfAction() ? &GetSelfAction()->DynModelsPerPhase[SelfActionPhase] : nullptr; }
+	FWholeBodyDynamicsModel* GetRelaxDynModel()		{ return DoesRelaxAction() ? &GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase] : nullptr; }
+	FGirdleDynModels* GetPriorityModel(bool Tho)
+	{	auto R = GetSelfDynModel();
+		if(!R) R = GetAttackDynModel();							else if (!R->Girdle(Tho).Use) R = nullptr;
+		if(!R) R = GetRelaxDynModel();							else if (!R->Girdle(Tho).Use) R = nullptr;
+		if(!R) R = &BehaveCurrentData->WholeBodyDynamicsModel;	else if (!R->Girdle(Tho).Use) R = nullptr;
+		if(!R) R = &FWholeBodyDynamicsModel::Default();			return &R->Girdle(Tho);
+	}
+	FWholeBodyDynamicsModel* GetPriorityModel()
+	{	auto R = GetSelfDynModel();
+		if (!R) R = GetAttackDynModel();						else if (!R->Use) R = nullptr;
+		if (!R) R = GetRelaxDynModel();							else if (!R->Use) R = nullptr;
+		if (!R) R = &BehaveCurrentData->WholeBodyDynamicsModel;	else if (!R->Use) R = nullptr;
+		if (!R) R = &FWholeBodyDynamicsModel::Default();		return R;
+	}
 	//************************************************************
 
 	//уровень метаболизма - визуальная скорость дыхания, сердебиения, эффектов в камере

@@ -61,12 +61,14 @@ public: // анатомия, части тела
 	// индекс членика (по нулям, чтобы не огребать ошибок) - хз, насколько теперь это нужно
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") uint8 RootBodyIndex = 0;
 
-	// индекс членика (по нулям, чтобы не огребать ошибок) - хз, насколько теперь это нужно
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") TWeakObjectPtr<UPhysicalMaterial> AntiSlideMaterial;
+	// материал с высоким трением, на который переключаются членики тела, когда требуется физически застыть на месте и не скользить до дна (лежание, смерть)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") class UPhysicalMaterial* AntiSlideMaterial;
 
 	//характеристика существа как еды и того, что после съедения остаётся
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy")	FDigestiveEffects DigestiveEffects;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") TSubclassOf<AActor> Remains;					// объект, который остаётся после съедения
+
+	// объект, который остаётся после съедения
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Anatomy") TSubclassOf<AActor> Remains;					
 
 
 //------------------------------------------------
@@ -96,6 +98,8 @@ public: // визуальные дополнения
 
 	//станартные окрасы, если не предусмотрено генерируемого окраса, если в этом массиве что-то есть, окрас не генерируется
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Visual") TArray<UTexture*> StaticCoatTextures;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Visual") TArray<UAnimSequenceBase*> PhysiquePoses;
 
 
 //------------------------------------------------

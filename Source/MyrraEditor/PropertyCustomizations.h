@@ -6,25 +6,8 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Brushes/SlateColorBrush.h"
+#include "DetailWidgetRow.h"
 
-//#######################################################################################################
-//вроде как это только для структур
-//#######################################################################################################
-class FMyrDynModelTypeCustomization : public IPropertyTypeCustomization
-{
-public:
-	//создать экземпляр
-    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
-
-    //видимо, здесь происходит украшение заголовка и его составляющих
-    virtual void CustomizeHeader   (TSharedRef<class IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow,				IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
-    virtual void CustomizeChildren (TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder,	IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
-private:
-    TSharedPtr<IPropertyHandle> DynModelPropertyHandle;
- 
-
-
-};
 
 //#######################################################################################################
 //вроде как это только для структур
@@ -88,7 +71,34 @@ protected:
 };
 
 //#######################################################################################################
-//вроде как это только для структур
+// для структуры FWholeBodyDynamicsModel из файла myrra_anatomy.h
+//#######################################################################################################
+class FMyrDynModelTypeCustomization : public IPropertyTypeCustomization
+{
+public:
+	//создать экземпляр
+    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
+
+    //видимо, здесь происходит украшение заголовка и его составляющих
+    virtual void CustomizeHeader   (TSharedRef<class IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow,				IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+    virtual void CustomizeChildren (TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder,	IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+
+    //обработчик события
+    void OnUsedChanged();
+
+private:
+    TSharedPtr<IPropertyHandle> HandleUse;
+    TSharedPtr<SWidget> ThoN;
+    TSharedPtr<SWidget> ThoV;
+    TSharedPtr<SWidget> PelN;
+    TSharedPtr<SWidget> PelV;
+    TSharedPtr<IPropertyHandle> DynModelPropertyHandle;
+    TSharedPtr<IPropertyUtilities> PropertyUtilities;
+};
+
+
+//#######################################################################################################
+// для структуры FGirdleDynModels из файла myrra_anatomy.h
 //#######################################################################################################
 class FMyrGirdleModelTypeCustomization : public IPropertyTypeCustomization
 {
@@ -102,6 +112,7 @@ public:
 
 	//обработчик события
 	void OnChanged();
+    void OnUsedChanged();
 
 	//превратить набор битов в строку подсказку, что
 	FLinearColor MakeDigestString (int32 Bits, FString& OutStr);
@@ -109,7 +120,9 @@ public:
 private:
 	const UEnum* EnumPtr;
     TSharedPtr<IPropertyHandle> MainHandle;
+    TSharedPtr<IPropertyHandle> HandleUsed;
     TSharedPtr<IPropertyHandle> HandleLimbs[5];
+    FDetailWidgetRow RowWidgets[5];
 	FString Digest[5];
     FLinearColor DigestColor[5];
     TSharedPtr<IPropertyUtilities> PropertyUtilities;

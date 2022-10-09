@@ -11,7 +11,6 @@
 #include "AssetStructures/MyrCreatureGenePool.h"		// генофонд
 #include "DrawDebugHelpers.h"							// рисовать отладочные линии
 #include "PhysicsEngine/PhysicsConstraintTemplate.h"	// для разбора списка физ-связок в регдолле
-#include "../Dendro/MyrDendroMesh.h"					// деревья - для поддержания лазанья по ветке
 #include "PhysicalMaterials/PhysicalMaterial.h"			// для выкорчевывания материала поверхности пола
 #include "Engine/SkeletalMeshSocket.h"					
 
@@ -484,23 +483,23 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 	const int NewFloorDoom = ResolveNewFloor(Limb, NewFloor, (FVector3f)Hit.ImpactNormal, Hit.ImpactPoint);
 
 	//вектор относителой скорости
-	FVector RelativeVel = GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint) - Hit.Component.Get()->GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint);
+	FVector RelativeVel = GetPhysicsLinearVelocity(Hit.MyBoneName);
+	if(Hit.Component.IsValid())
+		if(Hit.Component->Mobility == EComponentMobility::Movable)
+			RelativeVel -= Hit.Component.Get()->GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint);
 	float Speed = 0;
 	RelativeVel.ToDirectionAndLength(RelativeVel, Speed);
 
-	//коэффициент болезненности удара, изначально берется только та часть скорости, что в лоб (по нормали)
-	float BumpSpeed = FVector::DotProduct(RelativeVel, -Hit.ImpactNormal);
+	//сонаправленность движения и нормали
+	float Coaxis = RelativeVel | (-Hit.ImpactNormal);
 
 	//коэффициент скользящести последнего удара
-	Limb.Colinea = 255 * FMath::Max(RelativeVel | (-Hit.ImpactNormal), 0.0f);
-
-	//странно большое значение скорости - попытка найти причину улёта
-	if (BumpSpeed > 1000) Log(Limb, TEXT("HitLimb WTF BumpSpeed "), BumpSpeed);
+	Limb.Colinea = 255 * FMath::Max(Coaxis, 0.0f);
 
 	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//воспроизвести звук, если контакт от падения (не дребезг и не качение) и если скорость соударения... откуда эта цифра?
 	//в вертикальность ноль так как звук цепляния здесь не нужен, только тупое соударение
-	if (BumpSpeed > 10 && Limb.Stepped == 0)
+	if (Speed > 10 && Limb.Stepped == 0)
 		MyrOwner()->SoundOfImpact (nullptr, Limb.Surface, Hit.ImpactPoint, Speed, 0, EBodyImpact::Bump);
 
 	//все что ниже относится только к живым объектам
@@ -508,7 +507,7 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 
 	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//возможность покалечиться - импульс удара выше порога,
-	if (ApplyHitDamage(Limb, DistFromLeaf, LimbGene.HitShield, BumpSpeed, Hit) > 0.3)
+	if (ApplyHitDamage(Limb, DistFromLeaf, LimbGene.HitShield, Speed * FMath::Max(Coaxis, 0.4f), Hit) > 0.3)
 	{ 
 		//а если высок, немного ниже - просто подогнуть ноги (если это конечно ноги - у них точно есть констрейнт)
 		if (GetMachineConstraintIndex(Limb) != 255)
@@ -531,6 +530,7 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 float UMyrPhyCreatureMesh::ShockResult(FLimb& L, float Speed, UPrimitiveComponent* Floor)
 {
 	if (!InjureAtHit) return 0.0f;
+	if (L.LastlyHurt) return 0.0f;
 
 	//порог для отсечения слабых толчков (без звука и эффекта) и определения болезненных (>1, с уроном)
 	float Thresh = MyrOwner()->GetGenePool()->MaxSafeShock;		// базис порога небольности в единицах скорости 
@@ -556,7 +556,8 @@ float UMyrPhyCreatureMesh::ShockResult(FLimb& L, float Speed, UPrimitiveComponen
 	if(SurfInfo) Severity += SurfInfo->HealthDamage;
 
 	//при достаточно сильном поражении запираем возможность дребезга на предыдущие кадры
-	if (Severity > 0.3) L.LastlyHurt = true;
+	if (Severity > 0.3) 
+		L.LastlyHurt = true;
 	return Severity;
 }
 
@@ -993,10 +994,6 @@ void UMyrPhyCreatureMesh::AdoptDynModelForLimb(FLimb& Limb, uint32 Model, float 
 	//основном физ членик этого лимба
 	FBodyInstance* Body = GetMachineBody(Limb);
 
-	//присвоение флагов - они оживают динамически каждый кадр
-	Limb.DynModel = Model;
-
-
 	//вязкость изменяется при переключении моделей
 	if (!(Model & LDY_DAMPING))
 		SetLimbDamping(Limb, 0, 0);	
@@ -1018,8 +1015,11 @@ void UMyrPhyCreatureMesh::AdoptDynModelForLimb(FLimb& Limb, uint32 Model, float 
 
 	if ((Model & LDY_FRICTION) != (Limb.DynModel & LDY_FRICTION))
 	{	
-		Body->SetPhysMaterialOverride(
-			(Model & LDY_FRICTION) ? MyrOwner()->GetGenePool()->AntiSlideMaterial.Get() : nullptr);
+		Body->SetInstanceSimulatePhysics(false);
+		if (Model & LDY_FRICTION)
+			Body->SetPhysMaterialOverride(MyrOwner()->GetGenePool()->AntiSlideMaterial);
+		else Body->SetPhysMaterialOverride(nullptr);
+		Body->SetInstanceSimulatePhysics(true);
 	}
 
 	//присвоение флагов - они оживают динамически каждый кадр
@@ -1036,7 +1036,9 @@ void UMyrPhyCreatureMesh::SetFullBodyLax(bool Set)
 	if (Set)
 	{	for (auto C : Constraints)
 		{	C->SetOrientationDriveTwistAndSwing(false, false);
+			C->SetAngularVelocityDriveTwistAndSwing(false, false);
 			C->SetLinearPositionDrive(false, false, false);
+			C->SetLinearVelocityDrive(false, false, false);
 		}
 		//внимание, без этого не берет труп в зубы, в то же время с этим собаки реалистичнее мертвы
 		//хз, сделать переключение по массе или спец-настройку
@@ -1045,8 +1047,16 @@ void UMyrPhyCreatureMesh::SetFullBodyLax(bool Set)
 	//сделать напряженным
 	else
 	{
-		for (int i=0; i<Constraints.Num(); i++)
-			Constraints[i]->ProfileInstance = GetArchConstraint(i)->ProfileInstance;
+		for (int i = 0; i < Constraints.Num(); i++)
+		{
+			//здесь так многословно, потому что вместе со сменой переменных еще нужно вызывать команды физ-движка
+			auto pre = GetArchConstraint(i)->ProfileInstance;
+			Constraints[i]->SetOrientationDriveTwistAndSwing(pre.AngularDrive.TwistDrive.bEnablePositionDrive, pre.AngularDrive.SwingDrive.bEnablePositionDrive);
+			Constraints[i]->SetAngularVelocityDriveTwistAndSwing(pre.AngularDrive.TwistDrive.bEnableVelocityDrive, pre.AngularDrive.SwingDrive.bEnableVelocityDrive);
+			Constraints[i]->SetLinearPositionDrive(pre.LinearDrive.XDrive.bEnablePositionDrive, pre.LinearDrive.YDrive.bEnablePositionDrive, pre.LinearDrive.ZDrive.bEnablePositionDrive);
+			Constraints[i]->SetLinearVelocityDrive(pre.LinearDrive.XDrive.bEnableVelocityDrive, pre.LinearDrive.YDrive.bEnableVelocityDrive, pre.LinearDrive.ZDrive.bEnableVelocityDrive);
+		}
+		
 		//SetPhyBodiesBumpable(true);
 	}
 }
@@ -1124,13 +1134,13 @@ void UMyrPhyCreatureMesh::SetSpineStiffness(float Factor)
 ELimb UMyrPhyCreatureMesh::DetectPasThrough()
 {
 	if (Tail.Stepped && Lumbus.Stepped)
-		if ((Tail.ImpactNormal | Lumbus.ImpactNormal) < -0.9)
+		if ((Tail.ImpactNormal | Lumbus.ImpactNormal) < -0.8 && Tail.Floor == Lumbus.Floor)
 			return (Tail.ImpactNormal.Z > Lumbus.ImpactNormal.Z) ? ELimb::TAIL : ELimb::LUMBUS;
 	if (Lumbus.Stepped && Pectus.Stepped)
-		if ((Lumbus.ImpactNormal | Pectus.ImpactNormal) < -0.9)
+		if ((Lumbus.ImpactNormal | Pectus.ImpactNormal) < -0.8 && Pectus.Floor == Lumbus.Floor)
 			return (Lumbus.ImpactNormal.Z > Pectus.ImpactNormal.Z) ? ELimb::LUMBUS : ELimb::PECTUS;
 	if (Pectus.Stepped && Head.Stepped)
-		if ((Pectus.ImpactNormal | Head.ImpactNormal) < -0.9)
+		if ((Pectus.ImpactNormal | Head.ImpactNormal) < -0.8 && Head.Floor == Pectus.Floor)
 			return (Pectus.ImpactNormal.Z > Head.ImpactNormal.Z) ? ELimb::PECTUS : ELimb::HEAD;
 	return ELimb::NOLIMB;
 }

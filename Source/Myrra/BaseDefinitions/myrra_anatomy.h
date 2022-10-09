@@ -401,8 +401,11 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Spine = LDY_ROTATE | LDY_MY_UP | LDY_TO_VERTICAL;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Tail = LDY_PASSIVE;
 
+	//использовать эту модель или оставить/переключить нижележащую по иерархии
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Use")) bool Use = true;
+
 	//ведущий или ведомый, если ведомый, то ноги более скованы и отстают
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leading")) bool Leading = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leads")) bool Leading = true;
 
 	//сразу вкл/выкл гравитацию для члеников ног в пределах пояса
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On Floor")) bool FixOnFloor = false;
@@ -437,13 +440,6 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	uint8 At(const EGirdleRay Where) const { return ((uint8*)(&Center))[(int)Where]; }
 };
 
-UENUM(BlueprintType) enum class EWholeDynModelFlags : uint8
-{ 
-	MoveWithNoExtGain,
-	StayFixedInAir,
-	GetReadyForJump,
-};
-ENUM_CLASS_FLAGS(EWholeDynModelFlags);
 
 
 
@@ -458,7 +454,7 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FGirdleDynModels Pelvis;
 
 	// если задействована анимация, то регулировать ее скорость
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Anim Rate")) float AnimRate = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Animation Rate")) float AnimRate = 1.0f;
 
 	// удельная прибавка или отъем здоровья	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "+Health,Stamina/Sec")) float HealthAdd = 0.0f;
@@ -467,23 +463,26 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float StaminaAdd = 0.0f;
 
 	// ослабление скорости движения	(<1) или, при наличии JumpImpulse, импульс прыжка вперед (+) или назад (-)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Gain Forth,Up")) float MotionGain = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Gain/Jump Forth,Up")) float MotionGain = 1.0f;
 
 	//при входе в эту модель начинается накопление сил для прыжка с доли (<0) или сам прыжок с таким импульсом вверх (>0)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float JumpImpulse = 0.0f;
 
-	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмет на WASD
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Automove")) bool MoveWithNoExtGain = false;
+	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмется на WASD
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "AutoMove")) bool MoveWithNoExtGain = false;
 
-	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмет на WASD
+	// готовиться к прыжку, накапливать энергию, прижиматься к земле
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "PreJump")) bool PreJump = false;
 
-	// двигать даже если извне не задана тяга - чтобы существо, например, отпрянуло от стены, когда не жмет на WASD
+	// двигаться даже без опоры кинематически, будучи ведомым якорями
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fly Fixed")) bool FlyFixed = false;
 
 	// коэффициент масштаба сил, сдерживающих поворот спины по любым осям
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float SpineStiffness = 1.0f;
 
+
+	// 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Use")) bool Use = true;
 
 	// звук, который играет, пока существо находится в данном состоянии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") TWeakObjectPtr<USoundBase> Sound;
@@ -493,40 +492,14 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	float GetJumpAlongImpulse() const { return MotionGain; }
 	float GetJumpUpImpulse() const { return JumpImpulse; }
 	FWholeBodyDynamicsModel() { Thorax.Leading = true; Pelvis.Leading = false; }
-};
-/*
-//отмечать результат попытки зацепиться
-UENUM() enum class EClung : uint8
-{
-	Recreate, Update, Kept,
-	NoWill, NoSurface, NoLeading, BadSurface, BadAngle, NoClimbableSurface, DangerousSpread,
-	NONEED
-};
-inline bool operator>(EClung A, EClung B) { return (int)A > (int)B; }
-inline bool operator<(EClung A, EClung B) { return (int)A < (int)B; }
-inline bool operator==(EClung A, EClung B) { return (int)A == (int)B; }
-inline bool operator>=(EClung A, EClung B) { return (int)A >= (int)B; }
-inline bool operator<=(EClung A, EClung B) { return (int)A <= (int)B; }
 
-*/
-//###################################################################################################################
-// сборка производных параметров анимации для целого шарика - старая
-// MyrAnimInst_BodySection.cpp
-//###################################################################################################################
-/*USTRUCT(BlueprintType) struct FBodySectionAnimData
-{
-	GENERATED_BODY()
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainDirect;		// проекция курса на позвоночник
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainLateral;		// проекция курса на поперёк
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Velocity;			// скаляр скорости
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float FeetSpread;		// расставление ног --|- -|-  - нах теперь
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Curvature;		// степень кривизны поверхности \/ -- /\ - нах теперь
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Crouch;			// степень пригнутости
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float LeanLeftOrRight;	// степень уклона влево или вправо
+	FGirdleDynModels& Girdle(bool Tho) { return Tho ? Thorax : Pelvis; }
 
-	// перевычислить данные для секции тела, пригодные для непосредственной анимации
-	void Update(class UMyrBodyContactor* Body, class AMyrraCreature* Owner, float AdvancedCrouch = 0.0);
-};*/
+	static FWholeBodyDynamicsModel& Default()
+	{	static FWholeBodyDynamicsModel D;
+		return D;
+	}
+};
 
 //каналы отображения отладочных линий для векторных данных
 UENUM() enum class ELimbDebug : uint8

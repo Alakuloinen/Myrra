@@ -464,17 +464,21 @@ public:
 			case SWING2: CI->ProfileInstance.ConeLimit.Swing2Motion = AngValToMode(How); break;
 			case TWIST:  CI->ProfileInstance.TwistLimit.TwistMotion = AngValToMode(How); break;
 		}
+		CI->UpdateAngularLimit();
+	}
+
+	static inline void SetAngles(FConstraintInstance* CI, int As1, int As2, int At)
+	{	auto& CL = CI->ProfileInstance.ConeLimit;
+		CL.Swing1Motion = AngValToMode(As1); 	CL.Swing1LimitDegrees = As1;
+		CL.Swing2Motion = AngValToMode(As2);	CL.Swing2LimitDegrees = As2;
+		CI->ProfileInstance.TwistLimit.TwistMotion = AngValToMode(At);
+		CI->UpdateAngularLimit();
 	}
 
 	//определить лимиты констрейнта в одну строчку
 	static void SetFreedom(FConstraintInstance* CI, float X, float Y, float Z, int As1, int As2, int At)
 	{	SetLinear (CI, X, Y, Z);
-		auto& CL = CI->ProfileInstance.ConeLimit;
-		CL.Swing1Motion = AngValToMode(As1); 	CL.Swing1LimitDegrees = As1;
-		CL.Swing2Motion = AngValToMode(As2);	CL.Swing2LimitDegrees = As2;
-		CI->ProfileInstance.TwistLimit.TwistMotion = AngValToMode(At);
-		CI->ProfileInstance.TwistLimit.TwistLimitDegrees = At;
-		CI->UpdateAngularLimit();
+		SetAngles (CI, As1, As2, At);
 	}
 
 };

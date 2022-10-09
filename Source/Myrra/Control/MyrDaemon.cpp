@@ -504,7 +504,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 			if (MyrController()->GetCameraShake())
 				MyrController()->GetCameraShake()->ShakeScale = Psychedelic;
 			if (MyrController()->GetPainCameraShake())
-				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.9f, 0.0f, 2.0f);
+				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.9f, 0.0f, 1.0f);
 		}
 
 		//от сонности изображение становится блёклым

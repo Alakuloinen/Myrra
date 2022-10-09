@@ -31,6 +31,9 @@ class MYRRA_API UMyrPhyCreatureAnimInst : public UAnimInstance
 	//свойства, видимые в анимационном блыпринте
 public:
 
+	//телосложение - пока неясно, как избежать переменной
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* Physique;
+
 	//глобальное состояние, полная сборка
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Main)	class AMyrPhyCreature* Creature;
 
@@ -48,9 +51,9 @@ public:
 
 	//все хозяйство, связанное с атаками (действиями от себя на цель)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		class UAimOffsetBlendSpace* AttackAnimation;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		class UBlendSpace* AttackPreciseAnimation;	//новое, экспериментальное
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		class UBlendSpace* AttackPreciseAnimation;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* AttackCurvesAnimation;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float UpperBodyMaskWeight = 0.0f;
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite)		float UpperBodyMaskWeight = 0.0f;  //хз 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 CurrentAttack = 255;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		EActionPhase CurrentAttackPhase;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float CurrentAttackPlayRate = 0.0f;
@@ -149,9 +152,6 @@ public:
 
 	//обновить анимионные сборки по отдельному поясу конечностей
 	void UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdle* PhyGirdle, float* LimbChunk, bool AllowMoreCalc);
-
-	//рассчитать для данного кадра скорость анимации атаки, если таковая имеется
-//	void UpdateAttackPlayRates(float strikeRate);
 
 	//получить букет трансформаций конечности в правильном формате из физ-модели существа
 	void SetLegPosition(FLimb& Limb, float* LimbChunk);
