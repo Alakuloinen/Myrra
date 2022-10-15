@@ -158,7 +158,6 @@ public:
 	FConstraintInstance*	GetArchMachineConstraint	(ELimb Limb) const;
 	FConstraintInstance*	GetArchMachineConstraint	(FLimb& Limb) const	{ return GetArchMachineConstraint (Limb.WhatAmI); }
 
-
 	//членики реальной графической репрезентации части тела
 	bool			HasFlesh			(ELimb Limb) const						{ return (bool)FleshGene(Limb)->BodyIndex.Num(); }
 	int				GetFleshBodyIndex	(ELimb Limb, int DistFromLeaf=0) const  { return FleshGene(Limb)->BodyIndex[DistFromLeaf]; }
@@ -221,7 +220,7 @@ public:
 	float Erection() const { return (GetLimbPos(ELimb::THORAX) - GetLimbPos(ELimb::PELVIS)).Z; }
 
 	//порог опрокидываемости берется по задней-центральной части спины, так как "хабы" могут быть вывернуты из-за подкошенных ног
-	bool IsLyingDown() const { return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisUp(ELimb::LUMBUS).Z < 0.5f; }
+	bool IsLyingDown(float DownLim = -0.3) const { return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisDown(ELimb::LUMBUS).Z > DownLim; }
 
 	//существо не касается опоры конечностями
 	bool AreFeetInAir() const { return RArm.Stepped + LArm.Stepped + RLeg.Stepped + LLeg.Stepped == 0; }
@@ -388,6 +387,7 @@ public:
 
 	//изменить силы упругости в спинном сцепе
 	void SetSpineStiffness(float Factor);
+	void AdjustSpineStiffness(FLimb& Limb, float Factor);
 
 	//обнаружение частичного провала под поверхность/зажатия медлу плоскостью
 	ELimb DetectPasThrough();

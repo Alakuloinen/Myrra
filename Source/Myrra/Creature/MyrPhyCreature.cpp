@@ -232,7 +232,10 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	if(Mesh->Bumper1().Stepped)
 		for (auto R : BehaveCurrentData->BumpReactions)
 		{	auto LaunchResult = TestBumpReaction(&R, Mesh->MaxBumpedLimb1);
+			//UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s TestBumpReaction %s %s coaxis=%g"),
+			//	*GetName(), *TXTENUM(ELimb, Mesh->MaxBumpedLimb1), *TXTENUM(EAttackAttemptResult, LaunchResult), Mesh->Bumper1().GetBumpCoaxis());
 			if (LaunchResult == EAttackAttemptResult::STARTED) break;
+
 		}
 
 	//восстановление запаса сил (используется та же функция, что и при трате)
@@ -246,7 +249,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		T.SetLocation(T.GetLocation() + FVector(0, 0, SpineLength));
 		TeleportToPlace(T);
 		UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s DetectPasThrough %s"),
-			*GetName(), *TXTENUM(ELimb, (EPhene)eL));
+			*GetName(), *TXTENUM(ELimb, (ELimb)eL));
 	}
 
 	//обработка движений по режимам поведения 
@@ -640,17 +643,17 @@ EAttackAttemptResult AMyrPhyCreature::TestBumpReaction(FBumpReaction* BR, ELimb 
 	{	
 		if(Floor->OwnerComponent->CanCharacterStepUpOn == ECanBeCharacterBase::ECB_No)
 		{
-			if (BR->Threshold > 0)					return EAttackAttemptResult::NO_USEFUL_FOUND;
-			else if (B < -BR->Threshold)			return EAttackAttemptResult::OUT_OF_RADIUS;
+			if (BR->Threshold > 0)					return EAttackAttemptResult::WRONG_PHASE;
+			else if (B < -BR->Threshold)			return EAttackAttemptResult::OUT_OF_ANGLE;
 		}
 		else //if (Floor->OwnerComponent->CanCharacterStepUpOn == ECanBeCharacterBase::ECB_Yes)
 		{
-			if (BR->Threshold < 0)					return EAttackAttemptResult::NO_USEFUL_FOUND;
-			else if (B < BR->Threshold)				return EAttackAttemptResult::OUT_OF_RADIUS;
+			if (BR->Threshold < 0)					return EAttackAttemptResult::WRONG_PHASE;
+			else if (B < BR->Threshold)				return EAttackAttemptResult::OUT_OF_ANGLE;
 		}
 	}else											return EAttackAttemptResult::INCOMPLETE_DATA;
 
-	if((Mesh->BodySpeed(L)|L.ImpactNormal) < BR->MinVelocity)
+	if((Mesh->BodySpeed(L)|(-L.ImpactNormal)) < BR->MinVelocity)
 													return EAttackAttemptResult::OUT_OF_VELOCITY;
 	
 	ActionFindStart(BR->Reaction);					return EAttackAttemptResult::STARTED;
@@ -1365,13 +1368,13 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		//шаг по поверхности (боимся упасть, опрокинуться и сбавить скорость до стояния)
 		case EBehaveState::walk:
 			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
+			BEWARE(fall,		Thorax->IsInAir() && Pelvis->IsInAir());
 			BEWARE(stand,		MoveGain==0 && GotSlow(10));
 			//BEWARE(mount,		Mesh->Erection() > 0.7 && Mesh->Thorax.IsClimbable());
 			BEWARE(crouch,		bCrouch);
 			BEWARE(soar,		bSoar && MoveGain > 0.1);
-			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
-			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(lie,			Mesh->IsLyingDown(-0.1) && Daemon && MoveGain<0.3);
+			BEWARE(tumble,		Mesh->IsLyingDown(-0.1));
 			BEWARE(climb,		bClimb && !GotUnclung());
 			BEWARE(run,			bRun && Stamina > 0.1f);
 			break;
@@ -1439,8 +1442,8 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(soar,		bSoar);
 			BEWARE(fly,			bFly);
 			BEWARE(land,		StateTime>0.5 && !GotLandedAny(1));
-			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
-			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(lie,			Daemon && Mesh->IsLyingDown(-0.5) && GotLandedAny(20));
+			BEWARE(tumble,		Mesh->IsLyingDown(-0.5) && GotLandedAny(20));
 			BEWARE(run,			GotLandedAny(200) && bRun);
 			BEWARE(crouch,		GotLandedAny(200));
 			break;
@@ -1451,6 +1454,8 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 			BEWARE(dying,		Health <= 0);
 			BEWARE(soar,		bSoar);
 			BEWARE(fly,			bFly);
+			BEWARE(lie,			Daemon && Mesh->IsLyingDown(-0.5) && GotLandedAny(20));
+			BEWARE(tumble,		Mesh->IsLyingDown(-0.5) && GotLandedAny(20));
 			BEWARE(run,			GotLandedAny(200)  && bRun);
 			BEWARE(crouch,		GotLandedAny(200) );
 			break;
@@ -1467,7 +1472,7 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 		//опрокидывание (пассивное лежание выход через действия а не состояния) 
 		case EBehaveState::lie:
 			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny(5) || FMath::Abs(SpineVector.Z)>0.5);
+			BEWARE(fall,		!GotLandedAny(1));
 			BEWARE(tumble,		Mesh->IsLyingDown() && MoveGain > 0.1f);
 			BEWARE(crouch,		!Mesh->IsLyingDown() && Mesh->Pelvis.Stepped);
 			break;

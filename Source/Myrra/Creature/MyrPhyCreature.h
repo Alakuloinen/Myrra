@@ -62,6 +62,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadonly) uint8 CurrentAttackVictimType = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadonly) float AttackForceAccum = 0.0f;		//аккумуоятор пока что только силы прыжка со временем
 
+
 	//самодействия - вызываются сами время от времени по ситуации
 	UPROPERTY(VisibleAnywhere, BlueprintReadonly) uint8 CurrentSelfAction = 255;	// реально выполняется
 	UPROPERTY(VisibleAnywhere, BlueprintReadonly) uint8 SelfActionToTryNow = 0;		// рассмотреть, если подходит, то выполнить (счетчик)
@@ -462,8 +463,8 @@ public:
 	bool NowPhaseDescend() const { return (CurrentAttackPhase == EActionPhase::DESCEND); }
 
 	//текущая фаза атаки соответствует указанным в сборке этой атаки для особых действий: подготовиться к прыжку, прыгнуть, схватить при касании
-	bool NowPhaseToJump() { return (Mesh->DynModel->JumpImpulse > 0); }
-	bool NowPhaseToHold() { return (Mesh->DynModel->JumpImpulse < 0); }
+	bool NowPhaseToJump() { return (Mesh->DynModel->JumpImpulse > 1); }
+	bool NowPhaseToHold() { return Mesh->DynModel->PreJump; }
 
 	//сейчас фаза чтобы схватить - тут сложнее, надо ещё проверить, чтобы не совпадало с фазой отпускания, иначе нет смысла
 	//вызывается в MyrPhyCreatureMesh.cpp

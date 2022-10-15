@@ -489,6 +489,7 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 			RelativeVel -= Hit.Component.Get()->GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint);
 	float Speed = 0;
 	RelativeVel.ToDirectionAndLength(RelativeVel, Speed);
+	if (Speed < 0.5) RelativeVel = (FVector)MyrOwner()->GetGirdle(Limb.WhatAmI)->GuidedMoveDir;
 
 	//сонаправленность движения и нормали
 	float Coaxis = RelativeVel | (-Hit.ImpactNormal);
@@ -1120,13 +1121,22 @@ void UMyrPhyCreatureMesh::SetMachineSimulatePhysics(bool Set)
 //==============================================================================================================
 void UMyrPhyCreatureMesh::SetSpineStiffness(float Factor)
 {
-	auto CI = GetMachineConstraint(Pectus);
-	auto aCI = GetArchMachineConstraint(Pectus);
+	AdjustSpineStiffness(Pectus, Factor);	//спина посередине
+	AdjustSpineStiffness(Thorax, Factor);	//передний пояс 
+	AdjustSpineStiffness(Lumbus, Factor);	//задний пояс
+}
+
+void UMyrPhyCreatureMesh::AdjustSpineStiffness(FLimb& Limb, float Factor)
+{
+	auto CI = GetMachineConstraint(Limb);
+	auto aCI = GetArchMachineConstraint(Limb);
 	CI->SetAngularDriveParams(
 		aCI->ProfileInstance.AngularDrive.SlerpDrive.Stiffness * Factor,
 		aCI->ProfileInstance.AngularDrive.SlerpDrive.Damping * Factor,
 		aCI->ProfileInstance.AngularDrive.SlerpDrive.MaxForce);
+
 }
+
 
 //==============================================================================================================
 //обнаружение частичного провала под поверхность/зажатия медлу плоскостью
