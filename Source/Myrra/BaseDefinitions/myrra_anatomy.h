@@ -260,6 +260,100 @@ USTRUCT(BlueprintType) struct FMeshAnatomy
 };
 
 #define STEPPED_MAX 63
+
+//###################################################################################################################
+// объект опоры при ходьбе или касании физ-движком
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FFloor
+{
+	GENERATED_BODY()
+
+	//тип поверхности предмета касания, добывается из физ-материала
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EMyrSurface Surface = EMyrSurface::Surface_0;
+
+	//нормаль касания, если это центральный узел пояса или нога, то не своя нормаль, а расчитанная по трассировкам
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f Normal;
+
+	//физическое тело опоры - там всё
+	FBodyInstance* Body = nullptr;
+
+
+	//инициализировать из структуры хит (в Myrra.cpp)
+	bool FromHit(const FHitResult& Hit);
+
+	//принять из другой сборки опоры с плавным обретением нормали
+	void Transfer(const FFloor& Other, float A = 1.0f) { Body = Other.Body; Surface = Other.Surface; Normal = FMath::Lerp(Normal, Other.Normal, A); }
+
+	//удалить инфу об опоре
+	void Erase() { Body = nullptr; Surface = EMyrSurface::Surface_0; }
+
+	//актор владеющий телом опоры
+	UPrimitiveComponent* Component() { return Body->OwnerComponent.Get(); }
+	UPrimitiveComponent* Component() const { return Body->OwnerComponent.Get(); }
+
+	//актор владеющий телом опоры
+	AActor* Actor() { return Body->OwnerComponent->GetOwner(); }
+
+	UBodySetup* BSetup() const		{ return Body->GetBodySetup(); }
+	FKAggregateGeom& AgGeo() const	{ return Body->GetBodySetup()->AggGeom; }
+	bool IsValid() const			{ return Body && Body->OwnerComponent.IsValid() && (int)Surface > 0;  }
+	operator bool() const			{ return IsValid(); }
+	bool operator==(const FFloor& O) { return (Body == O.Body); }
+	bool operator!=(const FFloor& O) { return (Body != O.Body); }
+	bool IsMovable() const			{ return Component()->Mobility == EComponentMobility::Movable; }
+	bool IsClimbable() const		{ return (Surface == EMyrSurface::WoodRaw || Surface == EMyrSurface::Fabric || Surface == EMyrSurface::Flesh); }
+	bool IsCapsule() const			{ return (BSetup() && AgGeo().SphylElems.Num() >= 1); }
+	bool IsBox() const				{ return (BSetup() && AgGeo().BoxElems.Num() >= 1); }
+	bool IsSphere() const			{ return (BSetup() && AgGeo().SphereElems.Num() >= 1); }
+
+	//характеристический вектор "вдоль" если опора - простая продолговатая форма
+	FVector3f Dir() const			{ return (FVector3f)Body->GetUnrealWorldTransform().GetUnitAxis(EAxis::Y); }
+
+	//характерная толщина опоры, если это продолговатая простая форма
+	float Thickness() const			{	if(IsCapsule())	return AgGeo().SphylElems[0].Radius;
+										if(IsBox())		return FMath::Min3(AgGeo().BoxElems[0].X, AgGeo().BoxElems[0].Y, AgGeo().BoxElems[0].Z); 
+										if(IsSphere())	return AgGeo().SphereElems[0].Radius;
+										return 10000;	}
+
+	bool Thin(float T = 5) const	{ return (Thickness() <= T); }
+
+	//вектор ориентации опоры, если это ветка или брусок, сообразно внешнему вектору, фактически проекция взгляда на линию ветки
+	FVector3f Dir(FVector3f F)const { auto G = Dir(); return (G|F)>0 ? G : -G; }
+
+	//сонаправленность ориентации опоры внешнему вектору
+	float Coax(FVector3f Look)const { return Dir(Look)|Look; }
+
+	//крутой уклон исключающий возможность захода пешком
+	bool TooSteep() const { return (Normal.Z < 0.5f); }
+
+	//приемлемость опоры для стояния и фиксации, либо пологая, либо крутая, но мы можем карабкаться по ней
+	bool Steppable(bool Climb)const { return (IsClimbable() && Climb) || TooSteep(); }
+
+
+	//покомпонентная настройка условно ходимых предметов
+	bool CharCanStep() const { return Component()->CanCharacterStepUpOn == ECanBeCharacterBase::ECB_Yes; }
+	bool CharNoStep() const { return Component()->CanCharacterStepUpOn == ECanBeCharacterBase::ECB_No; }
+
+	//количественная приемлемость опоры, удобство на ней стоять, ее вес при выборе пути, (0;1) 
+	float Rating(FVector3f Look, FVector3f Up, bool Climb) const
+	{	if (!IsValid()) return 0.0f;
+		if(!Steppable(Climb)) return 0.0f; else
+		return FMath::Max(0.0f, Up|Normal) * IsCapsule() ? FMath::Max(0.0f,Coax(Look)) : 1.0f;
+	}
+
+	//скорость тела опоры в точке
+	FVector3f Speed(FVector Point) const { return (FVector3f)Body->GetUnrealWorldVelocityAtPoint(Point); }
+	FVector3f Speed() const { return (FVector3f)Body->GetUnrealWorldVelocity(); }
+
+	//степень уткнутости вглубь, для
+	float BumpAmount(FVector3f ADir) {	return FVector2f(-Normal) | FVector2f(ADir);	}
+
+	FFloor() :Surface(EMyrSurface::Surface_0), Body(nullptr) {}
+	FFloor(const FHitResult& Hit) { FromHit(Hit); }
+
+};
+
+
 //###################################################################################################################
 // часть тела
 //###################################################################################################################
@@ -276,17 +370,11 @@ USTRUCT(BlueprintType) struct FLimb
 	//степень соосности вектора скорости и нормали при ударе
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Colinea = 0;
 
-	// запомнить поверхность предмета последнего касания
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) EMyrSurface Surface;
-
 	// держит что-то этой конечностью (или карабкается этим туловищем)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Grabs:1;
 
 	// предыдущее столкновение было атакующим и повреждающим, это - пропустить, чтоб не спамить систему
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LastlyHurt:1;			
-
-	// нормаль касания, если это центральный узел пояса или нога, то не своя нормаль, а расчитанная по трассировкам
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f ImpactNormal;
 
 	//модель приложения сил, заносится извне на уровне режима поведения, текущего самодействия
 	//возможно, не нужно, так как еть доступ через -> Girdle -> DynModel -> GirdleRay. Но слишком длинный.
@@ -296,19 +384,14 @@ USTRUCT(BlueprintType) struct FLimb
 	//повреждение данной части тела
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Damage = 0.0f;
 
-	// физическое тело опоры - там всё
-	FBodyInstance* Floor = nullptr;
+	//сборка данных по опоре, на которой стоим
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FFloor Floor;
 
 	////////////////////////////////////////////////////////////
 
-	//стереть из этой части тела информацию о касании 
-	void EraseFloor() { Stepped = 0; Floor = nullptr; Surface = EMyrSurface::Surface_0; }
-
-	//перенести из другой части тела информацию о поверхности касания, не трогая сам факт удара
-	void GetFloorOf(const FLimb& Oth) { Floor = Oth.Floor; Surface = Oth.Surface; }
-
-	//перенести из другой части тела полностью инфу о событии касания
-	void TransferFrom(const FLimb& Oth) { Stepped = Oth.Stepped; GetFloorOf(Oth); }
+	//получить и удалить опору
+	void AcceptFloor(FFloor& N, float Alpha) { Stepped = STEPPED_MAX; Floor.Transfer(N, Alpha); }
+	void EraseFloor() { Stepped = 0; Floor.Erase(); }
 
 	////////////////////////////////////////////////////////////
 
@@ -322,62 +405,24 @@ USTRUCT(BlueprintType) struct FLimb
 	//левая нога 
 	bool IsLeft() const { return (WhatAmI == ELimb::L_ARM || WhatAmI == ELimb::L_LEG);	}
 
-	//можно карабкаться в вертикали
-	static bool IsClimbable(EPhysicalSurface S) { return ((EMyrSurface)S == EMyrSurface::Surface_WoodRaw || (EMyrSurface)S == EMyrSurface::Surface_Fabric/* || S == EMyrSurface::Surface_Flesh*/); }
-	static bool IsClimbable(EMyrSurface S) { return IsClimbable((EPhysicalSurface)S); }
-	bool IsClimbable() const { return IsClimbable((EPhysicalSurface)Surface); }
+	//для простого учета развернутости осей (возможно, не нужен, так как ForcesMultiplier можно задать отрицательным
+	float OuterAxisPolarity() const {	return (DynModel & LDY_REVERSE) ? -1.0f : 1.0f;	}
 
 	//эта часть тела хочет быть вертикальной (но не факт, что есть)
 	bool IsVertical() const { return (DynModel & LDY_TO_VERTICAL) && (DynModel & LDY_MY_UP); }
 
-	//для простого учета развернутости осей (возможно, не нужен, так как ForcesMultiplier можно задать отрицательным
-	float OuterAxisPolarity() const {	return (DynModel & LDY_REVERSE) ? -1.0f : 1.0f;	}
+	//сонаправленность движения членика с последней опорой
+	float GetColinea(int Balancer = 0) const { return Stepped ? (Colinea + Balancer) / (255.0f + Balancer) : 0; }
 
-	//эта часть тела несёт предмет (и принимать толчки/шаги не может)
-	bool HoldsItem() const { return Stepped == 255; }
+	//сонаправленность движения членика с последней опорой
+	float GetTouch(int Balancer = 0) const { return (Stepped + Balancer) / ((float)(STEPPED_MAX) + Balancer); }
 
-	//зафиксировать и расфиксировать тот факт, что объект, введенный как опора, является носимым предметом
-	void GrabCurrent() { Stepped = 1; }
-	void UnGrabCurrent() { Stepped = 0; }
-
-	//выдать компонент опоры из физического тела опоры
-	UPrimitiveComponent* GetComp() { return Floor->OwnerComponent.Get(); }
 
 	//степень контакта с поверхностью, актуальность * соосность 
-	float GetBumpCoaxis() const {  return Stepped ? ((int)Colinea * Stepped) / (float)(255 * STEPPED_MAX) : 0.0f; }
+	float GetBumpCoaxis() const { return Stepped ? GetTouch()*GetColinea() : 0.0f; }
 
 	//нормаль взвешенная коэффициентом значимости касания
-	FVector3f GetWeightedNormal() const { return ImpactNormal * GetBumpCoaxis(); }
-
-	//тело касается модульной опоры типа ветки
-	bool OnBranch() { return (Floor->InstanceBodyIndex != INDEX_NONE); }
-	bool OnCapsule() { if(!Floor) return false; if(!Floor->GetBodySetup()) return false;  return (Floor->GetBodySetup()->AggGeom.SphylElems.Num() == 1); }
-	bool OnSphere() { if (!Floor) return false; if(!Floor->GetBodySetup()) return false; return (Floor->GetBodySetup()->AggGeom.SphereElems.Num()>=1); }
-
-	//радиус ветки/опоры, про которую точно известно, что она оформлена капусл ой
-	float GetBranchRadius() { return Floor->GetBodySetup()->AggGeom.SphylElems[0].Radius; }
-
-	bool OnThinCapsule(float Thr = 5) { if(OnCapsule()) return (GetBranchRadius()<=Thr); else return false; }
-
-	//выдать локальный верх седла ветки, нормали в точке равновесия от съезжаний в бок - дважды векторное произведение
-	//внимание, результат не нормируется, потому что фигурирует в составе процедуры, где и так и так в конце нужна нормирвка
-	FVector3f GetBranchSaddleUp() {
-		auto lX = GetBranchDirection();		//направление ветки
-		auto lY = lX^FVector3f::UpVector;	//векторное произведение с вертикалью даст или ноль, или вектор в бок
-		lY = lY^lX;							//полученный вектор вбок снова в.п. с направлением ветки - получится тот самый седловой вверх или вниз
-		if(lY.Z<0) lY = -lY;				//выбираем то направление, что вверх (в.п. дает разные знаки от последовательности операндов)
-		return lY;	}
-
-	//если опора ветка, то это будет ее направление (однако, почему Y и насколько это универсально)
-	FVector3f GetBranchDirection () const { return (FVector3f)Floor->GetUnrealWorldTransform().GetUnitAxis(EAxis::Y); }
-
-	//направление ветки с учётом желаемого хода - по ветке или против ветки
-	FVector3f GetBranchDirection (const FVector3f& InDir) const { auto g = GetBranchDirection(); if((g|InDir)>0) return g; else return -g;  }
-	FVector3f GetBranchDirection(const FVector3f& InDir, float& OutCoaxis) const
-	{ 	auto g = GetBranchDirection(); OutCoaxis = g | InDir;
-		if (OutCoaxis > 0) return g;
-		else { OutCoaxis = -OutCoaxis;  return -g; }
-	}
+	FVector3f GetWeightedNormal() const { return Floor.Normal * GetBumpCoaxis(); }
 
 	FLimb() {Grabs = 0; LastlyHurt = 0; }
 };
@@ -386,6 +431,22 @@ USTRUCT(BlueprintType) struct FLimb
 UENUM(BlueprintType) enum class EGirdleRay : uint8 { Center, Left, Right, Spine, Tail, MAXRAYS };
 ENUM_CLASS_FLAGS(EGirdleRay);
 
+//биты режимов ограничений поясного якоря
+UENUM(BlueprintType) enum class EGirdleLimits : uint8
+{
+	FixOnFloor,
+
+	Vertical,
+	Normal,
+
+	LockRoll,
+	LockPitch,
+	LockYaw,
+
+	TightenYaw,
+	TightenLean,
+
+};
 
 //###################################################################################################################
 // сборка моделей динамики для всех частей пояса конечностей - для структур состояний и самодействий, чтобы
@@ -396,8 +457,8 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 {
 	GENERATED_BODY()
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Center = LDY_ROTATE | LDY_MY_UP | LDY_TO_VERTICAL;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Left =	LDY_ROTATE | LDY_MY_WHEEL | LDY_TO_COURSE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Right = LDY_ROTATE | LDY_MY_WHEEL | LDY_TO_COURSE;
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Left =	LDY_ROTATE | LDY_MY_WHEEL | LDY_TO_COURSE;
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Right = LDY_ROTATE | LDY_MY_WHEEL | LDY_TO_COURSE;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Spine = LDY_ROTATE | LDY_MY_UP | LDY_TO_VERTICAL;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Tail = LDY_PASSIVE;
 
@@ -408,7 +469,24 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leads")) bool Leading = true;
 
 	//сразу вкл/выкл гравитацию для члеников ног в пределах пояса
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On Floor")) bool FixOnFloor = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On Floor"))	uint8 FixOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Yaw")) uint8 TightenYawOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Lean")) uint8 TightenLeanOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Roll")) uint8 LockRollOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Pitch")) uint8 LockPitchOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Yaw")) uint8 LockYawOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Vertical Align")) uint8 VerticalOnFloor : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Shoulders")) uint8 LockLegsSwingOnFloor : 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On Path")) uint8 FixOnTraj : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Yaw")) uint8 TightenYawInAir : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Lean")) uint8 TightenLeanInAir : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Roll")) uint8 LockRollInAir : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Pitch")) uint8 LockPitchInAir : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Yaw")) uint8 LockYawInAir : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Vertical Align")) uint8 VerticalInAir : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Shoulders")) uint8 LockLegsSwingInAir : 1;
+
 
 	//выключить сгибания сразу всех ног, а именно таза с ногами вперед назад
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Swing Lock")) bool LegsSwingLock = false;
@@ -427,8 +505,8 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Crouch")) float Crouch = 0.0;
 
 	//насколько расставлять или стягивать ноги (безразмерно, на глазок, влияет на рассчет позы в анимации)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread Min (% Length)")) float LegsSpreadMin = -0.1f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread Max (% Length)")) float LegsSpreadMax = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leg Apart Min % Length")) float LegsSpreadMin = -0.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leg Apart Max % Length")) float LegsSpreadMax = 0.3f;
 
 	//множитель сил, которые применяются к членам согласно выше заполненным моделям - для подгонки в редакторе
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Forces Mult")) float ForcesMultiplier = 1000.0;
@@ -438,6 +516,23 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 
 	//получить по индексу
 	uint8 At(const EGirdleRay Where) const { return ((uint8*)(&Center))[(int)Where]; }
+
+	//выдать все биты ограничений якоря скопом (ОСТОРОЖНО! попытка обхитрить память!)
+	uint8& AllFlagsFloor()  { return ((uint8*)(&Leading + 1))[0]; }
+	uint8& AllFlagsAir()    { return ((uint8*)(&Leading + 1))[1]; }
+
+	//выдать готовый коэф размаха ног по заданной альфе смешивания
+	float GetLegSpread(float A) const { return FMath::Lerp(LegsSpreadMin, LegsSpreadMax, A); }
+
+	void Correction()
+	{
+		if (HardVertical) { VerticalOnFloor = true; TightenLeanOnFloor = true; }
+		if (HardCourseAlign) { TightenYawOnFloor = true; }
+		if (NormalAlign) { TightenLeanOnFloor = true; }
+		if (LegsSwingLock) { LockLegsSwingOnFloor = true;  }
+	}
+
+	FGirdleDynModels() { AllFlagsAir() = 0; AllFlagsFloor() = 0; }
 };
 
 
@@ -501,6 +596,8 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	}
 };
 
+
+
 //каналы отображения отладочных линий для векторных данных
 UENUM() enum class ELimbDebug : uint8
 {
@@ -525,5 +622,6 @@ UENUM() enum class ELimbDebug : uint8
 	LineTrace,
 	GirdleCrouch,
 	AILookDir,
-	GirdleStandHardness
+	GirdleStandHardness,
+	PhyCenterDislocation
 };

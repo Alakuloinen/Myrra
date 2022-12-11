@@ -399,7 +399,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 	}
 	PreviousPosition = GetActorLocation();
 
-	//применение расчёта следов
+		//применение расчёта следов
 	UpdateTrailRender();
 
 	////////////////////////////////////////////////////////////////////////////////////
@@ -500,8 +500,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 		//размах тряски камеры
 		if (MyrController())
-		{
-			if (MyrController()->GetCameraShake())
+		{	if (MyrController()->GetCameraShake())
 				MyrController()->GetCameraShake()->ShakeScale = Psychedelic;
 			if (MyrController()->GetPainCameraShake())
 				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.9f, 0.0f, 1.0f);

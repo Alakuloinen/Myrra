@@ -62,7 +62,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadonly) uint8 CurrentAttackVictimType = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadonly) float AttackForceAccum = 0.0f;		//аккумуоятор пока что только силы прыжка со временем
 
-
 	//самодействия - вызываются сами время от времени по ситуации
 	UPROPERTY(VisibleAnywhere, BlueprintReadonly) uint8 CurrentSelfAction = 255;	// реально выполняется
 	UPROPERTY(VisibleAnywhere, BlueprintReadonly) uint8 SelfActionToTryNow = 0;		// рассмотреть, если подходит, то выполнить (счетчик)
@@ -230,7 +229,7 @@ public:
 	//пострадать от физических повреждений (всплывает из меша)
 	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface);
 	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc)
-	{	Hurt(Limb, Amount, ExactHitLoc, Limb.ImpactNormal, Limb.Surface);	}
+	{	Hurt(Limb, Amount, ExactHitLoc, Limb.Floor.Normal, Limb.Floor.Surface);	}
 
 	//ментально осознать, что пострадали от действий другого существа или наоборот были им обласканы
 	void SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker);
@@ -256,10 +255,12 @@ public:
 
 	/////////////////////////////////////////////
 	bool GotUnclung()					{ return !Thorax->Climbing && !Pelvis->Climbing; }
-	bool GotLandedAny(uint8 Thr = 100) { return (Thorax->Stands(Thr) || Pelvis->Stands(Thr)); }
+	bool GotGroundBoth()				{ return Mesh->Thorax.Stepped && Mesh->Pelvis.Stepped; }
+	bool GotLandedAny(uint8 Thr = 100)  { return (Thorax->Stands(Thr) || Pelvis->Stands(Thr)); }
 	bool GotLandedBoth(uint8 Thr = 100) { return (Thorax->Stands(Thr) && Pelvis->Stands(Thr)); }
 	bool GotSlow(float T = 1)			{ return (Pelvis->VelocityAgainstFloor.SizeSquared() < T && Thorax->VelocityAgainstFloor.SizeSquared() < T); }
 	bool GotSoaringDown(float T = -50)	{ return (Mesh->GetPhysicsLinearVelocity().Z < T); }
+	bool GotLying()						{ return (Thorax->Lies() && Pelvis->Lies() && SpineVector.Z < 0.5f); }
 
 	//висим низом
 	bool HangBack()						{ return (Thorax->StandHardness >= 200 && Pelvis->StandHardness <= 35); }
@@ -271,13 +272,13 @@ public:
 	EAttackAttemptResult AttackActionStart(int SlotNum, int VictimType = 0);
 	EAttackAttemptResult AttackActionStrike();
 	EAttackAttemptResult AttackActionStrikePerform();
-	void NewAdoptAttackPhase(EActionPhase NewPhase);
-	void NewAttackGetReady();
-	void NewAttackEnd();					//завершение 
-	void NewAttackGoBack();					//прерывание и разворот в спять - редко, чтобы не пересекать вглубь
-	bool NewAttackNotifyGiveUp();			//прерывание неначатой
-	void NewAttackNotifyEnd();				//поимка закладки		
-	void NewAttackNotifyFinish();			//поимка закладки финиш - переход в финальную фазу перед завершением
+	void AttackChangePhase(EActionPhase NewPhase);
+	void AttackNotifyGetReady();
+	void AttackEnd();					//завершение 
+	void AttackGoBack();					//прерывание и разворот в спять - редко, чтобы не пересекать вглубь
+	bool AttackNotifyGiveUp();			//прерывание неначатой
+	void AttackNotifyEnd();				//поимка закладки		
+	void AttackNotifyFinish();			//поимка закладки финиш - переход в финальную фазу перед завершением
 
 	//процедуры прыжка из различных состояний повдения
 	bool JumpAsAttack();
@@ -294,7 +295,7 @@ public:
 	void RelaxActionReachEnd();		// * достичь конца и полного выхода (вызывается из закладки анимации MyrAnimNotify)
 
 	//прервать или запустить прерывание деймтвий, для которых сказано прерывать при сильном касании
-	void CeaseActionsOnHit();		
+	void CeaseActionsOnHit(float Damage);		
 	void ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutActionIndices, ECreatureAction Restrict = ECreatureAction::NONE);
 
 	//вообще запустить какое-то действие по точному идентификатору (если есть в генофонде)

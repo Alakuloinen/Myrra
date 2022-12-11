@@ -91,11 +91,6 @@ public: // визуальные дополнения
 	//настройки спецэффектов, связанные со зрением этого существа, действуют от первого лица
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Visual") FEyeVisuals FirstPersonVisuals;
 
-	//материал который и  размер текстуры, что генерирует в рендер-цель индивидуальный облик
-	//пока заброшено, но без этого не обойтись, если вносить на тело раны
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Visual")  UMaterialInterface* MaterialToGenerateLook;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Visual")  int32 LookRenderTargetSize = 512;
-
 	//станартные окрасы, если не предусмотрено генерируемого окраса, если в этом массиве что-то есть, окрас не генерируется
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Visual") TArray<UTexture*> StaticCoatTextures;
 

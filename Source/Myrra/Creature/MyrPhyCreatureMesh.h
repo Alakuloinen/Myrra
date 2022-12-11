@@ -219,8 +219,17 @@ public:
 	//не нужно, есть spinevector
 	float Erection() const { return (GetLimbPos(ELimb::THORAX) - GetLimbPos(ELimb::PELVIS)).Z; }
 
+	bool LimbLying(FLimb& L, float DownLim = -0.3) const
+	{
+		auto Dn = GetLimbAxisDown(L);
+		return L.Stepped > 0 ? ((L.Floor.Normal | Dn) > DownLim) : Dn.Z > DownLim;
+	}
 	//порог опрокидываемости берется по задней-центральной части спины, так как "хабы" могут быть вывернуты из-за подкошенных ног
-	bool IsLyingDown(float DownLim = -0.3) const { return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisDown(ELimb::LUMBUS).Z > DownLim; }
+	bool IsLyingDown(float DownLim = -0.3) const
+	{ 
+
+		return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisDown(ELimb::LUMBUS).Z > DownLim;
+	}
 
 	//существо не касается опоры конечностями
 	bool AreFeetInAir() const { return RArm.Stepped + LArm.Stepped + RLeg.Stepped + LLeg.Stepped == 0; }
@@ -234,8 +243,8 @@ public:
 	bool IsVerticalTransition(FConstraintInstance* CI) { return CI->ProfileInstance.AngularDrive.SwingDrive.bEnablePositionDrive; }
 
 	//касается ли данная тушка данной частью тела данного актора
-	bool Tango(FLimb& Limb, AActor* A) { if (Limb.Floor) if (Limb.Floor->OwnerComponent->GetOwner() == A) return true; return false; }
-	bool Tango(FLimb& Limb, UPrimitiveComponent* A) { if (Limb.Floor) if (Limb.Floor->OwnerComponent.Get() == A) return true; return false; }
+	bool Tango(FLimb& Limb, AActor* A) { if (Limb.Floor) if (Limb.Floor.Actor() == A) return true; return false; }
+	bool Tango(FLimb& Limb, UPrimitiveComponent* A) { if (Limb.Floor) if (Limb.Floor.Component() == A) return true; return false; }
 	bool IsTouchingActor(AActor* A) { return Tango(Pelvis, A) || Tango(Lumbus, A) || Tango(Thorax, A) || Tango(Pectus, A) || Tango(RArm, A) || Tango(LArm, A) || Tango(LLeg, A) || Tango(RLeg, A) || Tango(Head, A) || Tango(Tail, A); }
 	bool IsTouchingComponent(UPrimitiveComponent* A) { return Tango(Pelvis, A) || Tango(Lumbus, A) || Tango(Thorax, A) || Tango(Pectus, A) || Tango(RArm, A) || Tango(LArm, A) || Tango(LLeg, A) || Tango(RLeg, A) || Tango(Head, A) || Tango(Tail, A); }
 
@@ -266,18 +275,8 @@ public:
 		else IntegralBumpNormal = FMath::Lerp(IntegralBumpNormal, GetLimbAxisBack(Thorax), 0.01);
 	}
 
-	//изогнуть направлятель движения вдоль опоры
-	bool GuideAlongObstacle(FVector3f &Guide, float Amount = 0.5f)
-	{	auto& L = Bumper1();
-		if (L.Stepped > 0 && L.Colinea > 5)
-		{	Guide = FMath::Lerp(
-				Guide,
-				FVector3f::VectorPlaneProject(Guide, IntegralBumpNormal),
-				L.GetBumpCoaxis() * Amount);
-			return true;
-		}
-		return false;
-	}
+	//изогнуть вектор курса так, чтоб он огибал препятствие или отражался от него; внимание, вектор искажается и не нормируется!
+	bool GuideAlongObstacle (FVector3f &Guide, bool Penetra = false, float Amount = 0.5f);
 
 	//пересчитать важные компоненты для отрезка между передним и задним поясами
 	void CalcSpineVector(FVector3f &Dir, float &Len)
@@ -296,7 +295,7 @@ public:
 	bool IsBumpable() { return GetCollisionObjectType() != ECollisionChannel::ECC_Vehicle; }
 
 	//удар об твердь - насколько опасно
-	float ShockResult(FLimb &L, float Speed, UPrimitiveComponent* Floor);
+	float ShockResult(FLimb &L, float Speed, FFloor& NewFloor);
 
 	//касания верхних частей тела
 	//скорее всего не нужен
@@ -320,9 +319,6 @@ public:
 	FVector3f CalcInnerAxisForLimbDynModel(const FLimb& Limb, FVector3f GloAxis) const;
 	FVector3f CalcOuterAxisForLimbDynModel(const FLimb& Limb) const;
 
-	//двигаться на физдвижке по горизонтальной поверхности
-	void Move (FBodyInstance* BodyInst, FLimb& Limb);
-
 	//ориентировать тело силами, поворачивая или утягивая
 	void OrientByForce (FBodyInstance* BodyInst, FLimb& Limb, FVector3f ActualDir, FVector3f DesiredDir, float AdvMult = 1.0);
 
@@ -332,9 +328,6 @@ public:
 
 	//телепортировать всё тело на седло ветки
 	void TeleportOntoBranch(FBodyInstance* CapsuleBranch);
-
-	//рассчитать возможный урон от столкновения с другим телом
-	float ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float TermialDamageMult, float SpeedSquared, const FHitResult& Hit);
 
 	//дополнительная инициализация части тела
 	void InitLimb(FLimb& Limb, ELimb Me) {Limb.WhatAmI = Me;}
@@ -361,12 +354,6 @@ public:
 
 	//обновить веса физики и увечья для этой части тела
 	void ProcessBodyWeights(FLimb& Limb, float DeltaTime);
-
-	//принять или отклонить только что обнаруженную новую опору для этого членика
-	int ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, FVector3f NewNormal, FVector NewHitLoc);
-
-	//взять данные о поверхности опоры непосредственно из стандартной сборки хитрезалт
-	void GetFloorFromHit(FLimb& Limb, FHitResult Hit);
 
 	//взять данный предмет за данный членик данной частью тела
 	void Grab (FLimb& GrabberLimb, uint8 ExactBody, FBodyInstance* GrabbedBody, FLimb* GrabbedLimb, FVector ExactAt);
@@ -441,10 +428,6 @@ public:
 	//выдать вовне номер эмо-стимула при повреждении части тела
 	static EEmoCause GetDamageEmotionCode(ELimb eL) { return FeelLimbDamaged[(int)eL]; }
 
-	//точка нижнего седла сегмента ветки - пока неясно, в каком классе стоит эту функцию оставлять: меша, веткаи или какого другого
-	//она просто вычисляет коррдинаты, куда телепортировать точку отсчёта кошки (низ-зад)
-	static bool GetBranchSaddlePoint(FBodyInstance* Branch, FVector& Pos, float DeviaFromLow = 0.0f, FQuat* ProperRotation = nullptr, bool UsePreviousPos = false);
-
 	//"торможение" переменной - если новое значение меньше - принять сразу (разгон), если больше - впитывать плавно (тормозной путь) со скоростью А
 	static inline void BrakeD (float &D, const float nD, const float A) { if(nD < D) D = nD; else D = FMath::Lerp(D, nD, A); }
 
@@ -467,12 +450,16 @@ public:
 		CI->UpdateAngularLimit();
 	}
 
+	//установить сяразу все ограничения по всем углам, если значения не изменились, физдвижок не трогает
 	static inline void SetAngles(FConstraintInstance* CI, int As1, int As2, int At)
 	{	auto& CL = CI->ProfileInstance.ConeLimit;
-		CL.Swing1Motion = AngValToMode(As1); 	CL.Swing1LimitDegrees = As1;
-		CL.Swing2Motion = AngValToMode(As2);	CL.Swing2LimitDegrees = As2;
-		CI->ProfileInstance.TwistLimit.TwistMotion = AngValToMode(At);
-		CI->UpdateAngularLimit();
+		auto& TL = CI->ProfileInstance.TwistLimit;
+		if(As1 != CL.Swing1LimitDegrees || As2 != CL.Swing2LimitDegrees || At != TL.TwistLimitDegrees)
+		{	CL.Swing1Motion = AngValToMode(As1); 	CL.Swing1LimitDegrees = As1;
+			CL.Swing2Motion = AngValToMode(As2);	CL.Swing2LimitDegrees = As2;
+			TL.TwistMotion = AngValToMode(At);		TL.TwistLimitDegrees = At;
+			CI->UpdateAngularLimit();
+		}
 	}
 
 	//определить лимиты констрейнта в одну строчку

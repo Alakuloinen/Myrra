@@ -130,6 +130,7 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	{
 		AttackCurvesAnimation = nullptr;
 		CurrentAttack = Creature->CurrentAttack;
+		CurrentAttackPlayRate = 0;
 	}
 	//атаки (если в материнском объекте атака на задана, то и тут ничего не надо делать)
 	if (Creature->CurrentAttack != 255)
@@ -284,7 +285,7 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 	float& RUpDown = LimbChunk[0];
 	float& LUpDown = LimbChunk[4];
 
-	if (PhyGirdle->HasLegs)
+	/*if (PhyGirdle->HasLegs)
 	{
 		//вот через такую жопу добывается радиус сферы - тут важно, чтобы сфера существовала, но проверять надо не здесь
 		const auto CeLimb = PhyGirdle->GetLimb(EGirdleRay::Center);
@@ -293,7 +294,7 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
 	}
 	//нет ног
-	else
+	else*/
 	{
 		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Right), &RUpDown);
 		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
@@ -317,17 +318,21 @@ void UMyrPhyCreatureAnimInst::SetLegPosition(FLimb& Limb, float* LimbChunk)
 	const auto M = Creature->GetMesh();
 	auto Girdle = Creature->GetGirdle(Limb.WhatAmI);
 	
-	//отладка
-	LINEWT(ELimbDebug::FeetShoulders, M->GetLimbShoulderHubPosition(Limb.WhatAmI), (FVector)Girdle->GetLegRay(Limb), Limb.Stepped?1:0.5, 0);
-
 	//перевести координаты в диапазоны blendspace
-	FVector3f NewFootRay = Girdle->GetRelLegRay(Limb);
-	if (Limb.IsLeft()) NewFootRay.Z *= -1;
-	NewFootRay = NewFootRay / (2 * Girdle->TargetFeetLength) + FVector3f(0.5f);
-	*OutPos = FMath::Lerp(*OutPos, NewFootRay, 0.3f);
+	FVector3f NewFootRay = Girdle->GetLegLineLocal(Limb);		//линия ноги в локальных координатах пояса
+	if (Limb.IsLeft()) NewFootRay.Z *= -1;					//сделать линию ноги независимой от симметрии право/лево
+	//NewFootRay = NewFootRay / Girdle->TargetFeetLength;		//сделать линию ноги единичным вектором
+	//FootPitch = Limb.Floor.Normal | Girdle->GuidedMoveDir;	//загиб ступни вперед/назад в координатах [-1;+1]
 
-	//загиб ступни вперед/назад
-	FootPitch = Limb.FootPitch();
+	//NewFootRay = NewFootRay / 2 + FVector3f(0.5f);			//перевести весь вектор позы ноги в координаты blendspace [0;1]
+	//*OutPos = FMath::Lerp(*OutPos, NewFootRay, 0.3f);
+
+	FVector4f LegVector(NewFootRay, NewFootRay | Girdle->GuidedMoveDir);
+
+	LegVector = LegVector / 2 / Girdle->TargetFeetLength + FVector4f(0.5f, 0.5f, 0.5f, 0.5f);
+
+	*((FVector3f*)LimbChunk) = FMath::Lerp(*((FVector3f*)LimbChunk), LegVector, 1.0f);
+	
 
 
 	//для отладки

@@ -14,31 +14,20 @@ UCLASS() class MYRRA_API UMyrGirdle : public UCapsuleComponent
 {
 	GENERATED_BODY()
 
-//свойства
+//общие флаги
 public:
 
 	//элементарная адресация передний/задний
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 IsThorax:1;
-
-	//для простых существ физ-модель = ползок на брюхе и полностью кинематические ноги, для бипедалов руки тоже ни к чему
-	//нахрена, неясно, это статический показатель, вытекающий из всей структуры
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 HasLegs:1;
-
-	//если этот пояс (его центр) ограничен констрейнтом так, что поддерживается вертикальным
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Vertical:1;
-
-	//пояс ограничен так, что не может вращаться в стороны, для стабилизации и взбирания в вертикаль
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 NoTurnAround:1;
-
-	//пояс держится фиксированным к опоре через констрейнт
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 FixedOnFloor:1;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 IsThorax : 1;
 
 	//пояс ползет по вертикальной опоре, обязательно наличие FixedOnFloor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Climbing : 1;
 
-
 //свойства
 public:
+
+	//полный перечень ячеек отростков для всех двух поясов конечностей
+	static ELimb GirdleRays[2][(int)EGirdleRay::MAXRAYS];
 
 	//кэш скорости ОТНОСИТЕЛЬНО опоры ног, принадлежащих этому поясу
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f VelocityAgainstFloor;
@@ -47,32 +36,53 @@ public:
 	//вектор предпочтительного направления движения с учётом ограничений типа хождения по веткам
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f GuidedMoveDir;
 
-	//степень пригнутости обеих ног (кэш с гистерезисом)
+	//степень пригнутости обеих ног (кэш переменной из динамодели + гистерезис)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Crouch = 0.0f;
 
-	//нормальная длина ноги, для расчётов подогнутия ног на рельефе
-	//вычисляется в начале как разность позиций костей, может быть разной из-за масштаба меша
+	//нормальная длина ноги, для расчётов подгиба ног на рельефе
+	//вычисляется в начале как разность позиций костей, из-за масштаба меша разная у разных объектов класса
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float TargetFeetLength = 0.0f;
-
-	//дайджест уровня крепкости стояния на опоре, 0 - совсем в воздухе, 255 = обеими ногами и еще брюхом 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 StandHardness = 0;
 
 	//плечи конечностей в координатах центрального туловища
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f RelFootRayLeft;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f RelFootRayRiht;
 
-
 	//указатель на сборку настроек динамики/ориентации для этого пояса
 	//прилетает с разных ветвей иерархии - из состояния BehaveState, далее из настроек (само)действия 
 	FGirdleDynModels* CurrentDynModel = nullptr;
 
+	//дайджест уровня крепкости стояния на опоре, 0 - совсем в воздухе, 255 = обеими ногами и еще брюхом 
+	//набирается по касаниям разных частей тела, нужно для оценки устойчивости
+	//или не нужно?
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 StandHardness = 0;
 
+//флаги ограничений
+public:
 
-	//полный перечень ячеек отростков для всех двух поясов конечностей
-	static ELimb GirdleRays[2][(int)EGirdleRay::MAXRAYS];
+	//пояс держится фиксированным к опоре через констрейнт
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 FixedOnFloor : 1;
+
+	//включить силовые моторы, которые сдерживают отклонения по сторонам (Yaw) и опрокидывание (RollPitch)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 TightenYaw : 1;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 TightenLean : 1;
+
+	//не даёт крениться на бок (Roll), клониться взад-вперед (Pitch)  рыскать по сторонам (Yaw)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LockRoll : 1;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LockPitch : 1;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LockYaw : 1;
+
+	//если этот пояс (его центр) ограничен констрейнтом так, что поддерживается вертикальным
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Vertical : 1;
+
+	//заставить ноги быть полностью перепендикулярными ближайшей части спины
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 LockShoulders : 1;
+
 
 //возвращуны
 public:
+
+	//выдать все биты ограничений якоря скопом (ОСТОРОЖНО! попытка обхитрить память!)
+	uint8& AllFlags() { return ((uint8*)&StandHardness+1)[0]; }
 
 	//актор-существо в правильном типе
 	class AMyrPhyCreature* MyrOwner() { return (AMyrPhyCreature*)GetOwner(); }
@@ -88,6 +98,20 @@ public:
 	FLimb&			GetLimb (EGirdleRay R);
 	const FLimb&	GetLimb (EGirdleRay R) const;
 	FBodyInstance*	GetBody (EGirdleRay R);
+	FBodyInstance*  GetBody (EGirdleRay R) const;
+
+	FLimb& GetCenter() { return GetLimb(EGirdleRay::Center); }
+	FLimb& GetSpine() { return GetLimb(EGirdleRay::Spine); }
+	FLimb& GetLeft() { return GetLimb(EGirdleRay::Left); }
+	FLimb& GetRight() { return GetLimb(EGirdleRay::Right); }
+
+	//привязь, используемая для якоря и фиксации на поверхности
+	FConstraintInstance* GetCI() const { return GetBody(EGirdleRay::Center)->DOFConstraint;	}
+
+	//актуальные режимы закрепленности якорем
+	bool GetFixOnFloor() const { return GetCI()->ProfileInstance.LinearDrive.XDrive.bEnablePositionDrive; }
+	bool GetTightenLean() const { return GetCI()->ProfileInstance.AngularDrive.SwingDrive.bEnablePositionDrive; }
+	bool GetTightenYaw() const { return GetCI()->ProfileInstance.AngularDrive.TwistDrive.bEnablePositionDrive; }
 
 	//констрайнт, которым спинная часть пояса подсоединяется к узловой (из-за единой иерархии в разных поясах это с разной стороны)
 	FConstraintInstance* GetGirdleSpineConstraint();
@@ -97,8 +121,9 @@ public:
 	bool Lead() const { return CurrentDynModel->Leading; }
 
 	//пояс не стоит ногами на опоре
-	bool IsInAir() const { return (GetLimb(EGirdleRay::Center).Stepped != STEPPED_MAX); }
-	bool Stands(float Thr = 200) { return (StandHardness >= Thr);  }
+	bool IsInAir() const { return (!GetLimb(EGirdleRay::Center).Floor.IsValid()); }
+	bool Stands(int Thr = 200) { return (StandHardness >= Thr); }
+	bool Lies(int Mn = 1, int Mx = 199) { return (StandHardness >= Mn && StandHardness <= Mx); }
 
 	//режим попячки назад
 	bool IsMovingBack() const;
@@ -106,16 +131,25 @@ public:
 	//скаляр скорости в направлении движения
 	float SpeedAlongFront() { return (VelocityAgainstFloor | GuidedMoveDir); }
 
+	//множитель для различения левого и правого
+	float mRight(FLimb& Foot) const { return Foot.IsLeft() ? -1 : 1; }
+
+	//позиция откуда нога растёт, просто транслирует функцию из Mesh
+	FVector GetFootRootLoc(ELimb eL);
+
 	//вычислить ориентировочное абсолютное положение конца ноги по геометрии скелета
 	FVector GetFootTipLoc(ELimb eL);
 
-	FVector3f& GetRelLegRay(FLimb& L) { return L.IsLeft() ? RelFootRayRiht : RelFootRayLeft; }
+	//локальный вектор линии ноги, как есть
+	FVector3f& GetLegLineLocal(FLimb& L) { return L.IsLeft() ? RelFootRayRiht : RelFootRayLeft; }
 
 	//распаковать вектор на абсолютные координаты
-	FVector3f GetLegRay(FLimb& L);
+	FVector3f UnpackLegLine(FVector3f ExtLocLine);
+	FVector3f UnpackLegLine(FLimb& L) { return UnpackLegLine(GetLegLineLocal(L)); }
 
 	//загрузить новый радиус вектор ноги из точки касания с опорой
-	void SetLegRay(FLimb& L, FVector3f AbsRay);
+	FVector3f PackLegLine(FVector3f AbsRay);
+	void PackLegLine(FLimb& L, FVector3f AbsRay) { GetLegLineLocal(L) = PackLegLine(AbsRay);	}
 	
 	//позиция точки проекции ноги на твердь
 	FVector GetFootVirtualLoc(FLimb& L);
@@ -159,8 +193,17 @@ public:
 	//прощупать поверхность всем поясом и совершить акт движения
 	bool SenseForAFloor(float DeltaTime);
 
-	//прощупать опору одной ногой для ее правильной графической постановки
-	void SenseFootAtStep(float DeltaTime, FLimb& Foot, FVector CentralImpact, float FallSeverity, int ATurnToCompare);
+	//прощупать трасировкой позицию ступни, если применимо
+	bool ProbeFloorByFoot(float DeltaTime, FLimb& Foot, int ProperTurn, FFloor& MainFloor, FVector &AltHitPoint);
+
+	//немедленно стереть всю связь с поверхностью
+	void DetachFromFloor()
+	{	GetLimb(EGirdleRay::Center).EraseFloor();
+		GetLimb(EGirdleRay::Right).EraseFloor();
+		GetLimb(EGirdleRay::Left).EraseFloor();
+		Climbing = false;
+		AllFlags() = CurrentDynModel->AllFlagsAir();
+	}
 
 	//переместить в нужное место (центральный членик)
 	void ForceMoveToBody();

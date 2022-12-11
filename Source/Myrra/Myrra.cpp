@@ -4,6 +4,7 @@
 #include "Modules/ModuleManager.h"
 #include "Artefact/MyrArtefact.h"
 #include "Creature/MyrPhyCreature.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"			// для выкорчевывания материала поверхности пола
 
 //==============================================================================================================
 //оси соответствующие перечислителям EMyrAxis - для быстроты константной
@@ -48,4 +49,22 @@ FText GetHumanReadableName(AActor* Whatever)
 	else if(auto C = Cast<AMyrPhyCreature>(Whatever))
 		return A->HumanReadableName;
 	return FText();
+}
+
+
+//==============================================================================================================
+// инициализировать сборку опоры из структуры хит
+//==============================================================================================================
+bool FFloor::FromHit(const FHitResult& Hit)
+{
+	if (!Hit.Component.IsValid() || !Hit.PhysMaterial.IsValid())
+	{
+		Erase();
+		return false;
+	}
+	Body = Hit.GetComponent()->GetBodyInstance(Hit.BoneName);
+	if (!Body) return false;
+	Surface = (EMyrSurface)Hit.PhysMaterial->SurfaceType.GetValue();
+	Normal = (FVector3f)Hit.ImpactNormal;
+	return true;
 }

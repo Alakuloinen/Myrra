@@ -115,10 +115,12 @@ public:
     void OnUsedChanged();
 
 	//превратить набор битов в строку подсказку, что
-	FLinearColor MakeDigestString (int32 Bits, FString& OutStr);
+	FLinearColor MakeDigestString (int32 Bits, FString& OutStr, char TypeCode);
 
 private:
-	const UEnum* EnumPtr;
+    
+   
+    UEnum* EnumDyMoPtr;		// указатель на перечислитель бит дин-модели члеников, чтобы брать оттуда строки названий
     TSharedPtr<IPropertyHandle> MainHandle;
     TSharedPtr<IPropertyHandle> HandleUsed;
     TSharedPtr<IPropertyHandle> HandleLimbs[5];

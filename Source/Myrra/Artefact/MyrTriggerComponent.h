@@ -6,8 +6,11 @@
 #include "Myrra.h"
 #include "Components/StaticMeshComponent.h"
 #include "Containers/Union.h"
+
 #include "MyrTriggerComponent.generated.h"
 
+//свои дебаг записи
+DECLARE_LOG_CATEGORY_EXTERN(LogMyrTrigger, Log, All);
 
 //###################################################################################################################
 //полный набор данных для высирания (спавна) объектов

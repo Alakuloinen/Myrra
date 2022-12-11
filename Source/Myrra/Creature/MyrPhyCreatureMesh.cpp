@@ -191,7 +191,7 @@ void UMyrPhyCreatureMesh::TickComponent (float DeltaTime, ELevelTick TickType, F
 	//рисануть основные траектории
 	LINELIMB(ELimbDebug::MainDirs, Head, (FVector)MyrOwner()->MoveDirection * 100);
 	LINELIMB(ELimbDebug::MainDirs, Head, (FVector)MyrOwner()->AttackDirection * 100);
-	LINELIMB(ELimbDebug::IntegralBumpedNormal, Head, (FVector)IntegralBumpNormal * 100);
+	LINELIMBWTC(ELimbDebug::IntegralBumpedNormal, Head, (FVector)IntegralBumpNormal * 100, 1, 0.04, Bumper1().GetBumpCoaxis());
 	LINELIMBWTC(ELimbDebug::LimbStepped, Head, (FVector)FVector(0), (Head.WhatAmI == MaxBumpedLimb1 ? 4 : 2), 0.02, Head.GetBumpCoaxis());
 	LINELIMBWTC(ELimbDebug::LimbStepped, Lumbus, (FVector)FVector(0), (Lumbus.WhatAmI == MaxBumpedLimb1 ? 4 : 2), 0.02, Lumbus.GetBumpCoaxis());
 	LINELIMBWTC(ELimbDebug::LimbStepped, Pectus, (FVector)FVector(0), (Head.WhatAmI == MaxBumpedLimb1 ? 4 : 2), 0.02, Pectus.GetBumpCoaxis());
@@ -321,7 +321,7 @@ FVector3f UMyrPhyCreatureMesh::CalcOuterAxisForLimbDynModel(const FLimb& Limb) c
 	if (Limb.DynModel & LDY_TO_COURSE)		return G->GuidedMoveDir * Revertor;
 	if (Limb.DynModel & LDY_TO_VERTICAL)	return FVector3f(0, 0, Revertor);
 	if (Limb.DynModel & LDY_TO_ATTACK)		return MyrOwner()->AttackDirection * Revertor;
-	if (Limb.DynModel & LDY_TO_NORMAL)		return (G->IsThorax?Thorax:Pelvis).ImpactNormal;
+	if (Limb.DynModel & LDY_TO_NORMAL)		return (G->IsThorax?Thorax:Pelvis).Floor.Normal;
 	return FVector3f(0,0,0);
 }
 
@@ -362,7 +362,7 @@ void UMyrPhyCreatureMesh::OrientByForce (FBodyInstance* BodyInst, FLimb& Limb, F
 		//если тело уже уткнуто, заранее обрезать силу
 		//хз вообще что это и зачем
 		if(Limb.Stepped)
-			Final *= 1.0f - FMath::Max(0.0f, (-Limb.ImpactNormal) | DesiredAxis);
+			Final *= 1.0f - FMath::Max(0.0f, (-Limb.Floor.Normal) | DesiredAxis);
 
 		//применить прямую силу по нужной оси
 		if (Final.ContainsNaN()) Log(Limb, TEXT("WTF OrientByForce contains nan"));
@@ -430,33 +430,6 @@ void UMyrPhyCreatureMesh::PhyJumpLimb(FLimb& Limb, FVector3f Dir)
 	}
 }
 
-//==============================================================================================================
-//телепортировать всё тело на седло ветки - пока вызывается в HitLimb, что, возможно, плохо, ибо не среагирует при застывании
-//что-то старое, не используется, возможно, удалить
-//==============================================================================================================
-void UMyrPhyCreatureMesh::TeleportOntoBranch(FBodyInstance* CapsuleBranch)
-{
-	FQuat Rot;
-	//подготовить исходную позицию
-	FVector Pos = GetComponentLocation();
-
-	//если возможно поместить на ветку
-	if (GetBranchSaddlePoint(CapsuleBranch, Pos, 0.0f, &Rot, true))
-	{	
-		//собственно трансместить
-		FHitResult Hit;
-		SetWorldLocationAndRotation(Pos, Rot, false, &Hit, ETeleportType::TeleportPhysics);
-		BodyInstance.SetLinearVelocity(FVector(0), false);
-
-		//подправить камеру и траекторию, если нужно
-		MyrOwner()->PostTeleport();
-
-		//всякая диагностика
-		UE_LOG(LogTemp, Error, TEXT("%s: TeleportOntoBranch %s "), *GetOwner()->GetName());
-		//DrawMove(Pos, Rot.GetUpVector()*10, FColor(255, 30, 255), 10, 10);
-	}
-	else UE_LOG(LogTemp, Error, TEXT("%s: TeleportOntoBranch - Unable, to upphill %s "), *GetOwner()->GetName());
-}
 
 
 //==============================================================================================================
@@ -464,6 +437,9 @@ void UMyrPhyCreatureMesh::TeleportOntoBranch(FBodyInstance* CapsuleBranch)
 //==============================================================================================================
 void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitResult& Hit, FVector NormalImpulse)
 {
+	// 1 ========================== ФИКСАЦИЯ КОНТАКТА ================================
+	//################################################################################
+
 	//пока жесткая заглушка - если этот членик несёт физически кого-то, то он не принимает сигналы о касаниях
 	//это чтобы сохранить неизменным значение Floor, в котором всё время ношения ссылка на несомый объект
 	if (Limb.Grabs) return;
@@ -471,133 +447,58 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 	//общая инфа по конечности для данного вида существ
 	const auto LimbGene = MyrOwner()->GenePool->Anatomy.GetSegmentByIndex(Limb.WhatAmI).Machine;
 
-	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//если опора скелетная (дерево, другая туша) определить также номер физ-членика опоры
-	auto NewFloor = Hit.Component.Get()->GetBodyInstance(Hit.BoneName);
+	FFloor NewFloor(Hit);
 
-	//сохранить тип поверхности для обнаружения возможности зацепиться
-	auto FM = Hit.PhysMaterial.Get();
-	if (FM) Limb.Surface = (EMyrSurface)FM->SurfaceType.GetValue();
-
-	//результат для новой опоры: 0 - новая равна старой, 1 - новая заменила старую (надо перезагрузить зацеп), -1 - новая отброшена, старая сохранена
-	const int NewFloorDoom = ResolveNewFloor(Limb, NewFloor, (FVector3f)Hit.ImpactNormal, Hit.ImpactPoint);
+	//принятие опоры, возможно, здесь надо более сложный алгоритм выбора или отклонения
+	if (NewFloor) Limb.Floor = NewFloor; else return;
 
 	//вектор относителой скорости
-	FVector RelativeVel = GetPhysicsLinearVelocity(Hit.MyBoneName);
-	if(Hit.Component.IsValid())
-		if(Hit.Component->Mobility == EComponentMobility::Movable)
-			RelativeVel -= Hit.Component.Get()->GetPhysicsLinearVelocityAtPoint(Hit.ImpactPoint);
-	float Speed = 0;
-	RelativeVel.ToDirectionAndLength(RelativeVel, Speed);
-	if (Speed < 0.5) RelativeVel = (FVector)MyrOwner()->GetGirdle(Limb.WhatAmI)->GuidedMoveDir;
+	FVector3f RelativeVel = BodySpeed(Limb.WhatAmI);
+	if (Limb.Floor.IsMovable()) RelativeVel -= Limb.Floor.Speed(Hit.ImpactPoint);
+
+	//уточнение модуля скорости
+	float Speed = 0; RelativeVel.ToDirectionAndLength(RelativeVel, Speed);
+
+	//если скорость маленькая для точности направления берем из пояса курс
+	if (Speed < 1.5) RelativeVel = GetLimbAxis(Limb.WhatAmI, EMyrRelAxis::Front);
 
 	//сонаправленность движения и нормали
-	float Coaxis = RelativeVel | (-Hit.ImpactNormal);
+	float Coaxis = RelativeVel | (FVector3f)(-Hit.ImpactNormal);
 
 	//коэффициент скользящести последнего удара
-	Limb.Colinea = 255 * FMath::Max(Coaxis, 0.0f);
+	Limb.Colinea = 255 * FMath::Max(Coaxis+0.05, 0.0f);
 
-	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
 	//воспроизвести звук, если контакт от падения (не дребезг и не качение) и если скорость соударения... откуда эта цифра?
 	//в вертикальность ноль так как звук цепляния здесь не нужен, только тупое соударение
 	if (Speed > 10 && Limb.Stepped == 0)
-		MyrOwner()->SoundOfImpact (nullptr, Limb.Surface, Hit.ImpactPoint, Speed, 0, EBodyImpact::Bump);
+		MyrOwner()->SoundOfImpact (nullptr, Limb.Floor.Surface, Hit.ImpactPoint, Speed, 0, EBodyImpact::Bump);
 
 	//все что ниже относится только к живым объектам
 	if(MyrOwner()->Health <= 0) return;
 
-	//№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№№
-	//возможность покалечиться - импульс удара выше порога,
-	if (ApplyHitDamage(Limb, DistFromLeaf, LimbGene.HitShield, Speed * FMath::Max(Coaxis, 0.4f), Hit) > 0.3)
-	{ 
-		//а если высок, немного ниже - просто подогнуть ноги (если это конечно ноги - у них точно есть констрейнт)
-		if (GetMachineConstraintIndex(Limb) != 255)
-		{
-			//распознаём, что это конечность по наличию линейного мотора - и прижимаем конечность к телу
-			auto CI = GetMachineConstraint(Limb);
-			if (CI->ProfileInstance.LinearDrive.ZDrive.bEnablePositionDrive)
-				CI->SetLinearPositionTarget(FVector(0, 0, -CI->ProfileInstance.LinearLimit.Limit));
-		}
-	}
+	//пометить, что есть касание
+	Limb.Stepped = STEPPED_MAX;
 
-	//отобразить отладку, место контакта с опорой
-	//LINEW(ELimbDebug::GirdleStepped, Hit.ImpactPoint, FVector(0), 3);
-	//UE_LOG(LogTemp, Log, TEXT("%s: HitLimb %s part %d"), *GetOwner()->GetName(), *TXTENUM(ELimb, Limb.WhatAmI), DistFromLeaf);
-}
-
-//==============================================================================================================
-//удар об твердь - насколько опасно
-//==============================================================================================================
-float UMyrPhyCreatureMesh::ShockResult(FLimb& L, float Speed, UPrimitiveComponent* Floor)
-{
-	if (!InjureAtHit) return 0.0f;
-	if (L.LastlyHurt) return 0.0f;
-
-	//порог для отсечения слабых толчков (без звука и эффекта) и определения болезненных (>1, с уроном)
-	float Thresh = MyrOwner()->GetGenePool()->MaxSafeShock;		// базис порога небольности в единицах скорости 
-	Thresh *= MyrOwner()->Phenotype.BumpShockResistance();		// безразмерный коэффициент индивидуальной ролевой прокачки
-	Thresh *= MachineGene(L.WhatAmI)->HitShield;				// безразмерный коэффициент дополнительной защиты именно этой части 
-
-	//выдрать данные о поверхности, оно нужно далее
-	auto SurfInfo = MyrOwner()->GetMyrGameInst()->Surfaces.Find(L.Surface);
-
-	//влияние свойств тверди на опасность удара
-	if (Floor)
-	{	
-		//для подвижных объектов удар менееболезненнен,чтобыисключитьувечья глюками физики
-		if (Floor->Mobility != EComponentMobility::Static)
-		{	Thresh *= 10;
-			if (Floor->GetBodyInstance())
-				Speed += Floor->GetBodyInstance()->GetUnrealWorldVelocity().Z;
-		}
-	}
-
-	//меньше десятой части порога - вообще никак не влияет
-	float Severity = Speed < 0.1*Thresh	? 0.0f : FMath::Max(0.0f, Speed / Thresh - 1);
-	if(SurfInfo) Severity += SurfInfo->HealthDamage;
-
-	//при достаточно сильном поражении запираем возможность дребезга на предыдущие кадры
-	if (Severity > 0.3) 
-		L.LastlyHurt = true;
-	return Severity;
-}
-
-//==============================================================================================================
-//рассчитать возможный урон от столкновения с другим телом - возвращает истину, если удар получен
-// возвращает отношение скорости удара к пороговой скорости, начиная с которой идут травмы
-//==============================================================================================================
-float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float TerminalDamageMult, float BumpSpeed, const FHitResult& Hit)
-{
-	float OldDamage = Limb.Damage;
+	// 2 ========================== ПРИНЯТИЕ УРОНА ОТ УДАРА ================================
 
 	//рассчитать опасность удара
-	float Severity = ShockResult(Limb, BumpSpeed, Hit.Component.Get());
-
-	//по сумме от силового удара и от кусачести поверхности поднимаем на уровень всего существа инфу, что больно
+	float Severity = ShockResult(Limb, Speed * FMath::Max(Coaxis, 0.4f), Limb.Floor);
 	if (Severity > 0.0f)
-	{	
-		//поднимаем сигнал боли наверх, где будет сыгран звук удара и крик
-		MyrOwner()->Hurt(Limb, Severity, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, Limb.Surface);
-	}
+		MyrOwner()->Hurt(Limb, Severity, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, Limb.Floor.Surface);
 
-	//если данный удар призошлел из состояния полета или падения, то 
-	//вне зависимости от силы удара это считается поводом для прерывания действий
-	//if (MyrOwner()->GotUntouched())
-	//	MyrOwner()->CeaseActionsOnHit();
+	// 3 ========================== ПРИНЯТИЕ УРОНА ОТ АТАКИ ================================
 
 	//если мы атакуем именно этой частью тела
-	if(MyrOwner()->IsLimbAttacking(Limb.WhatAmI))
+	if (MyrOwner()->IsLimbAttacking(Limb.WhatAmI))
 	{
 		//часть тела хватаемого существа, буде таковое есть
 		FLimb* TheirLimb = nullptr;
-
-		//физ-тело противника (целое или физ-членик по имени кости)
 		FBodyInstance* TheirBody = Hit.Component->GetBodyInstance(Hit.BoneName);
 
-		//////////////////////////////////////////////////
 		//если мы ударили другое живое существо
 		auto TheirMesh = Cast<UMyrPhyCreatureMesh>(Hit.Component.Get());
-		if(TheirMesh)
+		if (TheirMesh)
 		{
 			//найти из физ-членика часть тела противника
 			FBODY_BIO_DATA bbd = TheirMesh->MyrOwner()->GetGenePool()->BodyBioData[TheirBody->InstanceBodyIndex];
@@ -607,16 +508,16 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 			const auto DamageBase = MyrOwner()->GetAttackActionVictim().TactileDamage;
 
 			//нанесение урона только если наша атака увечная
-			if(DamageBase > 0)
-			{	
+			if (DamageBase > 0)
+			{
 				//если жертва жива и если повреждаемый членик только что не был поврежден (для предотвращения дребезга)
-				if(TheirMesh->MyrOwner()->Health > 0 && !TheirLimb->LastlyHurt)
+				if (TheirMesh->MyrOwner()->Health > 0 && !TheirLimb->LastlyHurt)
 				{
 					//набираем факторов, влияющих на увечье
 					float dD = DamageBase * MyrOwner()->Phenotype.AttackDamageFactor();
 
 					//также если жертва сама атакует, ее атака может давать дополнительный щит
-					if(TheirMesh->MyrOwner()->Attacking())
+					if (TheirMesh->MyrOwner()->Attacking())
 						dD -= TheirMesh->MyrOwner()->GetAttackAction()->HitShield * TheirMesh->MyrOwner()->Phenotype.AttackShieldFactor();
 
 					//если его контратака не полностью нивеллировала нашу
@@ -627,10 +528,9 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 						//лучьше внести разные степени восстанаовления разных частей тела
 						dD *= TheirMesh->MachineGene(TheirLimb->WhatAmI)->HitShield;
 
-						//сопутствующие действия
-						TheirLimb->LastlyHurt = true;
-						TheirMesh->MyrOwner()->SufferFromEnemy(dD, MyrOwner());									// ментально, ИИ, только насилие
-						TheirMesh->MyrOwner()->Hurt(*TheirLimb, dD, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, TheirLimb->Surface);	// визуально, звуково, общий урон
+						//пострадать от удара физически и ментально в ИИ
+						TheirMesh->MyrOwner()->SufferFromEnemy(dD, MyrOwner());									
+						TheirMesh->MyrOwner()->Hurt(*TheirLimb, dD, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, TheirLimb->Floor.Surface);	
 					}
 				}
 				//жертва мертва - пинание трупа
@@ -642,17 +542,16 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 			else
 			{
 				//пусть это существо оценит наши отношения и решит само, как реагировать на такую милость
-				TheirMesh->MyrOwner()->EnjoyAGrace (DamageBase, MyrOwner());
+				TheirMesh->MyrOwner()->EnjoyAGrace(DamageBase, MyrOwner());
 			}
 		}
 		//если ударили не живое существо, а предмет
-		else
-		{
+		else { }
 
-		}
-
+		// 3 ========================== ВОЗМОЖНОСТЬ СХВАТИТЬ ПРЕДМЕТ ================================
+		// 
 		//если наша атака - это хватание и сейчас как раз самая фаза
-		if (MyrOwner()->NowPhaseToGrab())
+		if (MyrOwner()->NowPhaseToGrab() && Hit.Component->Mobility == EComponentMobility::Movable)
 		{
 			//внимание, масса может сильно меняться через heavy legs и mass scale, так что у живых стоячих на ногах "масса" будет почти втрое больше
 			//это нормально, так как эмулирует цепляние и прочее сопротивление, поэтому коэффициент снижен до 0.1
@@ -667,22 +566,46 @@ float UMyrPhyCreatureMesh::ApplyHitDamage(FLimb& Limb, uint8 DistFromLeaf, float
 		else
 		{
 			//прервать атаку, чтоб не распидорасить физдвижок от проникновения кинематической лапы в тело
-			if(TheirMesh) MyrOwner()->NewAttackGoBack();
+			if (TheirMesh) MyrOwner()->AttackGoBack();
 		}
 	}
-	//несли мы не атакуем (возможно, мы жертва)
+	//если мы точно не атакуем (возможно, мы жертва)
 	else
 	{
 		//восстановление только что отпущенного из зубов "прозрачного" тела в "непрозрачность"
-		if(!Cast<UMyrPhyCreatureMesh>(Hit.Component.Get())) 
-			if(MyrOwner()->CurrentState != EBehaveState::held)
-				if (!IsBumpable())
-					SetPhyBodiesBumpable(true);
+		if (!Cast<UMyrPhyCreatureMesh>(Hit.Component.Get()))		//если ударились об неживой предмет
+			if (MyrOwner()->CurrentState != EBehaveState::held)		//если ударились не на весу в зубах
+				if (!IsBumpable())									//если мы проходим сквозь стены 
+					SetPhyBodiesBumpable(true);						//срочно обрести плотность, пока не провалились
 	}
 
+}
 
+//==============================================================================================================
+//удар об твердь - насколько опасно
+//==============================================================================================================
+float UMyrPhyCreatureMesh::ShockResult(FLimb& L, float Speed, FFloor& NewFloor)
+{
+	//порог для отсечения слабых толчков (без звука и эффекта) и определения болезненных (>1, с уроном)
+	float Thresh = MyrOwner()->GetGenePool()->MaxSafeShock;		// базис порога небольности в единицах скорости 
+	Thresh *= MyrOwner()->Phenotype.BumpShockResistance();		// безразмерный коэффициент индивидуальной ролевой прокачки
+	Thresh *= MachineGene(L.WhatAmI)->HitShield;				// безразмерный коэффициент дополнительной защиты именно этой части 
+
+	//выдрать данные о поверхности непосредственно из сборки Hit, оно нужно далее
+	auto SurfInfo = MyrOwner()->GetMyrGameInst()->Surfaces.Find(NewFloor.Surface);
+
+	//для подвижных объектов учитывается скорость опоры, но удар  слабее ,чтобы исключить увечья глюками физики
+	if (NewFloor.IsMovable())
+	{	Thresh *= 10;
+		Speed += NewFloor.Speed().Z;
+	}
+
+	//меньше десятой части порога - вообще никак не влияет
+	float Severity = Speed < 0.1 * Thresh ? 0.0f : FMath::Max(0.0f, Speed / Thresh - 1);
+	if (SurfInfo) Severity += SurfInfo->HealthDamage;
 	return Severity;
 }
+
 
 //==============================================================================================================
 //применить вес физики (на данный момент нужно только чтобы хвост огибал препятствия)
@@ -732,30 +655,6 @@ void UMyrPhyCreatureMesh::InitLimbCollision (FLimb& Limb, float MaxAngularVeloc,
 
 
 //==============================================================================================================
-//принять или отклонить только что обнаруженную новую опору для этого членика
-//==============================================================================================================
-int UMyrPhyCreatureMesh::ResolveNewFloor(FLimb &Limb, FBodyInstance* NewFloor, FVector3f NewNormal, FVector NewHitLoc)
-{
-	//если новая опора или просто нормаль резко изменилась, то блендить плавно, возможно, это эффект загнанности в угол
-	if(Limb.Floor == NewFloor || (Limb.ImpactNormal | NewNormal) < 0.5)
-	{	Limb.ImpactNormal = FMath::Lerp(Limb.ImpactNormal, NewNormal, 0.3f);
-		Limb.ImpactNormal.Normalize();
-	}
-	else Limb.ImpactNormal = NewNormal;
-	Limb.Floor = NewFloor;
-	Limb.Stepped = STEPPED_MAX;
-	return 0;
-}
-//==============================================================================================================
-//взять данные о поверхности опоры непосредственно из стандартной сборки хитрезалт
-//==============================================================================================================
-void UMyrPhyCreatureMesh::GetFloorFromHit(FLimb& Limb, FHitResult Hit)
-{
-	Limb.Stepped = STEPPED_MAX;
-	Limb.Surface = (EMyrSurface)Hit.PhysMaterial->SurfaceType.GetValue();
-	Limb.Floor = Hit.Component->GetBodyInstance(Hit.BoneName);
-}
-//==============================================================================================================
 //основная покадровая рутина в отношении части тела
 //==============================================================================================================
 void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
@@ -771,7 +670,7 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 	{
 		//если включена физика (для кинематического режима это все скипнуть)
 		auto BI = GetMachineBody(Limb);
-		if (BI->bSimulatePhysics)
+		if (BI->bSimulatePhysics && BI->bNotifyRigidBodyCollision)
 		{
 			//запускаем на этот кадр доп-физику исключительно для членика-поддержки
 			//специально до обработки счетчиков и до ее избегания, чтобы держащий ношу членик тоже обрабатывался
@@ -796,25 +695,19 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 			//иначе данная куча фигни не нужна
 			if (Limb.Stepped)
 			{
-				//относительная скорость нужна здесь только для детекции потери опоры
-				FVector RelativeVelocity = GetMachineBody(Limb)->GetUnrealWorldVelocity();
-				if (Limb.Floor)
-				{
-					//особый случай, выглядит как ошибка, но такое может быть при съеденной добыче
-					if (!Limb.Floor->OwnerComponent.Get())
-					{
-						Limb.EraseFloor();
-						return;
-					}
-					//относительную скорость вычисляем только при контакте с мобильным предметом
-					else if (Limb.Floor->OwnerComponent.Get()->Mobility == EComponentMobility::Movable)
-						RelativeVelocity -= Limb.Floor->GetUnrealWorldVelocityAtPoint(GetMachineBody(Limb)->GetCOMPosition());
 
-				}
-				else Log(Limb, TEXT("ProcessLimb WTF no floor component! "), (float)Limb.Stepped);
+				//особый случай, выглядит как ошибка, но такое может быть при съеденной добыче
+				if (!Limb.Floor) { Limb.EraseFloor(); return; }
+
+				//относительная скорость нужна здесь только для детекции потери опоры
+				FVector3f RelativeVelocity = (FVector3f)GetMachineBody(Limb)->GetUnrealWorldVelocity();
+
+				//относительную скорость вычисляем только при контакте с мобильным предметом
+				if (Limb.Floor.IsMovable())
+					RelativeVelocity -= Limb.Floor.Speed(GetMachineBody(Limb)->GetCOMPosition());
 
 				//вектор сдвига в пространстве
-				FVector Shift = RelativeVelocity * DeltaTime;
+				FVector3f Shift = RelativeVelocity * DeltaTime;
 				float Drift = Shift.SizeSquared();
 
 				//плавное снижение желания отдернуться от препятствия (зависит от скорости - стоит ли извлекать корень или оставить бешенные нули?)
@@ -842,7 +735,7 @@ void UMyrPhyCreatureMesh::ProcessLimb (FLimb& Limb, float DeltaTime)
 		LINELIMB(ELimbDebug::LimbAxisX, Limb, (FVector)GetLimbAxisForth(Limb) * 5);
 		LINELIMB(ELimbDebug::LimbAxisY, Limb, (FVector)GetLimbAxisRight(Limb) * 5);
 		LINELIMB(ELimbDebug::LimbAxisZ, Limb, (FVector)GetLimbAxisUp(Limb) * 5);
-		LINELIMB(ELimbDebug::LimbNormals, Limb, (FVector)Limb.ImpactNormal * 15);
+		LINELIMB(ELimbDebug::LimbNormals, Limb, (FVector)Limb.Floor.Normal * 15);
 
 	}
 
@@ -927,7 +820,7 @@ void UMyrPhyCreatureMesh::Grab(FLimb& Limb, uint8 ExactBody, FBodyInstance* Grab
 
 	//местные флаги
 	Limb.Grabs = true;
-	Limb.Floor = GrabbedBody;
+	Limb.Floor.Body = GrabbedBody;
 	Limb.Stepped = STEPPED_MAX;
 
 	//просигнализировать на уровне глобального замысла
@@ -944,7 +837,7 @@ UPrimitiveComponent* UMyrPhyCreatureMesh::UnGrab (FLimb& Limb)
 {
 	//на уровне нашего тела
 	if(!Limb.Grabs) return nullptr;
-	auto ToRet = Limb.Floor->OwnerComponent.Get();
+	auto ToRet = Limb.Floor.Component();
 	auto LBody = GetMachineBody(Limb);
 	auto& CI = LBody->DOFConstraint;
 	CI->TermConstraint();
@@ -1137,6 +1030,32 @@ void UMyrPhyCreatureMesh::AdjustSpineStiffness(FLimb& Limb, float Factor)
 
 }
 
+//==============================================================================================================
+// изогнуть вектор курса так, чтоб он огибал препятствие или отражался
+//==============================================================================================================
+bool UMyrPhyCreatureMesh::GuideAlongObstacle(FVector3f &Guide, bool Penetra, float Amount)
+{	
+	auto& L = Bumper1();
+
+	//критерий истинного утыкновения = свободный физ-членик уткнулся в опору, но это не та опора, на которой мы стоим
+	if (L.Stepped > 0 && L.Floor.TooSteep() && L.Floor != Thorax.Floor && L.Floor != Pelvis.Floor)
+	{	
+		//если уткнулись не под прямым углом - надо смазывать траекторию вдоль стены
+		//причем если предмет помечен "может ступать" обтекать его нежелательно
+		if(L.Colinea < 200 - 50*(int)L.Floor.CharCanStep())
+		{
+			float A = L.Stepped / (float)STEPPED_MAX * ((int)L.Colinea + 200) / 455.0 * Amount;
+			auto& No = IntegralBumpNormal;
+			auto ProjOnNo = Guide.ProjectOnToNormal(No);	// вытянуть по нормали - полуфабрикат для расчёта проекции и отражения
+			auto SlideOrRefl = Guide - ProjOnNo;			// насальное значение - курс, уложенный в плоскость стены
+			if (Penetra)									// если кинематическим якорем просочились внутрь то
+				SlideOrRefl -= ProjOnNo;					// довести вектор курса до полного отражения от стены
+			Guide = FMath::Lerp(Guide, SlideOrRefl, A);
+			return true;
+		}
+	}
+	return false;
+}
 
 //==============================================================================================================
 //обнаружение частичного провала под поверхность/зажатия медлу плоскостью
@@ -1144,14 +1063,14 @@ void UMyrPhyCreatureMesh::AdjustSpineStiffness(FLimb& Limb, float Factor)
 ELimb UMyrPhyCreatureMesh::DetectPasThrough()
 {
 	if (Tail.Stepped && Lumbus.Stepped)
-		if ((Tail.ImpactNormal | Lumbus.ImpactNormal) < -0.8 && Tail.Floor == Lumbus.Floor)
-			return (Tail.ImpactNormal.Z > Lumbus.ImpactNormal.Z) ? ELimb::TAIL : ELimb::LUMBUS;
+		if ((Tail.Floor.Normal | Lumbus.Floor.Normal) < -0.8 && Tail.Floor == Lumbus.Floor)
+			return (Tail.Floor.Normal.Z > Lumbus.Floor.Normal.Z) ? ELimb::TAIL : ELimb::LUMBUS;
 	if (Lumbus.Stepped && Pectus.Stepped)
-		if ((Lumbus.ImpactNormal | Pectus.ImpactNormal) < -0.8 && Pectus.Floor == Lumbus.Floor)
-			return (Lumbus.ImpactNormal.Z > Pectus.ImpactNormal.Z) ? ELimb::LUMBUS : ELimb::PECTUS;
+		if ((Lumbus.Floor.Normal | Pectus.Floor.Normal) < -0.8 && Pectus.Floor == Lumbus.Floor)
+			return (Lumbus.Floor.Normal.Z > Pectus.Floor.Normal.Z) ? ELimb::LUMBUS : ELimb::PECTUS;
 	if (Pectus.Stepped && Head.Stepped)
-		if ((Pectus.ImpactNormal | Head.ImpactNormal) < -0.8 && Head.Floor == Pectus.Floor)
-			return (Pectus.ImpactNormal.Z > Head.ImpactNormal.Z) ? ELimb::PECTUS : ELimb::HEAD;
+		if ((Pectus.Floor.Normal | Head.Floor.Normal) < -0.8 && Head.Floor == Pectus.Floor)
+			return (Pectus.Floor.Normal.Z > Head.Floor.Normal.Z) ? ELimb::PECTUS : ELimb::HEAD;
 	return ELimb::NOLIMB;
 }
 
@@ -1167,51 +1086,6 @@ float UMyrPhyCreatureMesh::GetWholeImmobility()
 	return FMath::Min(Mob, 1.0f);
 }
 
-//==============================================================================================================
-//точка нижнего седла сегмента ветки - пока неясно, в каком классе стоит эту функцию оставлять: меша, веткаи или какого другого
-//она просто вычисляет коррдинаты, куда телепортировать точку отсчёта кошки (низ-зад)
-//==============================================================================================================
-bool UMyrPhyCreatureMesh::GetBranchSaddlePoint(FBodyInstance* Branch, FVector& Pos, float DeviaFromLow, FQuat* ProperRotation, bool UsePreviousPos)
-{
-	//направление вдоль ветки вверх, неясно, почему У, но так работает
-	auto DirAlong = GetBranchUpDir(Branch);
-	if (DirAlong.Z < 0) DirAlong = -DirAlong;
-	if (DirAlong.Z > 0.7) return false; //на очень крутые векти пока не телепортировать
-
-	//направлени в сторону горизонта в сторону (вниманин, не нормировано)
-	FVector ToHorizon = DirAlong ^ FVector::UpVector;
-
-	//направление на седло, на точку равновесия наклонной капсулы
-	FVector ToSaddle = ToHorizon ^ DirAlong;
-	if (ToSaddle.Z < 0) ToSaddle = -ToSaddle;
-	ToSaddle.Normalize();
-
-	//здесь должно быть уже ясно, что капусла есть, капсула одна и капсула правильно вывернута
-	auto& G = Branch->GetBodySetup()->AggGeom.SphylElems[0];
-
-	//за одно, если надо, создать вращатор, соответствующий правильной посадке на седло ветки
-	if (ProperRotation)
-	{
-		//исходя из направления вверх (нормаль в высшей точке) и вперед (собственно, направдение ветки
-		*ProperRotation = FRotationMatrix::MakeFromZX(ToSaddle, DirAlong).ToQuat();
-	}
-
-	//использовать переменную Пос как вход, где указано текущее положение существа
-	if(UsePreviousPos)
-	{
-		//длина проекции = положение на длине ветки, если ноль - висимо четко посередине касулы над ее центром масс
-		//если же сильно больше длины, то это мы далеко вне ветки
-		float Devia = FVector::DotProduct(Pos - Branch->GetCOMPosition(), DirAlong);
-		if(FMath::Abs(Devia) > G.Length*1.5) return false;
-		else Pos = Branch->GetCOMPosition() + DirAlong*FMath::Clamp(Devia,-G.Length,+G.Length) + ToSaddle*G.Radius;
-		UE_LOG(LogTemp, Log, TEXT("%s: GetBranchSaddlePoint - pos %g"), *Branch->OwnerComponent->GetOwner()->GetName(), Devia);
-	}
-	else Pos = Branch->GetCOMPosition() - DirAlong*G.Length*(0.5 - DeviaFromLow) + ToSaddle * G.Radius;
-
-	//length - это длина без пупыря, так что радиус отнимать не нужно
-	
-	return true;
-}
 
 
 

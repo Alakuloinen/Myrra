@@ -107,6 +107,18 @@ USTRUCT(BlueprintType) struct FCreatureDrive
 	}
 };
 
+//стандартные части дерева в мнемонической форме, могут использоваться как биты присутствия секции
+UENUM(BlueprintType) enum class EDendroSection : uint8
+{
+	Central_Lower,
+	Central_Mid_1,
+	Central_Mid_2,
+	Central_Mid_3,
+	Central_Mid_4,
+	Central_Mid_5,
+	Central_Mid_6,
+	Central_Top
+};
 
 
 

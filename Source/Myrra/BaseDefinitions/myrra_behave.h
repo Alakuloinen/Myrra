@@ -61,6 +61,7 @@ UENUM(BlueprintType, meta = (Bitflags)) enum class EBehaveState : uint8
 	fly = (uint8)EMacroState::AIR + 2,		// активный полёт
 	tumble = (uint8)EMacroState::AIR + 3,	//"кувыркаться", при падении на бок или кверх ногами, но включается активный переворот
 	land = (uint8)EMacroState::AIR + 4,		// "приземление", управляемое падение на лапки
+	project = (uint8)EMacroState::AIR + 5,	// двигаться кинематически по траектории
 	RESERVED37 = 37	UMETA(Hidden),			// ----- заполнитель для порядка следования, без этого полная хня -------
 	RESERVED38 = 38	UMETA(Hidden),			// ----- заполнитель для порядка следования, без этого полная хня -------
 	RESERVED39 = 39	UMETA(Hidden),			// ----- заполнитель для порядка следования, без этого полная хня -------

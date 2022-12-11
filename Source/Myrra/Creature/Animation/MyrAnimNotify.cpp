@@ -106,31 +106,31 @@ void UMyrAnimNotify::Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Ani
 
 		//если в режиме отступления дошли до начала ролика - завершить атаку в этом слоте (
 		if (MyrPhyCreature->CurrentAttackPhase == EActionPhase::DESCEND)
-			MyrPhyCreature->NewAttackEnd();
+			MyrPhyCreature->AttackEnd();
 		break;
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	//достижение точки готовности (много разных вариантов все под капотом AttackGetReady)
 	case EMyrNotifyCause::AttackGetReady:
-		MyrPhyCreature->NewAttackGetReady();
+		MyrPhyCreature->AttackNotifyGetReady();
 		break;
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	//достижение точки выгорания при ожидании момента атаки
 	case EMyrNotifyCause::AttackGiveUp:
-		MyrPhyCreature->NewAttackNotifyGiveUp();
+		MyrPhyCreature->AttackNotifyGiveUp();
 		break;
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	//атака прошла удачно, но в данный момент активная фаза окончилась и наступила фаза возврата к обычной позе
 	case EMyrNotifyCause::AttackComplete:
-		MyrPhyCreature->NewAttackNotifyFinish();
+		MyrPhyCreature->AttackNotifyFinish();
 		break;
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	//конец анимации атаки
 	case EMyrNotifyCause::AttackEnd:
-		MyrPhyCreature->NewAttackNotifyEnd();
+		MyrPhyCreature->AttackNotifyEnd();
 		break;
 
 

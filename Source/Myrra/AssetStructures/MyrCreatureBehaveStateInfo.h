@@ -119,4 +119,14 @@ public:
 	// звук, который простоянно играет, пока существо находится в данном состоянии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") USoundBase* SoundLoopWhileInState;
 
+	//после загрузки (здесь пересчитывается энергоемкость)
+	virtual void PostLoad() override
+	{
+		Super::PostLoad();
+		WholeBodyDynamicsModel.Pelvis.Correction();
+		WholeBodyDynamicsModel.Thorax.Correction();
+		this->GetPackage()->MarkPackageDirty();
+	}
+
+
 };

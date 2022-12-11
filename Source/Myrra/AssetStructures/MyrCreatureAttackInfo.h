@@ -23,7 +23,9 @@ USTRUCT(BlueprintType) struct FActionCondition
 	//список состояний тела, в которых можно или нельзя выполнять это действие
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool StatesForbidden = true;
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) TSet<EBehaveState> States;
-	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool StopIfNewStateForbids = false;
+
+	//состояния, которые никак не влияют на начала действия, но которые вырубают это действие при переходе на себя
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) TSet<EBehaveState> StatesToCeaseAtTransit;
 
 	//список типов поверхностей, на которых это действие возможно... или, наоборот, запрещено
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool SurfacesForbidden = true;
@@ -174,7 +176,7 @@ public:
 
 
 	//прерывать или отправлять вспять атаку, если произошло столкновение или увечье
-	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool CeaseAtHit = false;
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) float MinHitDamageToCease = 10.0f;
 
 public:
 
@@ -229,6 +231,9 @@ public:
 	//упрощенный вариант перетестирования для ИИ
 	EAttackAttemptResult RetestForStrikeForAI(class AMyrPhyCreature* Owner, UPrimitiveComponent* ExactVictim, FGoal* Goal);
 
+	//рассчитать время, которое займёт прокат ролика между данными фазами
+	float PhaseTimes(TArray<float> &OutTimes);
+
 	//пересчитать энергоемкость действия
 	void RecalcOverallStaminaFactor();
 
@@ -245,7 +250,16 @@ public:
 	bool QuickAimResult(class AMyrPhyCreature* Owner, FGoal* Goal, float Accuracy);
 
 	//после загрузки (здесь пересчитывается энергоемкость)
-	virtual void PostLoad() override { Super::PostLoad(); RecalcOverallStaminaFactor(); }
+	virtual void PostLoad() override
+	{
+		Super::PostLoad(); RecalcOverallStaminaFactor();
+		for (auto& DM : DynModelsPerPhase)
+		{
+			DM.Pelvis.Correction();
+			DM.Thorax.Correction();
+		}
+		this->GetPackage()->MarkPackageDirty();
+	}
 
 	//для автоматического пересчета при редактировании
 #if WITH_EDITOR

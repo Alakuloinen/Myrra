@@ -11,6 +11,9 @@
 #include "../Control/MyrDaemon.h"								//чтобы работать с камерой игрока
 #include "AIModule/Classes/Perception/AISenseConfig_Hearing.h"	//чтобы генерировать зовы в функции аттрактора
 
+//свои дебаг записи
+DEFINE_LOG_CATEGORY(LogMyrTrigger);
+
 
 //==============================================================================================================
 //правильный конструктор
@@ -38,7 +41,7 @@ bool UMyrTriggerComponent::CheckTimeInterval(float& MyParam, FString Msg)
 	//между прошлым временем активации этой функции и этим
 	FTimespan Di = FDateTime::Now() - LastOverlapEndTime;
 	if (Di.GetTotalSeconds() < MyParam)
-	{	UE_LOG(LogTemp, Warning, TEXT("%s.%s: Too Early %s %g < %g"),
+	{	UE_LOG(LogMyrTrigger, Warning, TEXT("%s.%s: Too Early %s %g < %g"),
 			*GetOwner()->GetName(), *GetName(), *Msg, Di.GetTotalSeconds(), MyParam);
 		return false;
 	}
@@ -144,7 +147,7 @@ bool UMyrTriggerComponent::SpawnIt(FSpawnableData& SpawnTypeInfo)
 
 		//привязать сигнал, когда он сдохнет, чтоб мы сразу об этом узнали
 		Novus->OnEndPlay.AddDynamic(this, &UMyrTriggerComponent::OnSpawnedEndPlay);
-		UE_LOG(LogTemp, Log, TEXT(" UMyrTriggerComponent %s spawned %s"), *GetName(), *Novus->GetName());
+		UE_LOG(LogMyrTrigger, Log, TEXT(" UMyrTriggerComponent %s spawned %s"), *GetName(), *Novus->GetName());
 		return true;
 	}
 	return false;
@@ -160,7 +163,7 @@ bool UMyrTriggerComponent::ReactionCameraDist(class AMyrDaemon *D, FTriggerReaso
 		//заранее вызываем удаление объёма, чтобы при восстановлении расстояния камеры прочесть предыдущую запись
 		D->GetOwnedCreature()->DelOverlap(this);
 		float WhatRemains = D->ResetCameraPos();
-		UE_LOG(LogTemp, Log, TEXT("%s: ReactionCameraDist End %g"), *GetName(), WhatRemains);
+		UE_LOG(LogMyrTrigger, Log, TEXT("%s: ReactionCameraDist End %g"), *GetName(), WhatRemains);
 	}
 	//в начале считать новую дистанцию
 	else
@@ -173,7 +176,7 @@ bool UMyrTriggerComponent::ReactionCameraDist(class AMyrDaemon *D, FTriggerReaso
 		//выдрать из текста парамтера значение, на которое приближать камеру
 		float CamDist = FCString::Atof(*R.Value);
 		D->ChangeCameraPos(CamDist);
-		UE_LOG(LogTemp, Log, TEXT("%s: ReactionCameraDist Begin %g"), *GetName(), CamDist);
+		UE_LOG(LogMyrTrigger, Log, TEXT("%s: ReactionCameraDist Begin %g"), *GetName(), CamDist);
 	}
 	return true;
 }
@@ -194,7 +197,7 @@ bool UMyrTriggerComponent::ReactCameraExtPoser(AMyrDaemon* D, bool Release)
 			else return false;
 			D->AdoptExtCameraPoser(CamPos);
 		}
-		UE_LOG(LogTemp, Log, TEXT("%s: ReactCameraExtPoser %d"), *GetName(), Release);
+		UE_LOG(LogMyrTrigger, Log, TEXT("%s: ReactCameraExtPoser %d"), *GetName(), Release);
 
 	}
 	return true;
@@ -234,7 +237,7 @@ bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C, bool* EndChain, FTrig
 	{
 		//текущее воплощение предмета еды изначально не содержит пищевой ценности - возможно, его уже съели
 		if(A->EffectsWhileEaten.Empty())
-		{	UE_LOG(LogTemp, Log, TEXT("%s: No Edible Object"), *GetName());
+		{	UE_LOG(LogMyrTrigger, Log, TEXT("%s: No Edible Object"), *GetName());
 			return false;
 		}
 
@@ -251,7 +254,7 @@ bool UMyrTriggerComponent::ReactionEat(AMyrPhyCreature* C, bool* EndChain, FTrig
 		// акт логического поедания, удачность означает успех всей функции
 		if (C->EatConsume(this, &A->EffectsWhileEaten, MeatForBit))
 		{
-			UE_LOG(LogTemp, Log, TEXT("%s: Eaten %g part"), *GetName(), MeatForBit);
+			UE_LOG(LogMyrTrigger, Log, TEXT("%s: Eaten %g part"), *GetName(), MeatForBit);
 
 			//если многоликий меш - продвинуть на новый образ, в котором меньше осталось еды
 			if (SM)	SM->SetMesh(SM->GetCurrent() + 1);
@@ -316,7 +319,7 @@ bool UMyrTriggerComponent::ReactDestroySpawned(FTriggerReason& R)
 	for (auto& SI : Context->Spawnables)
 	{	for (auto& SA : SI.Spawned)
 		{
-			UE_LOG(LogTemp, Log, TEXT("%s ReactDestroySpawned destroying %s"), *GetName(), *SA->GetName());
+			UE_LOG(LogMyrTrigger, Log, TEXT("%s ReactDestroySpawned destroying %s"), *GetName(), *SA->GetName());
 			SA->Destroy();
 		}
 		//теперь множество пусто, его усечь
@@ -557,7 +560,7 @@ FVector3f UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCr
 //==============================================================================================================
 bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCreature* C, class AMyrArtefact* A, bool Release, bool* EndChain)
 {
-	UE_LOG(LogTemp, Verbose, TEXT("%s ReactSingle %s %d"), *GetName(), *TXTENUM(EWhyTrigger, Reaction.Why), Release);
+	UE_LOG(LogMyrTrigger, Verbose, TEXT("%s ReactSingle %s %d"), *GetName(), *TXTENUM(EWhyTrigger, Reaction.Why), Release);
 	switch (Reaction.Why)
 	{
 		case EWhyTrigger::CameraDist:
@@ -694,7 +697,7 @@ void UMyrTriggerComponent::React(class AMyrPhyCreature* C, class AMyrArtefact* A
 	//если по итогам исполнения больше от этого объёма ничего не нужно, удалить его из стека
 	if (Release && EndChain)
 	{
-		UE_LOG(LogTemp, Log, TEXT("%s Early deleting overlapper %s"), *GetName(), *C->GetName());
+		UE_LOG(LogMyrTrigger, Log, TEXT("%s Early deleting overlapper %s"), *GetName(), *C->GetName());
 		C->DelOverlap(this);
 	}
 }
@@ -717,7 +720,7 @@ void UMyrTriggerComponent::ReceiveActiveApproval(AMyrPhyCreature* Sender)
 	//почему false?
 	if (PerformOnlyByApprovalFromCreature)
 	{
-		UE_LOG(LogTemp, Log, TEXT("%s React by instant approval"), *GetOwner()->GetName());
+		UE_LOG(LogMyrTrigger, Log, TEXT("%s React by instant approval"), *GetOwner()->GetName());
 		React(Sender, nullptr, Sender->Daemon, true, EWhoCame::Creature);
 	}
 }
@@ -766,7 +769,7 @@ void UMyrTriggerComponent::OverlapEvent(AActor* OtherActor, UPrimitiveComponent*
 		//повторно вызывается если в реакте так и не вызвалось
 		if (ComingOut) C->DelOverlap(this);
 	}
-	UE_LOG(LogTemp, Log, TEXT("Overlap%s %s.%s ------------ %s.%s %s"),
+	UE_LOG(LogMyrTrigger, Log, TEXT("Overlap%s %s.%s ------------ %s.%s %s"),
 		ComingOut?TEXT("Out"):TEXT("In"), *GetOwner()->GetName(), *GetName(), *OtherActor->GetName(), *OtherComp->GetName(), *TXTENUM(EWhoCame, WhoCame));
 
 }
@@ -777,7 +780,7 @@ void UMyrTriggerComponent::OverlapEvent(AActor* OtherActor, UPrimitiveComponent*
 //==============================================================================================================
 UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	UE_LOG(LogTemp, Verbose, TEXT("%s.%s: OverlapBegin %s.%s.%d"),
+	UE_LOG(LogMyrTrigger, Verbose, TEXT("%s.%s: OverlapBegin %s.%s.%d"),
 		*GetOwner()->GetName(), *GetName(), *OtherActor->GetName(), *OtherComp->GetName(), OtherBodyIndex);
 	OverlapEvent(OtherActor, OtherComp, false);
 }
@@ -787,7 +790,7 @@ UFUNCTION() void UMyrTriggerComponent::OverlapBegin(UPrimitiveComponent* Overlap
 //==============================================================================================================
 UFUNCTION() void UMyrTriggerComponent::OverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	UE_LOG(LogTemp, Verbose, TEXT("%s.%s: OverlapEnd %s"),
+	UE_LOG(LogMyrTrigger, Verbose, TEXT("%s.%s: OverlapEnd %s"),
 		*GetOwner()->GetName(), *GetName(), *OtherActor->GetName());
 	OverlapEvent(OtherActor, OtherComp, true);
 }

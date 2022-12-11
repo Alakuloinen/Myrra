@@ -635,7 +635,7 @@ void UMyrPhyCreatureMesh::PhyGirdleOrient (FBodyInstance* BodyInst, FGirdle& Gir
 	else
 	{
 		//фиксируем, как с текущей колокльни туловища выглядят оси Pri,Sec
-		CI->PriAxis1 = TM1.InverseTransformVectorNoScale (CLimb.ImpactNormal);
+		CI->PriAxis1 = TM1.InverseTransformVectorNoScale (CLimb.Floor.Normal);
 		CI->SecAxis1 = TM1.InverseTransformVectorNoScale (Sec);
 	}*/
 
@@ -789,14 +789,14 @@ void UMyrPhyCreatureMesh::ClingGirdle (FGirdle& G, bool ChangeFloor)
 	//если тяга к движению нулевая, усилить привязь, чтобы вообще застыло на месте
 	if (MyrOwner()->ExternalGain <= 0)
 	{	if (CI->GetLinearYMotion() != ELinearConstraintMotion::LCM_Locked)
-		{	SetLinear(CI, Luft * CLimb.ImpactNormal.Z, 0, 0);
+		{	SetLinear(CI, Luft * CLimb.Floor.Normal.Z, 0, 0);
 			CI->SetLinearVelocityDrive(true, true, false);
 		}
 	}
 	//если пользователь включил тягу, ослабить привязь по оси намеренного движения
 	else
 	{	if (CI->GetLinearYMotion() != ELinearConstraintMotion::LCM_Free)
-		{	SetLinear(CI, Luft * CLimb.ImpactNormal.Z, -1, Luft * FMath::Max(0.0f, 1.0f - 3.0f*G.Curvature));
+		{	SetLinear(CI, Luft * CLimb.Floor.Normal.Z, -1, Luft * FMath::Max(0.0f, 1.0f - 3.0f*G.Curvature));
 			CI->SetLinearVelocityDrive(false, false, false);
 		}
 	}
@@ -814,17 +814,17 @@ void UMyrPhyCreatureMesh::ClingGirdle (FGirdle& G, bool ChangeFloor)
 	FVector Sec;
 
 	//попытка унять опрокидывание на пологой ветке - пусть тело смотрит спиной вверх
-	if(CLimb.OnBranch() && CLimb.ImpactNormal.Z>0.5)
+	if(CLimb.OnBranch() && CLimb.Floor.Normal.Z>0.5)
 	{
 		FVector UnFallNormal = FVector::CrossProduct(CLimb.GetBranchDirection(), FVector::UpVector);
 		UnFallNormal = FVector::CrossProduct(CLimb.GetBranchDirection(), UnFallNormal);
-		Pri = FMath::Lerp(CLimb.ImpactNormal, FVector::UpVector, G.Curvature);
+		Pri = FMath::Lerp(CLimb.Floor.Normal, FVector::UpVector, G.Curvature);
 		Pri.Normalize();
 	}
-	else Pri = CLimb.ImpactNormal;
+	else Pri = CLimb.Floor.Normal;
 
 	//подстраиваем смещение тяги относительно положения тела, чтобы она приимала и немного тянула вперед
-	float ForceOffset = 2 * Luft * FMath::Max(0.0f, 0.5f - CLimb.ImpactNormal.Z);
+	float ForceOffset = 2 * Luft * FMath::Max(0.0f, 0.5f - CLimb.Floor.Normal.Z);
 	CI->SetLinearPositionTarget(
 		FVector(	-ForceOffset,	// тяга по нормали с минусом, то есть вжимание в опору
 					ForceOffset,	// тяга вперед
@@ -939,7 +939,7 @@ FVector UMyrPhyCreatureAnimInst::GetLimbTransform(const FLimb& Limb, const FVect
 		Devia = Devia.ProjectOnToNormal(M->GetLimbAxisDown(ParentLimb));
 
 		//минус радиус по нормали вниз к точке касания = точная позиция точки касания
-		Devia -= Limb.ImpactNormal * WheelRadius;
+		Devia -= Limb.Floor.Normal * WheelRadius;
 
 		//здесь надо изменять кривые, регулирующие расставление ног - от кривизны. от параллельности хода
 

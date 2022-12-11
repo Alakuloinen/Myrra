@@ -174,6 +174,29 @@ EAttackAttemptResult UMyrActionInfo::RetestForStrikeForAI(class AMyrPhyCreature*
 	return R; //◘◘>
 }
 
+//==============================================================================================================
+//рассчитать время, которое займёт прокат ролика между данными фазами
+//==============================================================================================================
+float UMyrActionInfo::PhaseTimes(TArray<float>& OutTimes)
+{
+	if (!DynModelsPerPhase.Num()) return -1;
+	if (Motion->Notifies.Num() < DynModelsPerPhase.Num() - 1) return -1;
+
+	OutTimes.SetNum(DynModelsPerPhase.Num());
+
+	float TimeAcc = 0.0f;
+	float LngAcc = 0.0f;
+
+	for (int i = 0; i < DynModelsPerPhase.Num(); i++)
+	{
+		float CurLng = Motion->Notifies.Num() > i ? Motion->Notifies[i].GetTime() : Motion->GetPlayLength();
+		OutTimes[i] = (CurLng - TimeAcc) * DynModelsPerPhase[i].AnimRate;
+		LngAcc += OutTimes[i];
+		TimeAcc = CurLng;
+	}
+	return LngAcc;
+}
+
 
 //==============================================================================================================
 //пересчитать энергоемкость действия

@@ -188,7 +188,7 @@ void AMyrAI::Tick(float DeltaTime)
 
 				//если атака в разгаре - мягко прервать, обратив движение
 				if (me()->DoesAttackAction())
-					ME()->NewAttackGoBack();
+					ME()->AttackGoBack();
 			}
 
 			//при экстремальном превышении веса исключить вторичную и просчитать тягу для одной первичной
@@ -290,8 +290,8 @@ void AMyrAI::Tick(float DeltaTime)
 			//если атаку нельзя продолжить по материальным причинам, а не потому что уже фаза не та
 			else
 			{	PrimaryActorTick.TickInterval = 0.25;				// успокоить метаболизм
-				me()->NewAttackEnd();
-				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackEnd cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult,R));
+				me()->AttackEnd();
+				UE_LOG(LogMyrAI, Warning, TEXT("AI %s AttackEnd cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult,R));
 			}
 		}
 	}
@@ -1325,7 +1325,7 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 				{
 					//текущая атака безнадёжна, поскольку не может парировать такой урон = завершаем ее, не тратим силы
 					if(ME()->GetAttackAction()->MaxDamageWeCounterByThis < RealDanger)
-						ME()->NewAttackEnd();
+						ME()->AttackEnd();
 					
 					//текущая атака небезнадёжна - может, запущена в предыдущий вызов этой функции
 					//здесь не перепроверяется применимость, хз насколько это упущение
