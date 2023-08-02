@@ -9,21 +9,49 @@
 
 #define BI_QUA(a,b) (((uint8)(a)) + (((uint8)(b))<<4))
 
+#define BODYALL(index, name2, section, name3, parent, name4, mirror, name5, oppos, name6, isleg) ((index) + ((parent)<<4) + ((mirror)<<8) + ((oppos)<<12) + ((section)<<13) + ((isleg)<<14))
+#define LSECTION(limb)	(((limb)>>13)&1)
+#define LPARENT(limb)	(((limb)>>4)&15)
+#define LMIRROR(limb)	(((limb)>>8)&15)
+#define LOPPOSITE(limb) (((limb)>>12)&15)
+#define LISLEG(limb)	(((limb)>>14)&1)
+
+enum PRAEBODY {	PELV,LUMB,PECT,THOR,HEAD,TAIL,LARM,RARM,LLEG,RLEG,NOLIMB };
+constexpr uint16 OFLIMB[] = 
+{
+	BODYALL (PELV, "Section:", 0, "Parent:", PELV,	"Mirror:", PELV, "Opposite:", THOR, "IsLeg:", false),
+	BODYALL	(LUMB, "Section:", 0, "Parent:", PELV,	"Mirror:", LUMB, "Opposite:", PECT, "IsLeg:", false),
+	BODYALL	(PECT, "Section:", 1, "Parent:", LUMB,	"Mirror:", PECT, "Opposite:", LUMB, "IsLeg:", false),
+	BODYALL	(THOR, "Section:", 1, "Parent:", PECT,	"Mirror:", THOR, "Opposite:", PELV, "IsLeg:", false),
+	BODYALL	(HEAD, "Section:", 1, "Parent:", PECT,	"Mirror:", HEAD, "Opposite:", TAIL, "IsLeg:", false),
+	BODYALL	(TAIL, "Section:", 0, "Parent:", LUMB,	"Mirror:", TAIL, "Opposite:", HEAD, "IsLeg:", false),
+	BODYALL	(LARM, "Section:", 1, "Parent:", THOR,	"Mirror:", RARM, "Opposite:", LLEG, "IsLeg:", true),
+	BODYALL	(RARM, "Section:", 1, "Parent:", THOR,	"Mirror:", LARM, "Opposite:", RLEG, "IsLeg:", true),
+	BODYALL	(LLEG, "Section:", 0, "Parent:", PELV,	"Mirror:", RLEG, "Opposite:", LARM, "IsLeg:", true),
+	BODYALL	(RLEG, "Section:", 0, "Parent:", PELV,	"Mirror:", LLEG, "Opposite:", RARM, "IsLeg:", true)
+};
+
 //константы для сегментов тела (хардкод для позвоночных, но остальные могут их использовать в нестандартном смысле)
 UENUM() enum class ELimb : uint8
 { 
-	PELVIS,
-	LUMBUS,
-	PECTUS,
-	THORAX,
-	HEAD,
-	L_ARM,
-	R_ARM,
-	L_LEG,
-	R_LEG,
-	TAIL,
+	PELVIS = ::PELV,
+	LUMBUS = ::LUMB,
+	PECTUS = ::PECT,
+	THORAX = ::THOR,
+	HEAD = ::HEAD,
+	TAIL = ::TAIL,
+	L_ARM = ::LARM,
+	R_ARM = ::RARM,
+	L_LEG = ::LLEG,
+	R_LEG = ::RLEG,
 	NOLIMB
 };
+
+ELimb	FORCEINLINE LimbParent	(ELimb eL) { return (ELimb)((OFLIMB [ (int)eL ]>>4 )&15); }
+ELimb	FORCEINLINE LimbMirror	(ELimb eL) { return (ELimb)((OFLIMB [ (int)eL ]>>8 )&15); }
+ELimb	FORCEINLINE LimbOpposite(ELimb eL) { return (ELimb)((OFLIMB [ (int)eL ]>>12)&15); }
+int		FORCEINLINE LimbSection (ELimb eL) { return			(OFLIMB [ (int)eL ]>>13)&1; }
+
 
 //###################################################################################################################
 //каким образом использовать каркасы-поддержки частей тела для движения и поддержания
@@ -198,9 +226,6 @@ USTRUCT(BlueprintType) struct FFleshLimbAnatomy
 
 	//явно указываем имя кости/сокета, которой можно хватать предметы - он же используется для локализации шагов
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FName GrabSocket;
-
-	//минимальный вес, до которого может падать показ физики для этой части тела, для кинематических - 0.0, для вечно висящих 1.0
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) float MinPhysicsBlendWeight = 1.0f;
 };
 
 //###################################################################################################################
@@ -234,11 +259,11 @@ USTRUCT(BlueprintType) struct FMeshAnatomy
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData Pectus;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData Thorax;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData Head;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData Tail;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData LeftArm;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData RightArm;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData LeftLeg;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData RightLeg;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, config) FMeshPerBodySegmentData Tail;
 
 	//количество макросегментов - пока константа, потом...?
 	int Num() const { return (int)ELimb::NOLIMB; }
@@ -368,7 +393,7 @@ USTRUCT(BlueprintType) struct FLimb
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Stepped = 0;
 
 	//степень соосности вектора скорости и нормали при ударе
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Colinea = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FRatio Colinea = 0;
 
 	// держит что-то этой конечностью (или карабкается этим туловищем)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) uint8 Grabs:1;
@@ -431,21 +456,18 @@ USTRUCT(BlueprintType) struct FLimb
 UENUM(BlueprintType) enum class EGirdleRay : uint8 { Center, Left, Right, Spine, Tail, MAXRAYS };
 ENUM_CLASS_FLAGS(EGirdleRay);
 
-//биты режимов ограничений поясного якоря
-UENUM(BlueprintType) enum class EGirdleLimits : uint8
+USTRUCT(BlueprintType) struct FGirdleFlags
 {
-	FixOnFloor,
-
-	Vertical,
-	Normal,
-
-	LockRoll,
-	LockPitch,
-	LockYaw,
-
-	TightenYaw,
-	TightenLean,
-
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On"))			uint8 FixOn : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Yaw"))		uint8 TightenYaw : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Lean"))		uint8 TightenLean : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Roll"))			uint8 LockRoll : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Pitch"))		uint8 LockPitch : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Yaw"))			uint8 LockYaw : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Vertical Align"))	uint8 Vertical : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Shoulders"))	uint8 LockLegsSwing : 1;
+	FGirdleFlags(uint8 AsInt = 0) { *((uint8*)this) = AsInt; }
 };
 
 //###################################################################################################################
@@ -457,59 +479,32 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 {
 	GENERATED_BODY()
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Center = LDY_ROTATE | LDY_MY_UP | LDY_TO_VERTICAL;
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Left =	LDY_ROTATE | LDY_MY_WHEEL | LDY_TO_COURSE;
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Right = LDY_ROTATE | LDY_MY_WHEEL | LDY_TO_COURSE;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Spine = LDY_ROTATE | LDY_MY_UP | LDY_TO_VERTICAL;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELDY)) int32 Tail = LDY_PASSIVE;
 
 	//использовать эту модель или оставить/переключить нижележащую по иерархии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Use")) bool Use = true;
 
-	//ведущий или ведомый, если ведомый, то ноги более скованы и отстают
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "On Ground")) FGirdleFlags OnGnd;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "In Air"))	FGirdleFlags InAir;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leads")) bool Leading = true;
 
-	//сразу вкл/выкл гравитацию для члеников ног в пределах пояса
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On Floor"))	uint8 FixOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Yaw")) uint8 TightenYawOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Lean")) uint8 TightenLeanOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Roll")) uint8 LockRollOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Pitch")) uint8 LockPitchOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Yaw")) uint8 LockYawOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Vertical Align")) uint8 VerticalOnFloor : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Shoulders")) uint8 LockLegsSwingOnFloor : 1;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Fix On Path")) uint8 FixOnTraj : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Yaw")) uint8 TightenYawInAir : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Tighten Lean")) uint8 TightenLeanInAir : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Roll")) uint8 LockRollInAir : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Pitch")) uint8 LockPitchInAir : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Yaw")) uint8 LockYawInAir : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Vertical Align")) uint8 VerticalInAir : 1;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Lock Shoulders")) uint8 LockLegsSwingInAir : 1;
-
-
-	//выключить сгибания сразу всех ног, а именно таза с ногами вперед назад
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Swing Lock")) bool LegsSwingLock = false;
-
-	//использовать констрейнт для жесткого задания ориентации центра пояса по направлению движения - например, чтобы препятствие не разворачивало
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Hard Course Align")) bool HardCourseAlign = false;
-
-	//вертикаль через констрейнт, жесткая, может покалечить
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Hard Vertical")) bool HardVertical = false;
-
-	//при фиксации разрешить движение за счёт
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Normal Align")) bool NormalAlign = false;
-
+	//шаги с точным позиционирпованием ног
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool FairSteps = false;
 
 	//насколько пригибать пояс ногами к земле 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Crouch")) float Crouch = 0.0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Crouch", UIMin = "0.0", UIMax = "1.0")) float Crouch = 0.0;
 
 	//насколько расставлять или стягивать ноги (безразмерно, на глазок, влияет на рассчет позы в анимации)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leg Apart Min % Length")) float LegsSpreadMin = -0.1f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leg Apart Max % Length")) float LegsSpreadMax = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread %Length", UIMin = "-0.3", UIMax = "0.5")) float LegsSpreadMin = -0.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Legs Spread %Length", UIMin = "-0.3", UIMax = "0.5")) float LegsSpreadMax = 0.3f;
 
 	//множитель сил, которые применяются к членам согласно выше заполненным моделям - для подгонки в редакторе
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Forces Mult")) float ForcesMultiplier = 1000.0;
+
+	//жесткость констрейнта между центральным и спинным члеником
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Joint Stiffness")) FRatio JunctionStiffness = 1.0f;
 
 	//вязкость, подбираемая к другим телам при указании бита
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Damping")) float CommonDampingIfNeeded = 0.01;
@@ -517,22 +512,22 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 	//получить по индексу
 	uint8 At(const EGirdleRay Where) const { return ((uint8*)(&Center))[(int)Where]; }
 
-	//выдать все биты ограничений якоря скопом (ОСТОРОЖНО! попытка обхитрить память!)
-	uint8& AllFlagsFloor()  { return ((uint8*)(&Leading + 1))[0]; }
-	uint8& AllFlagsAir()    { return ((uint8*)(&Leading + 1))[1]; }
-
 	//выдать готовый коэф размаха ног по заданной альфе смешивания
 	float GetLegSpread(float A) const { return FMath::Lerp(LegsSpreadMin, LegsSpreadMax, A); }
 
-	void Correction()
+	//применяется когда надо перенести старые данные в новые переменные и пересохранить ассет
+	bool Correction()
 	{
-		if (HardVertical) { VerticalOnFloor = true; TightenLeanOnFloor = true; }
-		if (HardCourseAlign) { TightenYawOnFloor = true; }
-		if (NormalAlign) { TightenLeanOnFloor = true; }
-		if (LegsSwingLock) { LockLegsSwingOnFloor = true;  }
+		//OnGnd = AllFlagsFloor();
+		//InAir = AllFlagsAir();
+		//if (HardVertical) { VerticalOnFloor = true; TightenLeanOnFloor = true; }
+		//if (HardCourseAlign) { TightenYawOnFloor = true; }
+		//if (NormalAlign) { TightenLeanOnFloor = true; }
+		//if (LegsSwingLock) { LockLegsSwingOnFloor = true;  } 
+		return true;
 	}
 
-	FGirdleDynModels() { AllFlagsAir() = 0; AllFlagsFloor() = 0; }
+	FGirdleDynModels() { /*AllFlagsAir() = 0; AllFlagsFloor() = 0;*/ }
 };
 
 
@@ -576,8 +571,17 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float SpineStiffness = 1.0f;
 
 
-	// 
+	// исли флс то игнорировать эту модель, а оставить вышестоящую
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Use")) bool Use = true;
+
+	// максимальный урон, который может выдержать существо, находясь в этой модели, при превышении действие, внедрившее эту модель, прерывается, а поведение может смениться
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DamageLim = 10.0f;
+
+	// если существо игрок, то вход в это состояние включает в камере размытие в движении
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player", meta = (DisplayName = "MoBlur")) float MotionBlur = 0.0f;
+
+	// если существо игрок, то вход в это состояние включает в мире замедление времени
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player", meta = (UIMin="0.0", UIMax="1.0", DisplayName="TimeSpeed")) float TimeDilation = 1.0f;
 
 	// звук, который играет, пока существо находится в данном состоянии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") TWeakObjectPtr<USoundBase> Sound;
@@ -586,6 +590,7 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	float GetMoveWeaken() const { return FMath::Min(1.0f, FMath::Abs(MotionGain)); }
 	float GetJumpAlongImpulse() const { return MotionGain; }
 	float GetJumpUpImpulse() const { return JumpImpulse; }
+	bool IsJump() { return (GetJumpAlongImpulse() > 1 || GetJumpUpImpulse() > 0); }
 	FWholeBodyDynamicsModel() { Thorax.Leading = true; Pelvis.Leading = false; }
 
 	FGirdleDynModels& Girdle(bool Tho) { return Tho ? Thorax : Pelvis; }
@@ -594,14 +599,35 @@ USTRUCT(BlueprintType) struct FWholeBodyDynamicsModel
 	{	static FWholeBodyDynamicsModel D;
 		return D;
 	}
+
+	bool Correction() { return (Pelvis.Correction() + Thorax.Correction()) > 0; }
 };
 
+//сборка для позиционирования ноги в анимации
+USTRUCT(BlueprintType) struct FLegPos
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DownUp = 0.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float BackFront = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float LeftRight = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Pitch = 0.5f;
+
+	float& Length() { return Pitch; }
+	float AbsFront() const { return FMath::Abs(BackFront); }
+	float NormFront() const { return BackFront/Pitch; }
+	float AbsAside() const { return FMath::Abs(LeftRight); }
+	FLinearColor& LC4() { return *((FLinearColor*)this); }
+	FVector3f& V3() { return *((FVector3f*)this); }
+	FVector3f NormV3() { return *((FVector3f*)this)/Pitch; }
+	void Reset(float Lngth) { DownUp = Lngth; BackFront = 0; LeftRight = 0.0f; Length() = Lngth; }
+};
 
 
 //каналы отображения отладочных линий для векторных данных
 UENUM() enum class ELimbDebug : uint8
 {
 	NONE,
+	MeshOrigin,
 	LimbAxisX,
 	LimbAxisY,
 	LimbAxisZ,
@@ -615,13 +641,15 @@ UENUM() enum class ELimbDebug : uint8
 	LimbNormals,
 	GirdleConstrainMode,
 	FeetShoulders,
-	GirdleConstrainOffsets,
-	LimbConstrForceAng,
 	CentralConstrForceLin,
 	CentralConstrForceAng,
 	LineTrace,
 	GirdleCrouch,
 	AILookDir,
 	GirdleStandHardness,
-	PhyCenterDislocation
+	PhyCenterDislocation,
+	PhyCenterDisrotation,
+	FairStepPredictedPos,
+	FairStepPath
+
 };

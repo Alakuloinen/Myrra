@@ -7,53 +7,87 @@
 #include "Blueprint/UserWidget.h"
 #include "MyrMenuWidget.generated.h"
 
-/**
- * 
- */
-UCLASS()
-class MYRRA_API UMyrMenuWidget : public UUserWidget
+UCLASS(Blueprintable, BlueprintType, hidecategories = (Object), meta = (BlueprintSpawnableComponent)) class MYRRA_API UMyrMenuItem : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	EUIEntry CurrentWidgetId = EUIEntry::NONE;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FUIEntryData EntryData;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool Shown;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool Hovered;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FLinearColor Color;
+
+};
+//###################################################################################################################
+//###################################################################################################################
+
+UCLASS() class MYRRA_API UMyrMenuWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
 public:
 
-	//единый указатель на объект источник данных - остальное по идее берется в обработчиках
-	//хотя переменные для здоровья, усталости и эмоций (будут в релизе) пусть таки останутся
+	//РµРґРёРЅС‹Р№ СѓРєР°Р·Р°С‚РµР»СЊ РЅР° РѕР±СЉРµРєС‚ РёСЃС‚РѕС‡РЅРёРє РґР°РЅРЅС‹С… - РѕСЃС‚Р°Р»СЊРЅРѕРµ РїРѕ РёРґРµРµ Р±РµСЂРµС‚СЃСЏ РІ РѕР±СЂР°Р±РѕС‚С‡РёРєР°С…
+	//С…РѕС‚СЏ РїРµСЂРµРјРµРЅРЅС‹Рµ РґР»СЏ Р·РґРѕСЂРѕРІСЊСЏ, СѓСЃС‚Р°Р»РѕСЃС‚Рё Рё СЌРјРѕС†РёР№ (Р±СѓРґСѓС‚ РІ СЂРµР»РёР·Рµ) РїСѓСЃС‚СЊ С‚Р°РєРё РѕСЃС‚Р°РЅСѓС‚СЃСЏ
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class AMyrPhyCreature* MyrOwner;
 
-	//то какие еще строки меню в нем содержатся
+	//С‚Рѕ РєР°РєРёРµ РµС‰Рµ СЃС‚СЂРѕРєРё РјРµРЅСЋ РІ РЅРµРј СЃРѕРґРµСЂР¶Р°С‚СЃСЏ
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = EUIEntry)) int32 MenuItemsSet = 0;
 
-	//текущее окно выбранное из меню
+	//С‚РµРєСѓС‰РµРµ РѕРєРЅРѕ РІС‹Р±СЂР°РЅРЅРѕРµ РёР· РјРµРЅСЋ
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	EUIEntry CurrentWidgetId = EUIEntry::NONE;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	UUserWidget* CurrentWidget = nullptr;
 
-	//возможно ли это меню вообще закрыть до худа игры - или оно тупиково в себе, как начальное или конец игры
+	//РІРѕР·РјРѕР¶РЅРѕ Р»Рё СЌС‚Рѕ РјРµРЅСЋ РІРѕРѕР±С‰Рµ Р·Р°РєСЂС‹С‚СЊ РґРѕ С…СѓРґР° РёРіСЂС‹ - РёР»Рё РѕРЅРѕ С‚СѓРїРёРєРѕРІРѕ РІ СЃРµР±Рµ, РєР°Рє РЅР°С‡Р°Р»СЊРЅРѕРµ РёР»Рё РєРѕРЅРµС† РёРіСЂС‹
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool Cancelable = true;
-
 
 public:
 
-	//вызов божественных сущностей
+	//СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЂРµР°Р»СЊРЅРѕРµ РјРµРЅСЋ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UListView* ListViewMenuButtons = nullptr;
+
+	//СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЂРµР°Р»СЊРЅРѕРµ СЃС‚РѕР№Р»Рѕ РґР»СЏ РІРёРґР¶РµС‚РѕРІ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UWidgetSwitcher* WidgetSwitcher = nullptr;
+
+	//СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЂРµР°Р»СЊРЅРѕРµ СЃС‚РѕР№Р»Рѕ РґР»СЏ РІРёРґР¶РµС‚РѕРІ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UImage* ImageCanvas = nullptr;
+
+	//СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЂРµР°Р»СЊРЅРѕРµ СЃС‚РѕР№Р»Рѕ РґР»СЏ РІРёРґР¶РµС‚РѕРІ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UTextBlock* TextBlockHeader = nullptr;
+
+	UPROPERTY(EditAnywhere)	uint8 IndexInListView[(int)EUIEntry::MAX];
+	UPROPERTY(EditAnywhere)	uint8 IndexInWidgSwit[(int)EUIEntry::MAX];
+
+public:
+
+	//РІС‹Р·РѕРІ Р±РѕР¶РµСЃС‚РІРµРЅРЅС‹С… СЃСѓС‰РЅРѕСЃС‚РµР№
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrraGameInstance() const { return (UMyrraGameInstance*)GetGameInstance(); }
 	UFUNCTION(BlueprintCallable) class AMyrraGameModeBase* GetMyrraGameMode() const { return (AMyrraGameModeBase*)GetWorld()->GetAuthGameMode(); }
 	UFUNCTION(BlueprintCallable) class AMyrPlayerController* GetMyrPlayerController() const { return (AMyrPlayerController*)GetOwningPlayer<APlayerController>(); }
 
-	// реализовать в блюпринете смену виджета = прикрепление к нужной панели и открепление предыдущего
+//Р±РѕР»РІР°РЅРєРё, РєРѕС‚РѕСЂС‹Рµ РЅСѓР¶РЅРѕ СЂРµР°Р»РёР·РѕРІР°С‚СЊ РІ Р±Р»СЋРїСЂРёРЅС‚Р°С…, С‡С‚РѕР±С‹ СЌС‚Рѕ РІСЃРµ РЅРѕСЂРјР°Р»СЊРЅРѕ СЂР°Р±РѕС‚Р°Р»Рѕ
+public:
+
+	//СЂРµР°Р»РёР·РѕРІР°С‚СЊ РІ Р±Р»СЋРїСЂРёРЅРµС‚Рµ СЃРјРµРЅСѓ РІРёРґР¶РµС‚Р° = РїСЂРёРєСЂРµРїР»РµРЅРёРµ Рє РЅСѓР¶РЅРѕР№ РїР°РЅРµР»Рё Рё РѕС‚РєСЂРµРїР»РµРЅРёРµ РїСЂРµРґС‹РґСѓС‰РµРіРѕ
 	UFUNCTION(BlueprintImplementableEvent)	void ChangeCurrentWidget(EUIEntry New);
 
-	//добавить внутри в нужное место новый пункт меню
-	UFUNCTION(BlueprintImplementableEvent) void AddMenuEntry(EUIEntry New);
 
-	//добавить внутри в нужное место новый пункт меню
-	UFUNCTION(BlueprintImplementableEvent) void ClearMenuItems();
+//РІСЃРїРѕРјРѕРіР°С‚РµР»СЊРЅС‹Рµ С€С‚СѓРєРё, СЂРµР°Р»РёР·РѕРІР°РЅРЅС‹Рµ РїСЂСЏРјРѕ Р·РґРµСЃСЊ
+public:
 
-
-	//переразместить новый набор меню, то есть пунктов, которые отображаются вместе с виджетом и к которым можно перейти кликом или клавишей непосредственно из данного открытого окна
+	//РїРµСЂРµСЂР°Р·РјРµСЃС‚РёС‚СЊ РЅРѕРІС‹Р№ РЅР°Р±РѕСЂ РјРµРЅСЋ, С‚Рѕ РµСЃС‚СЊ РїСѓРЅРєС‚РѕРІ, РєРѕС‚РѕСЂС‹Рµ РѕС‚РѕР±СЂР°Р¶Р°СЋС‚СЃСЏ РІРјРµСЃС‚Рµ СЃ РІРёРґР¶РµС‚РѕРј Рё Рє РєРѕС‚РѕСЂС‹Рј РјРѕР¶РЅРѕ РїРµСЂРµР№С‚Рё РєР»РёРєРѕРј РёР»Рё РєР»Р°РІРёС€РµР№ РЅРµРїРѕСЃСЂРµРґСЃС‚РІРµРЅРЅРѕ РёР· РґР°РЅРЅРѕРіРѕ РѕС‚РєСЂС‹С‚РѕРіРѕ РѕРєРЅР°
 	UFUNCTION(BlueprintCallable) bool InitNewMenuSet(int32 Set);
 
-	//во время виджета воспринимать клавиши чтобы закрыть его или переключаться между пунктами меню
+	//СѓРґР°Р»РёС‚СЊ РІРµСЃСЊ СЃРїРёСЃРѕРє РїСѓРЅРєС‚РѕРІ РјРµРЅСЋ
+	UFUNCTION(BlueprintCallable) void ClearMenuItems();
+
+	//РІРѕ РІСЂРµРјСЏ РІРёРґР¶РµС‚Р° РІРѕСЃРїСЂРёРЅРёРјР°С‚СЊ РєР»Р°РІРёС€Рё С‡С‚РѕР±С‹ Р·Р°РєСЂС‹С‚СЊ РµРіРѕ РёР»Рё РїРµСЂРµРєР»СЋС‡Р°С‚СЊСЃСЏ РјРµР¶РґСѓ РїСѓРЅРєС‚Р°РјРё РјРµРЅСЋ
 	UFUNCTION(BlueprintCallable) void ReactToKey(FKeyEvent InKeyEvent);
 
+	//РІРЅСѓС‚СЂРµРЅРЅСЏСЏ СЂРµР°Р»РёР·Р°С†РёСЏ СЃРјРµРЅС‹ РІРёРґР¶РµС‚РѕРІ
+	UFUNCTION(BlueprintCallable) void MakeWidgetCurrent(EUIEntry New, bool FromMenu = false);
 
+	//РґРѕР±Р°РІРёС‚СЊ РІРЅСѓС‚СЂРё РІ РЅСѓР¶РЅРѕРµ РјРµСЃС‚Рѕ РЅРѕРІС‹Р№ РїСѓРЅРєС‚ РјРµРЅСЋ
+	UFUNCTION(BlueprintCallable) void AddMenuEntry(EUIEntry New);
 };

@@ -8,7 +8,7 @@
 #include "MyrPhyCreatureMesh.h"
 #include "MyrGirdle.h"
 #include "AssetStructures/MyrCreatureGenePool.h"
-#include "AssetStructures/MyrCreatureAttackInfo.h"
+#include "AssetStructures/MyrActionInfo.h"
 #include "AssetStructures/MyrCreatureBehaveStateInfo.h"	// данные текущего состояния моторики
 #include "MyrPhyCreature.generated.h"
 
@@ -43,13 +43,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bWannaClimb : 1;	//момент запроса на карабканье
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bFly : 1;			//летать
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bSoar : 1;		//активно набирать высоту
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematicRefine : 1;	//кинематически доводить
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bKinematicMove : 1;//кинематически перемещать
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 bMoveBack : 1;	//пятиться назад, сохраняя поворот вперед
 
+
 	//указатель на класс инкарнации игрока
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) class AMyrDaemon* Daemon;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) class AMyrDaemon* Daemon = nullptr;
+
+	//текущая цель прыжка (из оверлапа или из ИИ цели)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	USceneComponent* JumpTarget = nullptr;
+
 
 	//имя, которое будет отображаться человеческим языком - может быть одинаково у нескольких
 	//при спавне генерируется генофондом по алгоритму у каждого своему
@@ -59,7 +63,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadonly) uint8 CurrentAttack = 255;		// действие на цель
 	UPROPERTY(EditAnywhere, BlueprintReadonly) EActionPhase CurrentAttackPhase = EActionPhase::ASCEND;
 	UPROPERTY(EditAnywhere, BlueprintReadonly) uint8 CurrentAttackRepeat = 0;
-	UPROPERTY(EditAnywhere, BlueprintReadonly) uint8 CurrentAttackVictimType = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadonly) float AttackForceAccum = 0.0f;		//аккумуоятор пока что только силы прыжка со временем
 
 	//самодействия - вызываются сами время от времени по ситуации
@@ -95,12 +98,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Age = 0.0f;					// возраст, просто возраст в секундах, чтобы состаривать и убивать неписей (мож double или int64?)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float LightingAtView = 0.0f;			// уровень освещенности в направлении взгляда
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float BestBumpFactor = 0.0f;			// для теста
+
 	// набор данных воздействия последней съеденной пищи			
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FDigestiveEffects DigestiveEffects;	
-
-	//эмоциональная идентичность данного существа, копируется из генофонда и прокачивается по ходу игры
-	//для неважных существ может оставаться нулём, и тогда эмоции будут постоянные, браться из генофонда
-	UPROPERTY(EditAnywhere, BlueprintReadOnly) FEmoReactionList EmoReactions;
 
 	//кэш расстояния между центрами поясов, для позиционирования ведомого пояса
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float SpineLength = 0.0f;
@@ -116,19 +117,18 @@ public:
 
 #if WITH_EDITORONLY_DATA
 
-
 	//набор битов какие линии отладки рисовать
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELimbDebug)) int32 DebugLinesToShow = 0;
 	bool IsDebugged(ELimbDebug Ch) { return ((DebugLinesToShow & (1 << (uint32)Ch)) != 0);  }
-	void Line(ELimbDebug Ch, FVector A, FVector AB, float W = 1, float Time = 0.02);
-	void Line(ELimbDebug Ch, FVector A, FVector AB, FColor Color, float W = 1, float Time = 0.02);
-	void Linet(ELimbDebug Ch, FVector A, FVector AB, float Tint, float W = 1, float Time = 0.02);
+	void Line(ELimbDebug Ch, FVector A, FVector AB, float W = 1, float Time = 0.04);
+	void Line(ELimbDebug Ch, FVector A, FVector AB, FColor Color, float W = 1, float Time = 0.04);
+	void Linet(ELimbDebug Ch, FVector A, FVector AB, float Tint, float W = 1, float Time = 0.04);
 #endif
 
 	//счетчик тактов
 	uint16 FrameCounter = 0;
 
-	//конкретные, самодостаточные параметры индивида, прокачиваются, 																			
+	//конкретные, самоLOостаточные параметры индивида, прокачиваются, 																			
 	//UPROPERTY(EditAnywhere, BlueprintReadWrite) FRoleParams Params;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FPhenotype Phenotype;
 	
@@ -140,7 +140,8 @@ public:
 	//отсюда берется базис для ориентира скорости при шаге, беге и т.п.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrCreatureBehaveStateInfo* BehaveCurrentData;
 
-	//текущий пересеченный триггер объём, может быть нуль (пока неясно, заводить ли полный стек
+	//текущий пересеченный триггер объём, может быть нуль (пока неясно, заводить ли полный стек)
+	//объёмы сами 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrTriggerComponent* Overlap0 = nullptr;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrTriggerComponent* Overlap1 = nullptr;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrTriggerComponent* Overlap2 = nullptr;
@@ -164,6 +165,7 @@ public:
 protected:
 	//появление в игре - финальные донастройки, когда всё остальное готово
 	virtual void BeginPlay() override;
+	virtual void EndPlay(EEndPlayReason::Type R) override;
 
 	//события в результате пригрывания звука (центрального звука, например голоса - LipSync и т.п.)
 	UFUNCTION()	void OnAudioPlaybackPercent(
@@ -188,7 +190,7 @@ public:
 	void ConsumeInputFromControllers(float DeltaTime);
 
 	//оценить применимость реакции на уткнутость и если удачно запустить ее
-	EAttackAttemptResult TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb);
+	EResult TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb);
 
 	//обновить осознанное замедление скорости по отношению к норме для данного двигательного поведения
 	void UpdateMobility(bool IncludeExternalGain = true);
@@ -234,6 +236,7 @@ public:
 	//ментально осознать, что пострадали от действий другого существа или наоборот были им обласканы
 	void SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker);
 	void EnjoyAGrace(float Amount, AMyrPhyCreature* Sweetheart);
+	void MeHavingHit(float Amount, AMyrPhyCreature* Victim);
 
 	//запустить брызг частиц пыли и т.п. из чего состоит заданная поверхность
 	void SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale);
@@ -248,7 +251,7 @@ public:
 	//////////////////////////////////////////////////////////////////////
 
 	//принять новое состояние поведения (логически безусловно, но технически может что-то не сработать, посему буль)
-	bool AdoptBehaveState(EBehaveState NewState);
+	bool AdoptBehaveState(EBehaveState NewState, const FString Reason = "");
 
 	//основная логика движения - свитч с разбором режимов поведения и переходами между режимами
 	void ProcessBehaveState(float DeltaTime);
@@ -256,11 +259,13 @@ public:
 	/////////////////////////////////////////////
 	bool GotUnclung()					{ return !Thorax->Climbing && !Pelvis->Climbing; }
 	bool GotGroundBoth()				{ return Mesh->Thorax.Stepped && Mesh->Pelvis.Stepped; }
+	bool GotStandBoth(int Thr = 300)	{ return (Thorax->StandHardness + Pelvis->StandHardness > Thr); }
 	bool GotLandedAny(uint8 Thr = 100)  { return (Thorax->Stands(Thr) || Pelvis->Stands(Thr)); }
 	bool GotLandedBoth(uint8 Thr = 100) { return (Thorax->Stands(Thr) && Pelvis->Stands(Thr)); }
 	bool GotSlow(float T = 1)			{ return (Pelvis->VelocityAgainstFloor.SizeSquared() < T && Thorax->VelocityAgainstFloor.SizeSquared() < T); }
 	bool GotSoaringDown(float T = -50)	{ return (Mesh->GetPhysicsLinearVelocity().Z < T); }
 	bool GotLying()						{ return (Thorax->Lies() && Pelvis->Lies() && SpineVector.Z < 0.5f); }
+	bool GotReachTarget()				{ return JumpTarget && FVector::Distance(Mesh->GetComponentLocation(), JumpTarget->GetComponentLocation()) < 10; }
 
 	//висим низом
 	bool HangBack()						{ return (Thorax->StandHardness >= 200 && Pelvis->StandHardness <= 35); }
@@ -269,9 +274,9 @@ public:
 	//////////////////////////////////////////////////////////////////////
 	//действия - начать, ударить, прекратить досрочно
 	
-	EAttackAttemptResult AttackActionStart(int SlotNum, int VictimType = 0);
-	EAttackAttemptResult AttackActionStrike();
-	EAttackAttemptResult AttackActionStrikePerform();
+	EResult AttackActionStart(int SlotNum, USceneComponent* ExactVictim = nullptr);
+	EResult AttackActionStrike();
+	EResult AttackActionStrikePerform();
 	void AttackChangePhase(EActionPhase NewPhase);
 	void AttackNotifyGetReady();
 	void AttackEnd();					//завершение 
@@ -281,26 +286,33 @@ public:
 	void AttackNotifyFinish();			//поимка закладки финиш - переход в финальную фазу перед завершением
 
 	//процедуры прыжка из различных состояний повдения
-	bool JumpAsAttack();
+	bool JumpAsAttack(FVector3f EplicitVel);
+
+	//просканировать объёмы вокруг и выбрать цель
+	FVector PrepareJumpVelocity(FVector3f& OutVelo);
 
 	//начать, выбрать и прервать самодействие
-	void SelfActionStart(int SlotNum);
+	EResult SelfActionStart(int SlotNum);
 	void SelfActionCease();
 	void SelfActionNewPhase();
 
 	//найти, выбрать и начать анимацию отдыха
-	void RelaxActionStart(int Slot);//стартануть релакс уже известный по индексу
+	EResult RelaxActionStart(int Slot);//стартануть релакс уже известный по индексу
 	void RelaxActionReachPeace();	// * достичь фазы стабильности (вызывается из закладки анимации MyrAnimNotify)
 	void RelaxActionStartGetOut();	//начать выход из фазы стабильности
 	void RelaxActionReachEnd();		// * достичь конца и полного выхода (вызывается из закладки анимации MyrAnimNotify)
 
 	//прервать или запустить прерывание деймтвий, для которых сказано прерывать при сильном касании
 	void CeaseActionsOnHit(float Damage);		
-	void ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutActionIndices, ECreatureAction Restrict = ECreatureAction::NONE);
+	void ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutActionIndices, EAction Restrict = EAction::NONE);
+
+	//найти наиболее подходящее по контексту действие (в основном для ИИ)
+	uint8 ActionFindBest(USceneComponent *VictimBody, float Damage = 0, float Dist = 1e6, float Coaxis = 0, bool ByAI = false, bool Chance = false);
 
 	//вообще запустить какое-то действие по точному идентификатору (если есть в генофонде)
-	EAttackAttemptResult  ActionFindStart   (ECreatureAction Type);
-	EAttackAttemptResult  ActionFindRelease (ECreatureAction Type, UPrimitiveComponent* ExactGoal = nullptr);
+	EResult  ActionFindStart   (EAction Type);
+	EResult  ActionFindRelease (EAction Type, UPrimitiveComponent* ExactGoal = nullptr);
+	EResult	 ActionStart(uint8 Number);
 
 	//отпустить всё, что имелось активно схваченным (в зубах)
 	void UnGrab();	
@@ -340,13 +352,13 @@ public:
 	//охватить это существо при загрузке и сохранении игры
 	UFUNCTION(BlueprintCallable) void Save(FCreatureSaveData& Dst);
 	UFUNCTION(BlueprintCallable) void Load(const FCreatureSaveData& Src);
-	
+
+	//обыскать слот сохранения и проставить во всех ссылках на это существо (в памятях других существ) реальный указатель
+	UFUNCTION(BlueprintCallable) void ValidateSavedRefsToMe();
+
 	//отражение действия на более абстрактонм уровне - прокачка роли, эмоция, сюжет
 	//возможно, вместо AActor следует ввести UObject, чтобы адресовать и компоненты, и всё прочее
 	void CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObject* Patient, FMyrLogicEventData* ExplicitEmo = nullptr);
-
-	//внести в душу новое эмоциональное переживание, внутри логика отбора значений и сил, если нестандарт, то можно подать извне
-	void AddEmotionStimulus(EEmoCause Cause, float ExplicitStrength = -1, UObject* Responsible = nullptr, FEmoStimulus *ExplicitStimulus = nullptr);
 
 	//передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)
 	//старое, возможно, переделать
@@ -362,16 +374,20 @@ public:
 	//вывод в блюпринт для редкого тика, чтобы добавлять действия специфичные для конкретного существа
 	UFUNCTION(BlueprintImplementableEvent)	void RareTickInBlueprint(float DeltaTime);
 
+	//упаковать значение посчитанной скорости прыжка в неиспользуемое поле
+	void PackJumpStartVelocity(FVector3f Ve)	{ ((USceneComponent*)Voice)->ComponentVelocity = FVector(Ve); }
+
+	//в момент исчезновения объекта сделать так, чтобы в памяти ИИ ничего не сломалось
+	void HaveThisDisappeared(USceneComponent* It);
 
 
 //свои возвращуны
 public:	
 
-	//выдать сборку эмоциональной реакции для данной причины, в основном будет вызываться из ИИ
-	FEmoStimulus* GetEmoReaction(EEmoCause Cause);
-
-	//выдать вовне память эмоциональных стимулов, которая лежит в ИИ
-	FEmoMemory* GetMyEmoMemory();
+	FVector& GetJumpStartVelocity() const { return ((USceneComponent*)Voice)->ComponentVelocity; }
+	FVector3f GetJumpStartVelocityF() const { return FVector3f(const_cast<AMyrPhyCreature*>(this)->GetJumpStartVelocity()); }
+	FVector GetJumpTrajAtNow(FVector& Start) const		{ return Start + GetJumpStartVelocity() * StateTime + FVector(0, 0, -981) * StateTime * StateTime / 2; }
+	FVector3f GetJumpVelAtNow() const					{ return GetJumpStartVelocityF() + FVector3f(0, 0, -981) * StateTime; }
 
 	//проверить извне, пересекает ли существо выбранный триггер
 	bool HasOverlap(class UMyrTriggerComponent* Ov) const { return (Overlap0 == Ov || Overlap1 == Ov || Overlap2 == Ov); }
@@ -380,6 +396,15 @@ public:
 	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR);
 	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR, EWhoCame WhoAmI);
 	UMyrTriggerComponent* HasSuchOverlap(EWhyTrigger rmin, EWhyTrigger rmax, FTriggerReason*& TR);
+	UMyrTriggerComponent* HasGoalOverlap(FTriggerReason*& TR);
+
+	class AMyrLocation* IsInLocation() const;
+
+	//объём по индексу
+	UMyrTriggerComponent*& OverlapByIndex(int i = 0) { return (&Overlap0)[i]; }
+
+	//найти среди объёмов самую лучшую цель
+	int FindMoveTarget(float Radius, float Coaxis);
 
 	//доступ к глобальным вещам
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrGameInst() const { return (UMyrraGameInstance*)GetGameInstance(); }
@@ -402,13 +427,14 @@ public:
 	bool CanFly() const { return Phenotype.Agility.BareLevel() >= GenePool->MinLevelToFly;  }
 
 	//выдать пояс, к которому принадлежит эта часть тела, по идентификатору чати тела
-	UMyrGirdle* GetGirdle(ELimb L) { return Mesh->GetGirdleId(L) ? Thorax : Pelvis; }
+	UMyrGirdle* GetGirdle(ELimb L) { return LimbSection(L) ? Thorax : Pelvis; }
 
 	//выдать противоположный пояс
 	UMyrGirdle* GetAntiGirdle(UMyrGirdle* G) { return G == Thorax ? Pelvis : Thorax;  }
 
 	//контроллер искусственного интеллекта
-	UFUNCTION(BlueprintCallable) class AMyrAI *MyrAI() const { return (AMyrAI*)Controller; }
+	//UFUNCTION(BlueprintCallable) class AMyrAI *MyrAI() const { return (AMyrAI*)Controller; }
+	UFUNCTION(BlueprintCallable) class AMyrAIController *MyrAIController() const { return (AMyrAIController*)Controller; }
 
 	//выдать указатель на генофонд вовне
 	UFUNCTION(BlueprintCallable) UMyrCreatureGenePool* GetGenePool() const { return GenePool; }
@@ -422,13 +448,15 @@ public:
 	//************************************************************
 	//новый вариант с единым массивом
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetAttackAction() const		{ return GenePool->Actions[(int)CurrentAttack]; }
-	UFUNCTION(BlueprintCallable) FVictimType&    GetAttackActionVictim() const	{ return GenePool->Actions[(int)CurrentAttack]->VictimTypes[CurrentAttackVictimType]; }
+	UFUNCTION(BlueprintCallable) FVictimType&    GetAttackActionVictim() const	{ return GenePool->Actions[(int)CurrentAttack]->VictimTypes[0]; }
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetSelfAction() const			{ return GenePool->Actions[(int)CurrentSelfAction]; }
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetRelaxAction() const			{ return GenePool->Actions[(int)CurrentRelaxAction]; }
 	UFUNCTION(BlueprintCallable) UMyrActionInfo* GetAction(int i) const			{ return GenePool->Actions[i]; }
 	//************************************************************
 
-	//************************************************************
+//учёт и поиск "корней" динамических моделей тела
+public:
+
 	FWholeBodyDynamicsModel* GetAttackDynModel()	{ return DoesAttackAction() ? &GetAttackAction()->DynModelsPerPhase[(int)CurrentAttackPhase] : nullptr; }
 	FWholeBodyDynamicsModel* GetSelfDynModel()		{ return DoesSelfAction() ? &GetSelfAction()->DynModelsPerPhase[SelfActionPhase] : nullptr; }
 	FWholeBodyDynamicsModel* GetRelaxDynModel()		{ return DoesRelaxAction() ? &GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase] : nullptr; }
@@ -446,10 +474,21 @@ public:
 		if (!R) R = &BehaveCurrentData->WholeBodyDynamicsModel;	else if (!R->Use) R = nullptr;
 		if (!R) R = &FWholeBodyDynamicsModel::Default();		return R;
 	}
+
+	FWholeBodyDynamicsModel* FindJumpDynModel()
+	{	FWholeBodyDynamicsModel* D = nullptr;
+		auto R = GetSelfDynModel();		if (R) if (R == Mesh->DynModel) if ((D = GetSelfAction()->FindJumpDynModel(SelfActionPhase))!=0)  return D;
+		R = GetAttackDynModel();		if (R) if (R == Mesh->DynModel) if ((D = GetAttackAction()->FindJumpDynModel((int)CurrentAttackPhase)) != 0) return D;
+		R = GetRelaxDynModel();			if (R) if (R == Mesh->DynModel) if ((D = GetRelaxAction()->FindJumpDynModel(RelaxActionPhase)) != 0) return D;
+		return nullptr;
+	}
 	//************************************************************
 
 	//уровень метаболизма - визуальная скорость дыхания, сердебиения, эффектов в камере
 	UFUNCTION(BlueprintCallable) float GetMetabolism() const;
+
+	bool MountTime() { return StateTime < 0.3 + 1.0f*Stamina; }
+	bool Mounts() { return (CurrentState == EBehaveState::mount && MountTime()); }
 
 	//участвует ли эта часть тела в непосредственно атаке
 	bool IsLimbAttacking(ELimb eLimb);
@@ -458,6 +497,7 @@ public:
 	bool IsTouchingThisActor(AActor* A);
 	bool IsTouchingThisComponent(UPrimitiveComponent* A);
 	bool IsStandingOnThisActor(AActor* A);
+	USceneComponent* GetObjectIStandOn();
 
 	//проверка на фазу атаки - для краткости
 	bool NowPhaseStrike() const { return (CurrentAttackPhase == EActionPhase::STRIKE); }
@@ -480,16 +520,21 @@ public:
 	bool NoAttack() const { return (CurrentAttack == 255); }
 	bool Attacking() const { return (CurrentAttack != 255); }
 	bool DoesAttackAction() const { return (CurrentAttack != 255); }
+
 	bool NoSelfAction() const { return (CurrentSelfAction == 255); }
 	bool DoesSelfAction() const { return CurrentSelfAction<255; }
+
 	bool NoRelaxAction() const { return (CurrentRelaxAction == 255); }
 	bool DoesRelaxAction() const { return (CurrentRelaxAction < 255); }
+
 	bool NoAnyAction() const { return (NoAttack() && NoSelfAction() && NoRelaxAction()); }
 
 	bool PreStrike() const { return (int)CurrentAttackPhase <= (int)EActionPhase::READY; }
 
 	//делает какое-то из трех видов действий
 	bool DoesAnyAction() const { return (CurrentAttack < 255) || (CurrentSelfAction<255) || (CurrentRelaxAction<255); }
+
+	float GetDamage(ELimb L) const { return Mesh->GetLimb(L).Damage; }
 
 	//потрачен
 	bool Dead() { return (CurrentState == EBehaveState::dead);  }
@@ -522,6 +567,9 @@ public:
 	//получить множитель незаметности, создаваемый поверхностью, на которой мы стоим
 	float GetCurrentSurfaceStealthFactor() const;
 
+	//выдать, если есть, цель, на которую можно кинематически наброситься. может выдать нуль
+	UFUNCTION(BlueprintCallable) USceneComponent* GetRushGoal();
+
 	//рассеяние звука текущее - от уровня и локации
 	class USoundAttenuation* GetCurSoundAttenuation();
 
@@ -533,10 +581,6 @@ public:
 
 	//виджет над головой - для карткости
 	class UMyrBioStatUserWidget* StatsWidget();
-
-	//межклассовое взаимоотношение - для ИИ, чтобы сформировать отношение при первой встрече с представителем другого класса
-	FColor ClassRelationToClass(AActor* obj);
-	FColor ClassRelationToDeadClass(AMyrPhyCreature* obj);
 
 	//для отладки, чтобы показывать в худе
 	UFUNCTION(BlueprintCallable) FString GetCurrentAttackName()			const { return !NoAttack() && GetAttackAction()			? GetAttackAction()->GetName()			: FString(TEXT("NO")); }

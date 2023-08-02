@@ -48,15 +48,11 @@ UCLASS() class MYRRA_API AMyrDaemon : public APawn
 
 	//собствено, камера, через которую смотреть 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-		class UCameraComponent* Camera;
+		class UMyrCamera* Camera;
 
 	//источник эффектов частиц - для дождя, роя наскомых, может, и запаха
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 		class UNiagaraComponent* ParticleSystem;
-
-	//источник эффектов частиц вторичный, чтоб заливать дождём там, где он не загорожен
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
-		class UNiagaraComponent* SecondaryParticleSystem;
 
 	//маркер цели квеста, должен пришпиливаться к указанным компонентам, пока неясно, нужен ли вообще
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
@@ -83,11 +79,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		class AMyrPhyCreature* OwnedCreature = nullptr;
 
-	//объект, к точке которого прилипает камера, будет он указан - для катсцен и плавного перехода к ним и от них
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		class USceneComponent* ExternalCameraPoser = nullptr;
-
-	//новая попытка сотворить эффект тряски камеры - это не объект, это в редакторе подвязать класс
+	//эффект тряски камеры - это не объект, это в редакторе подвязать класс
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		TSubclassOf<UCameraShakeBase> Shake;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -144,9 +136,9 @@ public:
 
 	//предыдущая позиция демона, для расчёта сдвига следов
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector PreviousPosition;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DistWalkedAccum = 0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) EMyrCameraMode MyrCameraMode = EMyrCameraMode::ThirdPerson;
+	//накопитель пройденного пути
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DistWalkedAccum = 0;
 
 	//объект к которому прикреплена функция видения, который видит подобпечное существо, и который в фокусе камеры
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	AActor* ObjectAtFocus = nullptr;
@@ -157,46 +149,6 @@ public:
 
 	//базис расстояния камеры в реальных сантиметрах, определяется или явно, или размерами тушки подопечного существа
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float ThirdPersonDist = 150;
-
-
-	//явный включатель уворота камеры вовне, пока неясно, нужен он или нет, но чтобы не обнулять внешнего актора сойдёт
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool AllowExtCameraPosing = false;
-
-	//текущее расстояние кинематографической камеры (с учётом внешнего задатчика позиции, с лерпом, если он исчезает)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float CamExtTargetDist = 150;
-
-	//единичное направление на цель кинематографической камеры (с учётом внешнего задатчика позиции, с лерпом, если он исчезает)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FVector CamExtTargetVector;
-
-	//текущий микс между внешней позицией камеры и внутренней, управляемой игроком, введён для точности без запаздываний
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float CamExtIntMix = 1.0f;
-
-
-	//радиус орешка вокруг камеры от 3 лица, вглубь которого твёрдым предметам не разрешено проникать
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float CamHardCoreRadius = 10;
-
-	//радиус сферы вокруг камеры 3 лица, от которой начинается упругость и отталкивание от стен
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float CamSoftBallRadius = 25;
-
-
-	//нормированный коэффициент расстояния камеры - текущий
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistNormFactor = 1.0f;
-
-	//нормированный коэффициент расстояния камеры - целевой, чтобы лерпить
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistNewFactor = 1.0f;
-
-	//учёт того, что на расстояние камеры может влиять несколько взаимонакладывающихся объёмов
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 CamDistAffectingVolumes = 0;
-	float CamDistStack[4];
-
-	//коэффициент расстояния камеры полученный по затмению - домножается на основной
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistOccluderAffect = 1.0f;
-
-	//ориентир для выше описанного параметра, непосредственно получаемый трассировкой из камеры в конец
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistCurrentByTrace = 1.0f;
-
-	//насколько быстро надо выталкивать камеру из стены (0 - 1) зависит от статичности заградителя
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	float CamDistRepulsion = 0.0f;
 
 public:
 
@@ -223,9 +175,6 @@ public:
 	//устанавливается из существа (но объявлено не в нём, так как нужно только с демоном) пока только на время активной фазы атаки
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	uint8 UseActDirFromAI : 1;
 
-	//пост-процесс материал для экрана ухудшения здоровья, достаётся из настроек камеры
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HealthReactionScreen = nullptr;
-
 	//материал для копирования рендер цели отпечатка шагов в историю
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	UMaterialInstanceDynamic* HistorifyTrailsMat = nullptr;
 
@@ -249,6 +198,7 @@ public:
 	// уровень освещенности в глаза - для расширения зрачков        
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Luminance = 0.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) FRatio RainAmount = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool CurLocNoRain = false;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) uint8 CurLocFliesMod = 255;
 
@@ -278,24 +228,16 @@ public:
 	void ReleaseCreature();
 	void PoseInsideCreature(bool ResetCameraRot = true);
 
-	//двигать камеру согласно контроллеру
-	void MoveCamera3p();
-	void MoveCamera1p();
-
 	//медленный тик
 	void LowPaceTick(float DeltaTime);
 
 	// фиксация коэффициентов движения с клавы или геймпада
 	void ProcessMotionInput(float* NGain, float Value);
 
-	//новый способ определить расстояние до камеры -пока неясно, где лучше вызывать, посему отдельной функцией
-	void TraceForCamDist();
-
 	// рассчитать кинематику / моторику для тела (и/или ждать, когда тело ее выполнит)
 	bool MakeMoveDir(bool MoveIn3D = false);
 
 	//задать уровень размытия в движении
-	void SetMotionBlur(float Amount);
 	void SetTimeDilation(float Amount);
 
 	//подготовить экран для менюшной паузы
@@ -305,9 +247,6 @@ public:
 	//задать направление атаки с корректировкой если в зад
 	void SetAttackDir();
 
-	//загнать в текущую камеру настройки эффектов 
-	void AdoptCameraVisuals(const FEyeVisuals& EV);
-
 	//переключение лица
 	void SetFirstPerson(bool Set);
 
@@ -316,11 +255,6 @@ public:
 
 	//раздать всем запахам команду вкл выкл запах
 	void UpdateSmellVision() { SwitchToSmellChannel.Broadcast(IsFirstPerson() ? AdvSenseChannel : -1); }
-
-	//привзяать камеру к внешнему актору
-	void AdoptExtCameraPoser(USceneComponent* A) { ExternalCameraPoser = A; AllowExtCameraPosing = true; }
-	void DeleteExtCameraPoser() {AllowExtCameraPosing = false; }
-	bool IsCameraOnExternalPoser() const {	return AllowExtCameraPosing; }
 
 	//переместить камеру в положение строго за спиной
 	void ResetCamera();
@@ -342,26 +276,50 @@ public:
 	UFUNCTION(BlueprintCallable) class AMyrraGameModeBase* GetMyrGameMode();
 
 	//найти идентификатор реального действия (специфичный для этого существа) привязанный к условной кнопке
-	ECreatureAction FindActionForPlayerButton(uint8 Button);
+	EAction FindActionForPlayerButton(uint8 Button);
 
 	//совершенно универсальные вызывальщики действий, для управления с компа этим видом существ
-	void SendAction(int Button, bool Release, ECreatureAction ExplicitAction = ECreatureAction::NONE);
+	void SendAction(int Button, bool Release, EAction ExplicitAction = EAction::NONE);
 
 	//наэкранный интерфейс игрока, управляющего этим демоном, может выдать нуль 
 	class UMyrBioStatUserWidget* HUDOfThisPlayer();
 
 	//нужно для подсказки, на какую кнопку действие уровня существа повешено - может быть ни на какую - тогда -1
-	int GetButtonUsedForThisAction(ECreatureAction Action);
+	int GetButtonUsedForThisAction(EAction Action);
 
 	//поместить или удалить маркер квеста - извне
 	UFUNCTION(BlueprintCallable) void PlaceMarker(USceneComponent* Dst);
 	UFUNCTION(BlueprintCallable) void RemoveMarker();
+
+	//выдать уровень размытия в движении, который был установлен для текущего состояния
+	float GetCurMotionBlur() const;
 
 	//получить уровень освещенности
 	float GetLightingAtVector(FVector3f V);
 
 	//среагировать на удар капли по земле
 	UFUNCTION(BlueprintCallable) void ReactOnRainDrop(float Size, FVector Position, FVector Velocity);
+
+	//источник данных камеры по лицам
+	FEyeVisuals* GetEyeVisuals(int P);
+
+	//привзяать камеру к внешнему актору
+	void AdoptExtCameraPoser(USceneComponent* A);
+	void DeleteExtCameraPoser();
+	bool IsCameraOnExternalPoser();
+
+	//явная установка расстояния камеры извне (через триггер-объёмы)
+	UFUNCTION(BlueprintCallable) void ChangeCameraPos(float ExactValue);
+
+	//восстановление прежнего расстояния камеры (если до этого оно изменилось другим объёмом, восстановить его)
+	UFUNCTION(BlueprintCallable) float ResetCameraPos();
+
+	//отобразить параболу прыжка
+	void ShowJumpTrajectory(FVector StartPosition, FVector JumpStartVelocity, float Time, FVector EndPosition);
+	void EnableJumpTrajectory(bool Set);
+
+	USceneComponent* GetCamera() { return (USceneComponent*)Camera; }
+	UMyrCamera* GetMyrCamera() { return (UMyrCamera*)Camera; }
 
 
 //реакции на управление реальным существом
@@ -438,13 +396,5 @@ public:
 	//крутить колесо мыши - на нем много всего прочего повешено
 	void MouseWheel(float value);
 
-	//явная установка расстояния камеры извне (через триггер-объёмы)
-	UFUNCTION(BlueprintCallable) void ChangeCameraPos(float ExactValue)
-	{	
-		CamDistNewFactor = ExactValue;
-	}
-	//восстановление прежнего расстояния камеры (если до этого оно изменилось другим объёмом, восстановить его)
-	UFUNCTION(BlueprintCallable) float ResetCameraPos();
-	UFUNCTION(BlueprintCallable) float GetCameraPos() const { return CamDistNewFactor; }
 
 };

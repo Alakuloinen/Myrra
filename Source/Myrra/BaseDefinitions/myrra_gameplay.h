@@ -1,7 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
 //#include "Templates/SharedPointer.h"
-#include "myrra_emotions.h"
 #include "myrra_roleparams.h"
 #include "Engine/DataTable.h"			//чтобы эмоциональные отклики вынести в таблицу
 #include "myrra_gameplay.generated.h"
@@ -156,7 +155,7 @@ USTRUCT(BlueprintType) struct FMyrLogicEventData : public FTableRowBase
 	float Taper(int LastEventTicks) { return (float)LastEventTicks / (TimesToUseAfterCatch + 1); }
 };
 
-//###################################################################################################################
+/*//###################################################################################################################
 //стек последних событий, плозая потому что все кроме посленего события расположены случайно
 //###################################################################################################################
 USTRUCT(BlueprintType) struct FEmotionMemory
@@ -245,7 +244,7 @@ USTRUCT(BlueprintType) struct FEmotionMemory
 	//стереть факт фиксации события
 	void Erase() { Events[0] = EMyrLogicEvent::NO; LastInfo = nullptr; }
 
-};
+};*/
 
 
 
@@ -282,12 +281,15 @@ UENUM(BlueprintType) enum class EWhyTrigger : uint8
 	KinematicLerpToCenterLocationOnly,		// кинематически плавно передвинуть в центр триггера
 	KinematicLerpToCenterLocationOrientation,		// кинематически плавно передвинуть в центр триггера
 
+	JumpTarget,					// можно использовать в качестве цели для точного прыжка по параболе
+
 	FixUntilAttack,				//зафиксировать на все кадры до включения атаки
 
 	TravelToLevel,				//перейти на ваще другой уровень
 	ChangeProtagonist,			//переподключить демона к новому существу
 	PlaceMarker,				//поместить маркер цели на заданный компонент
 	GameOver,					// остновить игру и вывести на экран меню
+	
 
 	VectorFieldMover,			//смещать курс неписей за счёт векторного поля направлений, видимо, с помощью компонентов-стрелок
 	VectorFieldMoverMeToo,		//смещать курс неписей за счёт векторного поля направлений, видимо, с помощью компонентов-стрелок

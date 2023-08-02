@@ -15,7 +15,7 @@ USTRUCT(BlueprintType) struct MYRRA_API FEmoReactionsUI
 	GENERATED_USTRUCT_BODY()
 
 	//иконка из нарезки, показывающая суть эмоционального испытания
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TWeakObjectPtr<UPaperSprite> Icon;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FSlateBrush Icon;
 
 	//человековаримый текст, как называется это событие
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText Name;
@@ -24,19 +24,11 @@ USTRUCT(BlueprintType) struct MYRRA_API FEmoReactionsUI
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText Description;
 
 	//само значение стимула, сюда будет подсасываться реальное значение при открытии экрана
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FEmoStimulus DefaultStimulus;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FPathia DefaultReaction;
 
 	FEmoReactionsUI() {}
-	FEmoReactionsUI(FString inName, FString inDesc, FEmoStimulus inSt = FEmoStimulus())
-	{	Name = FText::FromString(inName);
-		Description = FText::FromString(inDesc);
-		DefaultStimulus = inSt;
-	}
-	FEmoReactionsUI(FString inName, FString inDesc, EEmotio Arch, uint8 A = 2, uint8 Dur = 10)
-	{	Name = FText::FromString(inName);
-		Description = FText::FromString(inDesc);
-		DefaultStimulus = FEmoStimulus(FEmotio::As(Arch).ToFLinearColor(), A, Dur);
-	}
+	FEmoReactionsUI(FText inName, FText inDesc, FPathia Arch = Peace) : Name(inName), Description(inDesc), DefaultReaction(Arch) {}
+	FEmoReactionsUI(FString inName, FString inDesc, FPathia Arch = Peace) : Name(FText::FromString(inName)), Description(FText::FromString(inDesc)), DefaultReaction(Arch) {}
 
 };
 
@@ -114,7 +106,9 @@ public: // супер глобальные свойства
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMyrraGameUserSettings* Options;
 
 	//настройки отображения эмоциональных реакций в меню самой игры
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)  TMap<EEmoCause, FEmoReactionsUI> EmoReactionWhatToDisplay;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ForceInlineRow), Category = "Emotion")  TMap<FReflex, FEmoReactionsUI> EmoReactionWhatToDisplay;
+	UPROPERTY(EditAnywhere, Category = "Emotion")  FText SimpleEmoStimuliNamesMe[EYeAt::MAX];
+	UPROPERTY(EditAnywhere, Category = "Emotion")  FText SimpleEmoStimuliNamesYe[EYeAt::MAX];
 
 	//общие цвета интерфейса
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundSelected;
@@ -146,6 +140,9 @@ public: // квесты
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Debug)	TMap<ELimbDebug, FColor> DebugColors;
 #endif
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FRatio Ratio;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FGestalt Gestalt;
 
 //--------------------------------------------------------------------------------
 public: // стандартные методы и переопределения виртуальных
@@ -237,9 +234,17 @@ public: //возвращуны
 	class UMaterialParameterCollectionInstance* MakeMPCInst();
 
 	//выдать ближайшую эмоцию словесную для интерфейса
-	UFUNCTION(BlueprintCallable) float EmotionToMnemo    (const FEmotio& In,	  EEmotio& Out1, EEmotio& Out2) const { return          In.GetArch(&Out1, &Out2); }
-	UFUNCTION(BlueprintCallable) float EmoStimulusToMnemo(const FEmoStimulus& In, EEmotio& Out1, EEmotio& Out2) const { return FEmotio(In).GetArch(&Out1, &Out2); }
-	UFUNCTION(BlueprintCallable) FLinearColor EmoStimulusToColor(const FEmoStimulus& In) const { return FEmotio(In).ToFLinearColor(); }
-
+	UFUNCTION(BlueprintCallable) float EmotionToMnemo(const FPathia In, EPathia& Out1, EPathia& Out2) const { return In.GetFullArchetype(Out1, Out2); }
+	UFUNCTION(BlueprintCallable) float EmotionToMnemoText(const FPathia In, FText& Out1, FText& Out2) const
+	{ 
+		EPathia O1; EPathia O2;
+		float Wei = In.GetFullArchetype(O1, O2);
+		Out1 = UEnum::GetDisplayValueAsText(O1);
+		Out2 = UEnum::GetDisplayValueAsText(O2);
+		return Wei;
+	}
+	UFUNCTION(BlueprintCallable) FLinearColor EmoReflexToColor(const FReflex& In) const { return (FLinearColor)In.Emotion; }
+	UFUNCTION(BlueprintCallable) void EmoStimulusToMnemo  (const FReflex& In, FText &Out) const;
+	UFUNCTION(BlueprintCallable) bool IsLatent(FReflex R) const { return R.Emotion.IsLatent(); }
 
 };

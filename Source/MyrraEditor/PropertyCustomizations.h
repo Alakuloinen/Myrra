@@ -35,14 +35,9 @@ public:
 
 protected:
 
-    virtual TSharedPtr<class IPropertyHandle> GetR() const;
-    virtual TSharedPtr<class IPropertyHandle> GetG() const;
-    virtual TSharedPtr<class IPropertyHandle> GetB() const;
-    virtual TSharedPtr<class IPropertyHandle> GetA() const;
-    virtual TSharedRef<SWidget> Get5thWidget();
     virtual TSharedRef<SWidget> WidgetForEmoList();
     virtual FLinearColor GetColorForMe() const;
-    virtual void SetValue(FEmotio E);
+    virtual void SetValue(FPathia E);
 
     TSharedPtr<IPropertyHandle> MainHandle;
     TSharedPtr<IPropertyUtilities> PropertyUtilities;
@@ -54,25 +49,21 @@ protected:
 
 };
 
-class FEmoStimulusTypeCustomization : public FEmotionTypeCustomization
-{
-public:
-    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
-protected:
-    virtual TSharedPtr<class IPropertyHandle> GetR() const;
-    virtual TSharedPtr<class IPropertyHandle> GetG() const;
-    virtual TSharedPtr<class IPropertyHandle> GetB() const;
-    virtual TSharedPtr<class IPropertyHandle> GetA() const;
-    virtual TSharedRef<SWidget> Get5thWidget();
-    virtual TSharedRef<SWidget> WidgetForEmoList();
-    virtual FLinearColor GetColorForMe() const;
-    virtual void SetValue(FEmotio E);
-
-};
 
 //#######################################################################################################
 // для структуры FWholeBodyDynamicsModel из файла myrra_anatomy.h
 //#######################################################################################################
+class FGirdleFlagsCustomization : public IPropertyTypeCustomization
+{
+public:
+    //создать экземпляр
+    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
+
+    //видимо, здесь происходит украшение заголовка и его составляющих
+    virtual void CustomizeHeader(TSharedRef<class IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+    virtual void CustomizeChildren(TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+};
+
 class FMyrDynModelTypeCustomization : public IPropertyTypeCustomization
 {
 public:
@@ -123,7 +114,8 @@ private:
     UEnum* EnumDyMoPtr;		// указатель на перечислитель бит дин-модели члеников, чтобы брать оттуда строки названий
     TSharedPtr<IPropertyHandle> MainHandle;
     TSharedPtr<IPropertyHandle> HandleUsed;
-    TSharedPtr<IPropertyHandle> HandleLimbs[5];
+    TSharedPtr<IPropertyHandle> HandleLimbs[3];
+    TSharedPtr<IPropertyHandle> HandleFlags[3];
     FDetailWidgetRow RowWidgets[5];
 	FString Digest[5];
     FLinearColor DigestColor[5];
@@ -176,5 +168,32 @@ private:
         return FLinearColor(R);
 	}
 
+
+};
+
+//#######################################################################################################
+//для структуры FRatio из файла AdvMath.h
+//#######################################################################################################
+class FRatioTypeCustomization : public IPropertyTypeCustomization
+{
+public:
+    //создать экземпляр
+    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
+
+    //видимо, здесь происходит украшение заголовка и его составляющих
+    virtual void CustomizeHeader(TSharedRef<class IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+    virtual void CustomizeChildren(TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+
+    //обработчик события
+    float GetValue() const;
+    void OnValueCommitted(float Val, ETextCommit::Type Tc);
+    void OnValueChanged(float Val);
+
+private:
+    float Buffer;
+    char TypeFactor;
+    TSharedPtr<IPropertyHandle> MainHandle;
+    TSharedPtr<IPropertyHandle> HandleInt;
+    TSharedPtr<IPropertyUtilities> PropertyUtilities;
 
 };

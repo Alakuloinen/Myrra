@@ -54,6 +54,8 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	if (!Ma->Bodies.Num()) return;
 	if (!Ma->DynModel) return;
 
+	//Ma->AnimCurves.Set(Ma->SkeletalMesh->Skeleton->GetCurveMetaData)
+
 	//телосложенине
 	if(Creature->GetGenePool()->PhysiquePoses.Num() > Creature->Physique)
 		Physique = Creature->GetGenePool()->PhysiquePoses[Creature->Physique];
@@ -64,6 +66,10 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 
 	//целевое значение обмена веществ определяется режимом поведения и скоростью расхода стамины
 	float NewMetabolism = Creature->GetBehaveCurrentData()->MetabolismBase - 10 * Ma->DynModel->StaminaAdd;
+
+	SpineZ = Ma->GetGirdlesDeltaZ() - Ma->StartGirdlesDeltaZ;
+	//LINE(ELimbDebug::FeetShoulders, (FVector)Ma->GetMachineBody(ELimb::PECTUS)->GetCOMPosition(), (FVector)Ma->GetLimbAxisUp(ELimb::PECTUS) * SpineZ*10);
+	ThoraxGaitShift = Creature->GetThorax()->Speed < 30 || Creature->GetThorax()->Speed > 150 ? 0 : 1;
 
 	//текущий произносимый звук (пока пологаемся, что Blend сделает плавный переход без ухищрений
 	CurrentSpelledSound = Creature->CurrentSpelledSound;
@@ -76,18 +82,18 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		CurrentState = EBehaveState::walk;
 	StateTime = Creature->StateTime;
 
-	//случай, если действие резко заменилось без акта окончания - вставить этот акт искусственно, обнулив ролик
-	if (CurrentSelfAction != Creature->CurrentSelfAction)
-	{	SelfAction = nullptr;
-		CurrentSelfAction = Creature->CurrentSelfAction;
-	}
+
 	//самодействия
-	if (CurrentSelfAction != 255)
+	SelfActionNow = Creature->DoesSelfAction();
+	if (SelfActionNow)
 	{
+		//случай, если действие резко заменилось без акта окончания - вставить этот акт искусственно, обнулив ролик
+		if(SelfAction != Creature->GetSelfAction()->Motion) SelfAction = nullptr; 
+
 		//скорость анимации (она изменяетсч каждый кадр потому что могут быть секции с разной скоростью)
 		SelfActionPlayRate = Creature->GetSelfAction()->DynModelsPerPhase[Creature->SelfActionPhase].AnimRate;
 
-		//перед началом анимации вписать указатель на ресурс с кадрами
+		//перед началом или сменой анимации вписать указатель на ресурс с кадрами
 		if (SelfAction == nullptr)
 		{
 			//главная анимация вероятнее всего, затем альтернативные, если есть
@@ -97,7 +103,10 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 					SelfAction = Creature->GetSelfAction()->AlternativeRandomMotions[FMath::RandRange(0, NR - 1)];
 
 			//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
-			SelfAnimLocalSpace = (SelfAction->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
+			SelfActionLocalSpace = (SelfAction->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
+
+			//анимамровать ли от физического состояния или от базаовой позы
+			SelfActionKinematic = Creature->GetSelfAction()->LayAnimOnRefPose;
 
 			//изменятель скорости обмена веществ для этого конкретного действия
 			NewMetabolism *= Creature->GetSelfAction()->MetabolismMult;
@@ -107,16 +116,17 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	else SelfAction = nullptr;
 
 	//действия по отдыху
-	CurrentRelaxAction = Creature->CurrentRelaxAction;
-	if (CurrentRelaxAction != 255)
+	RelaxActionNow = Creature->DoesRelaxAction();
+	if (RelaxActionNow)
 	{
-		//здесь CurrentRelaxAction адресуется не по номеру, а по понятию, чтобы анимации можено было подправлять для отдельных групп
-		CurrentRelaxAction = (uint8)Creature->GetRelaxAction()->Type;
 		RelaxActionPlayRate = Creature->GetRelaxAction()->DynModelsPerPhase[Creature->RelaxActionPhase].AnimRate;
 		RelaxMotion = Creature->GetRelaxAction()->Motion;
 
 		//возможность подставлять в сборку анимацию разной локальности - тупой анрил не умеет выкорчевывать это свойства в АнимБП
-		RelaxAnimLocalSpace = (RelaxMotion->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
+		RelaxActionLocalSpace = (RelaxMotion->GetAdditiveAnimType() == EAdditiveAnimationType::AAT_LocalSpaceBase);
+
+		//анимамровать ли от физического состояния или от базаовой позы
+		RelaxActionKinematic = Creature->GetRelaxAction()->LayAnimOnRefPose;
 
 		//изменятель скорости обмена веществ для этого конкретного действия
 		NewMetabolism *= Creature->GetRelaxAction()->MetabolismMult;
@@ -125,20 +135,17 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	//переписать новые значения компонентов общей эмоции существа, чтоб отразить в позах
 	Creature->TransferIntegralEmotion(EmotionRage, EmotionFear, EmotionPower, EmotionAmount);
 
-	//случай, если атака резко заменилась без акта окончания - вставить этот акт искусственно, обнулив ролик
-	if (CurrentAttack != Creature->CurrentAttack)
-	{
-		AttackCurvesAnimation = nullptr;
-		CurrentAttack = Creature->CurrentAttack;
-		CurrentAttackPlayRate = 0;
-	}
 	//атаки (если в материнском объекте атака на задана, то и тут ничего не надо делать)
-	if (Creature->CurrentAttack != 255)
+	AttackActionNow = Creature->DoesAttackAction();
+	if (AttackActionNow)
 	{
+		//случай, если атака резко заменилась без акта окончания - вставить этот акт искусственно, обнулив ролик
+		if (AttackCurvesAnimation != Creature->GetAttackAction()->Motion)
+			AttackCurvesAnimation = nullptr;
+
 		//аним-ролики атаки меняются только при изменении номера атаки, признак этого - пустая анимация
 		if (AttackCurvesAnimation == nullptr)
-		{	CurrentAttack = Creature->CurrentAttack;
-			AttackAnimation = Creature->GetAttackActionVictim().RawTargetAnimation;
+		{	AttackAnimation = Creature->GetAttackActionVictim().RawTargetAnimation;
 			AttackPreciseAnimation = Creature->GetAttackActionVictim().PreciseTargetAnimation;
 			AttackCurvesAnimation = Creature->GetAttackAction()->Motion;
 		}
@@ -171,15 +178,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	auto gT = Creature->GetGirdle(ELimb::THORAX);
 	auto gP = Creature->GetGirdle(ELimb::PELVIS);
 
-
-#if WITH_EDITOR
-	if (!gT->CurrentDynModel) return;
-	if (!gP->CurrentDynModel) return;
-#endif
-
 	if (CurrentState == EBehaveState::climb)
 		WholeBodyUpDown = Ma->Erection();
-	else
+	if(IS_MACRO(CurrentState,AIR))
 	{
 		//глобальный уклон тела - сложный расчёт только для птицы
 		float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->Speed;
@@ -187,10 +188,11 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 			WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
 		else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
 	}
+	else WholeBodyUpDown = Ma->Erection();
 
 	//поворот физической спины влево-вправо (змейка) - регулируется направлением хода
 	//включается только когда имеется один ведущий, один ведомый пояс
-	if (gT->CurrentDynModel->Leading != gP->CurrentDynModel->Leading)
+	if (gT->Lead() != gP->Lead())
 		MachineSpineLeftOrRight = FMath::Lerp(
 			MachineSpineLeftOrRight,
 			Creature->ExternalGain * (gT->GuidedMoveDir | Ma->GetLimbAxisRight(Ma->Pectus)),
@@ -211,6 +213,8 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	ROTATE(SpineTwist,			DOF.SpineTwist,		LUMBUS, Up,		PECTUS, Left,  AllowMoreCalc);
 	//DrawDebugString(Creature->GetWorld(), Devia, FString::SanitizeFloat(SpineLeftOrRight, 1), Creature, FColor(255, 255, 0, 255), 0.02, false, 1.0f);
 
+	Health = Creature->Health;
+
 	//если от третьего лица
 	if (!Creature->IsFirstPerson())
 	{
@@ -218,9 +222,9 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 		Lighting = StepTo (Lighting, Creature->LightingAtView, DeltaTimeX*0.5f);
 
 		//голову крутим только здесь, иначе вид будет кривой
-		ROTATE(HeadLeftOrRight, DOF.HeadLeftRight,	PECTUS, Right,	HEAD, Front, AllowMoreCalc);
-		ROTATE(HeadUpOrDown,	DOF.HeadUpDown,		PECTUS, Up,		HEAD, Front, AllowMoreCalc);
-		ROTATE(HeadTwist,		DOF.HeadTwist,		PECTUS, Up,		HEAD, Left,  AllowMoreCalc);
+		ROTATE(HeadLeftOrRight, DOF.HeadLeftRight,	THORAX, Right,	HEAD, Front, AllowMoreCalc);
+		ROTATE(HeadUpOrDown,	DOF.HeadUpDown,		THORAX, Up,		HEAD, Front, AllowMoreCalc);
+		ROTATE(HeadTwist,		DOF.HeadTwist,		THORAX, Up,		HEAD, Left,  AllowMoreCalc);
 	}
 
 	//если в теле есть хвост
@@ -248,8 +252,14 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 
 	//позиционирование лап по положению колес
 	const auto GP = Creature->GenePool;
-	UpdateGirdle(Thorax, gT, &RArmUpDown, AllowMoreCalc);
-	UpdateGirdle(Pelvis, gP, &RLegUpDown, AllowMoreCalc);
+	UpdateGirdle(Thorax, gT, AllowMoreCalc);
+	UpdateGirdle(Pelvis, gP, AllowMoreCalc);
+
+	SetLegPosition(gT, Ma->RArm, RArm);
+	SetLegPosition(gT, Ma->LArm, LArm);
+	SetLegPosition(gP, Ma->RLeg, RLeg);
+	SetLegPosition(gP, Ma->LLeg, LLeg);
+
 }
 
 //==============================================================================================================
@@ -263,12 +273,13 @@ void UMyrPhyCreatureAnimInst::NativeBeginPlay()
 //==============================================================================================================
 //обновить анимионные сборки по отдельному поясу конечностей
 //==============================================================================================================
-void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdle* PhyGirdle, float* LimbChunk, bool AllowMoreCalc)
+void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdle* PhyGirdle, bool AllowMoreCalc)
 {
 	//сам меш
 	const auto M = Creature->GetMesh();
-	if (!PhyGirdle->CurrentDynModel) return;
+	if (!PhyGirdle->DynModel()) return;
 
+	
 	//скорость берется 1/100, чтобы проще было ассоциировать с animation Rate, который хорош когда 1.0
 	//делится на масштаб, чтобы маленький котенок чаще семенил ногами
 	FVector3f DirVel = PhyGirdle->VelocityAgainstFloor * 0.01 / M->GetComponentScale().X;
@@ -278,67 +289,30 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 	AnimGirdle.GainLateral =	DirVel | M->GetLimbAxisLeft(PhyGirdle->GetLimb(EGirdleRay::Center));
 
 	//тот пояс, который оказывается оторван от земли, плавно переводить в малоподвижное состояние
-	if (PhyGirdle->StandHardness > 25) AnimGirdle.Stands = PhyGirdle->StandHardness/255.0f;
-	else AnimGirdle.Stands = FMath::Lerp(AnimGirdle.Stands, PhyGirdle->StandHardness, 0.1f);
+	AnimGirdle.Stands = (float)FMath::Lerp(AnimGirdle.Stands, FMath::Min(1.0f, PhyGirdle->StandHardness/100.0), 0.2f);
 
-	//получить адреса выходного пучка данных
-	float& RUpDown = LimbChunk[0];
-	float& LUpDown = LimbChunk[4];
-
-	/*if (PhyGirdle->HasLegs)
-	{
-		//вот через такую жопу добывается радиус сферы - тут важно, чтобы сфера существовала, но проверять надо не здесь
-		const auto CeLimb = PhyGirdle->GetLimb(EGirdleRay::Center);
-		const auto SpLimb = PhyGirdle->GetLimb(EGirdleRay::Spine);
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Right), &RUpDown);
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
-	}
-	//нет ног
-	else*/
-	{
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Right), &RUpDown);
-		SetLegPosition(PhyGirdle->GetLimb(EGirdleRay::Left), &LUpDown);
-
-		//даже если нет ног, FrontBack управляет вытягиванием/махом пояса вперед назад
-		//float& FrontBack = LimbChunk[1];
-		//ROTATE(FrontBack, true, PELVIS, Up, LUMBUS, Front, AllowMoreCalc);
+	//если нога отрывается от земли, она перестаёт анимироваться с земной скоростью
+	//пока неясно, как правильно отделить ходячие поведения от летучих, где это не применимо - пока по ориентации в плоскости
+	if (!Creature->GetBehaveCurrentData()->bOrientIn3D)
+	{	AnimGirdle.GainDirect *= AnimGirdle.Stands;
+		AnimGirdle.GainLateral *= AnimGirdle.Stands;
 	}
 }
 
-
-//==============================================================================================================
-//получить букет трансформаций конечности в правильном формате из физ-модели существа
-//==============================================================================================================
-void UMyrPhyCreatureAnimInst::SetLegPosition(FLimb& Limb, float* LimbChunk)
+void UMyrPhyCreatureAnimInst::SetLegPosition(UMyrGirdle* G, FLimb& Limb, FLegPos& L)
 {
-	//получить адреса выходного пучка данных
-
-	FVector3f* OutPos = (FVector3f*)LimbChunk;
-	float& FootPitch = LimbChunk[3];
-	const auto M = Creature->GetMesh();
-	auto Girdle = Creature->GetGirdle(Limb.WhatAmI);
+	L = G->GetLegLine(Limb);									// линия ноги в локальных координатах пояса
+	if (Limb.IsLeft()) L.LeftRight *= -1;						// сделать линию ноги независимой от симметрии право/лево
 	
-	//перевести координаты в диапазоны blendspace
-	FVector3f NewFootRay = Girdle->GetLegLineLocal(Limb);		//линия ноги в локальных координатах пояса
-	if (Limb.IsLeft()) NewFootRay.Z *= -1;					//сделать линию ноги независимой от симметрии право/лево
-	//NewFootRay = NewFootRay / Girdle->TargetFeetLength;		//сделать линию ноги единичным вектором
-	//FootPitch = Limb.Floor.Normal | Girdle->GuidedMoveDir;	//загиб ступни вперед/назад в координатах [-1;+1]
+	//длина ноги макс, больше нормы, чтоб покрыть вытяжку
+	float StretchLength = (G->TargetFeetLength * 5 / 4);
 
-	//NewFootRay = NewFootRay / 2 + FVector3f(0.5f);			//перевести весь вектор позы ноги в координаты blendspace [0;1]
-	//*OutPos = FMath::Lerp(*OutPos, NewFootRay, 0.3f);
+	//тангаж стопы, так же 0-1
+	L.Pitch = ((G->UnpackLegLine(Limb) / L.Length()) | G->GuidedMoveDir) * 0.5 + 0.5;	
 
-	FVector4f LegVector(NewFootRay, NewFootRay | Girdle->GuidedMoveDir);
-
-	LegVector = LegVector / 2 / Girdle->TargetFeetLength + FVector4f(0.5f, 0.5f, 0.5f, 0.5f);
-
-	*((FVector3f*)LimbChunk) = FMath::Lerp(*((FVector3f*)LimbChunk), LegVector, 1.0f);
-	
-
-
-	//для отладки
-	//LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisForth(SpineLimb.WhatAmI) * FrontBack);
-	//LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisUp(SpineLimb.WhatAmI) * UpDown);
-	//LINE(ELimbDebug::FeetShoulders, LimbAxisPos, M->GetLimbAxisRight(SpineLimb.WhatAmI) * LeftRight);
+	//отклонение стопы, 0-1, не нормированное, но ограниченное длиной ноги
+	L.V3() = 0.5f * L.V3() / StretchLength + VMID;		
+	L.BackFront = 1 - L.BackFront;
 
 }
 

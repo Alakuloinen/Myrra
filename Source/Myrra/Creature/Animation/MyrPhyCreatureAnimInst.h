@@ -17,7 +17,29 @@ USTRUCT(BlueprintType) struct FAGirdle
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainDirect;		// проекция курса на позвоночник
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float GainLateral;		// проекция курса на поперёк
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float Stands;			// устойчивость
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float LegsSpread;		// расставить/сомкнуть ноги
+};
+
+//это для универсальной анимации шагов, но де факто хреново получилось, так что возможно убрать
+USTRUCT(BlueprintType) struct FALocomo
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	UBlendSpace* MotionTmplate;		
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float StartPos;		
+};
+
+USTRUCT(BlueprintType) struct FALocomoSet
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Totter;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Tread;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Walk;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Amble;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Gallop;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Leap;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Climb;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Hike;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Swim;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	FALocomo Fly;
 };
 
 /**
@@ -48,13 +70,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionPower = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float EmotionAmount = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float Lighting = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float Health = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float SpineZ = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mode)	float ThoraxGaitShift = 0.0f;
+
+	//признаки выполнения действий на данный кадр
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 AttackActionNow : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 SelfActionNow : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 SelfActionKinematic : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 SelfActionLocalSpace : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 RelaxActionNow : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 RelaxActionKinematic : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 RelaxActionLocalSpace : 1;
 
 	//все хозяйство, связанное с атаками (действиями от себя на цель)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		class UAimOffsetBlendSpace* AttackAnimation;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		class UBlendSpace* AttackPreciseAnimation;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* AttackCurvesAnimation;
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite)		float UpperBodyMaskWeight = 0.0f;  //хз 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 CurrentAttack = 255;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		EActionPhase CurrentAttackPhase;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float CurrentAttackPlayRate = 0.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float AttackDirRawLeftRight = 0.0f;
@@ -65,15 +97,11 @@ public:
 
 	//все хозяйство, связанное с самодействиями (самовызываемыми действиями на себя)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* SelfAction;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 CurrentSelfAction = 255;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		bool SelfAnimLocalSpace = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float SelfActionPlayRate = 0.0f;
 
 
 	//все хозяйство, связанное с действиями отдыха (на себя, но вызываемыми игроком и с четким набором фаз)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		UAnimSequenceBase* RelaxMotion;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		uint8 CurrentRelaxAction = 255;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)		bool RelaxAnimLocalSpace = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)		float RelaxActionPlayRate = 0.0f;
 
 	//звук, который сейчас произносится, для выбора позы рта для lipsync
@@ -91,7 +119,6 @@ public:
 
 	//уклон всего тела вверх или вниз
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Machine)	float WholeBodyUpDown = 0.0f;
-
 
 	//поворот и уклон тела (углы, радианы)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float SpineLeftOrRight = 0.5f;
@@ -114,24 +141,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement)	float TailTipLeftOrRight = 0.0f;
 
 
-	//смещения конечностей относительно нормальных значений - без структур, так как в блюпринтах это косно
-	//по умолчанию на середине интервала 0-1, так как часть их может реализовываться осбю времени, которая нормируется
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RArmUpDown = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RArmFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RArmLeftRight = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RArmNormalFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LArmUpDown = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LArmFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LArmLeftRight = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LArmNormalFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RLegUpDown = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RLegFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RLegLeftRight = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float RLegNormalFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LLegUpDown = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LLegFrontBack = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LLegLeftRight = 0.5;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	float LLegNormalFrontBack = 0.5;
+	//смещения конечностей относительно нормальных значений
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	FLegPos RArm;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	FLegPos LArm;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	FLegPos RLeg;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Limbs)	FLegPos LLeg;
 
 //стандартные функции
 public: 
@@ -151,10 +165,10 @@ public:
 public:
 
 	//обновить анимионные сборки по отдельному поясу конечностей
-	void UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdle* PhyGirdle, float* LimbChunk, bool AllowMoreCalc);
+	void UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdle* PhyGirdle, bool AllowMoreCalc);
 
 	//получить букет трансформаций конечности в правильном формате из физ-модели существа
-	void SetLegPosition(FLimb& Limb, float* LimbChunk);
+	void SetLegPosition(UMyrGirdle* G, FLimb& Limb, FLegPos& L);
 
 	//получить численный параметр угла отклонения между сегментами тела по заданным осям
 	void DriveBodyRotation(float& Dest, bool En, ELimb LLo, EMyrRelAxis LoA, ELimb LHi, EMyrRelAxis HiA, bool Asin = true);

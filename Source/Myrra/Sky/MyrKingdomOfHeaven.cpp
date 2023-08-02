@@ -556,9 +556,7 @@ void AMyrKingdomOfHeaven::CorelateSunLigntToAngle()
 		auto Color = GroundColorsPerSunZ->GetUnadjustedLinearColorValue(-SunDir().Z);
 		MPC->SetVectorParameterValue(TEXT("SkyColorNadir"), Color);
 	}
-#if DEBUG_LOG_SKY
-	UE_LOG(LogTemp, Error, TEXT("SKY %s: Sunlight recalc dir=%g"), *GetName(), SunLight->GetDirection().Z);
-#endif
+	//UE_LOG(LogTemp, Error, TEXT("SKY %s: Sunlight recalc dir=%g"), *GetName(), SunLight->GetDirection().Z);
 }
 
 //==============================================================================================================

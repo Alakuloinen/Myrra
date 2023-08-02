@@ -10,7 +10,7 @@ USTRUCT(BlueprintType) struct FBumpReaction
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Threshold = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = ELimb)) int32 BumperLimb = 1<<(int)ELimb::HEAD;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float MinVelocity = 20;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction Reaction = ECreatureAction::NONE;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction Reaction = EAction::NONE;
 };
 
 //как поступать при отклонении курса от позиции тела
@@ -56,7 +56,7 @@ public:
 
 
 	//применять особую динамику к частям тела только в этом состоянии поведения
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General") FWholeBodyDynamicsModel WholeBodyDynamicsModel;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General", meta = (DisplayName = "Dynamics Model")) FWholeBodyDynamicsModel WholeBodyDynamicsModel;
 
 	//учитывать взгляд вверх-вниз, планируя курс
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General") bool bOrientIn3D = false;
@@ -94,39 +94,28 @@ public:
 	//делать урон при очень сильных ударах - отключение помогает пережить заскоки физического движка
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") bool HurtAtImpacts = true;
 
-	//поддерживать жесткую вертикаль даже когда ноги оторвались от земли - например в полете
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") bool KeepVerticalEvenInAir = false;
-
 	// полностью кинематическое движение без физического взаимодействия с окружением
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") uint8 FullyKinematicSinceLOD = 255;
 
-	//список условий и реакций на разные по силе и безнадеге затыки в движении
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") TArray<FBumpReaction> BumpReactions;
+	// насколько далеко вниз от плеч трассировать ноги в поисках опоры
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") float TraceFeetDepthMult = 1.0f;
 
 	//список условий и реакций на моменты, когда нужно сильно повернуть тело
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") TArray<FTurnReaction> TurnReactions;
 
-public:
-
-	// если существо игрок, то вход в это состояние включает в камере размытие в движении
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player") float MotionBlurAmount = 0.0f;
-
-	// если существо игрок, то вход в это состояние включает в мире замедление времени
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player") float TimeDilation = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") class UCurveLinearColor* StepShapePelvis;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") class UCurveLinearColor* StepShapeThorax;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") float StepHeightLegLengthFactorPelvis = 0.3;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") float StepHeightLegLengthFactorThorax = 0.3;
 
 public:
 
 	// звук, который простоянно играет, пока существо находится в данном состоянии
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") USoundBase* SoundLoopWhileInState;
 
-	//после загрузки (здесь пересчитывается энергоемкость)
-	virtual void PostLoad() override
-	{
-		Super::PostLoad();
-		WholeBodyDynamicsModel.Pelvis.Correction();
-		WholeBodyDynamicsModel.Thorax.Correction();
-		this->GetPackage()->MarkPackageDirty();
-	}
+	//применить автокоррекцию, если внутри что-то изменилось, и пометить как несохраненный
+	void Refine() {	if(WholeBodyDynamicsModel.Correction()) MarkPackageDirty();	}
 
-
+	float StepHeight(bool IsThorax) const { return IsThorax ? StepHeightLegLengthFactorThorax : StepHeightLegLengthFactorPelvis; }
+	UCurveLinearColor* StepShape(bool IsThorax) const { return IsThorax ? StepShapeThorax : StepShapePelvis; }
 };

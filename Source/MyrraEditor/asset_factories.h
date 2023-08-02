@@ -5,7 +5,7 @@
 #include "AssetTypeActions_Base.h"
 #include "MyrraEditor.h"
 #include "../Myrra/AssetStructures/MyrCreatureGenePool.h"
-#include "../Myrra/AssetStructures/MyrCreatureAttackInfo.h"
+#include "../Myrra/AssetStructures/MyrActionInfo.h"
 #include "../Myrra/AssetStructures/MyrCreatureBehaveStateInfo.h"
 #include "../Myrra/AssetStructures/MyrDendroInfo.h"
 #include "../Myrra/AssetStructures/MyrArtefactInfo.h"

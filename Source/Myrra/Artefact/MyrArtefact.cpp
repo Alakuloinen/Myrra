@@ -35,6 +35,16 @@ AMyrArtefact::AMyrArtefact()
 void AMyrArtefact::PostLoad()
 {
 	Super::PostLoad();
+
+	//поиск материального воплощения
+	for (auto& C : GetComponents())
+	{	if(auto SMC = Cast<USkeletalMeshComponent>(C))	{	Skeletal = true;	Mesh = SMC;	break;	} else
+		if(auto TMC = Cast<UStaticMeshComponent>(C))	{	Skeletal = false;	Mesh = TMC;	break;	}
+	}
+
+	//подвязка обработчиков столкновений
+	if(Mesh) Mesh->OnComponentHit.AddDynamic(this, &AMyrArtefact::OnHit);
+
 }
 
 //==============================================================================================================
@@ -46,7 +56,6 @@ void AMyrArtefact::BeginPlay()
 	//хотя может быть оставить только слух, а то артефакты - в основном для игрока, а неписи не должны работать точно
 	UAIPerceptionSystem::RegisterPerceptionStimuliSource(this, UAISense_Hearing::StaticClass(), this);
 	Super::BeginPlay();
-	
 }
 
 //==============================================================================================================
@@ -65,6 +74,11 @@ void AMyrArtefact::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 {
 	//найти компоненты, добавленные в редакторе и подцепить их в указатели
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+}
+
+//удар твердлого тела
+void AMyrArtefact::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
 }
 
 //охватить этот артефакт при загрузке и сохранении игры

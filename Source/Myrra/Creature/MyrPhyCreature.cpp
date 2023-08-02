@@ -9,10 +9,10 @@
 #include "Artefact/MyrTriggerComponent.h"				// триггер - для посылки ему "я нажал Е!"
 #include "Artefact/MyrLocation.h"						// локация по триггеру - обычно имеется в виду помещение
 #include "../Control/MyrDaemon.h"						// демон
-#include "../Control/MyrAI.h"							// ИИ
+#include "../Control/MyrCamera.h"						// умная камера
+#include "../Control/MyrAIController.h"					// ИИ
 #include "../UI/MyrBioStatUserWidget.h"					// индикатор над головой
 #include "AssetStructures/MyrCreatureGenePool.h"		// данные генофонда
-#include "AssetStructures/MyrLogicEmotionReactions.h"	// список эмоциональных реакций
 #include "Animation/MyrPhyCreatureAnimInst.h"			// для доступа к кривым и переменным анимации
 #include "Sky/MyrKingdomOfHeaven.h"						// для выяснения погоды и времени суток
 
@@ -46,8 +46,9 @@ float FPhene::LUT[PHENE_CURVE_MAX][MAX_LEVEL+2] = {
 DEFINE_LOG_CATEGORY(LogMyrPhyCreature);
 
 //одной строчкой вся логика ответов на запросы о переходе в новое состояние
-#define BEWARE(state, cond) if(cond) if(AdoptBehaveState(EBehaveState::##state)) break
+#define BEWARE(state, cond, reason) if(cond) if(AdoptBehaveState(EBehaveState::##state,reason)) {break;}
 #define BEWAREELSE(state, altst, cond) if(cond) if(!AdoptBehaveState(EBehaveState::##state)) {if(AdoptBehaveState(EBehaveState::##altst)) break;} else break
+#define BEWAREA(state, cond, act, reason) if(cond){ act; if(AdoptBehaveState(EBehaveState::##state,reason)) {  break;}}
 
 //позиция головы в мировых координатах
 FVector AMyrPhyCreature::GetHeadLocation() { return Mesh->GetHeadLocation(); }
@@ -64,8 +65,9 @@ AMyrPhyCreature::AMyrPhyCreature()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickInterval = 0.0f;
 	PrimaryActorTick.EndTickGroup = TG_PrePhysics;
+	PrimaryActorTick.bTickEvenWhenPaused = false;
 	bMoveBack = 0;
-	bWannaClimb = 0;
+	bClimb = 0;
 
 	//механический лошарик
 	Mesh = CreateOptionalDefaultSubobject<UMyrPhyCreatureMesh>(TEXT("Mesh"));
@@ -99,7 +101,7 @@ AMyrPhyCreature::AMyrPhyCreature()
 	MoveDirection = GetAxisForth();
 
 	//сразу назаначаем класс ИИ контроллера, который будет создаваться для любого экземпляра и потомка
-	AIControllerClass = AMyrAI::StaticClass();
+	AIControllerClass = AMyrAIController::StaticClass();
 }
 
 //====================================================================================================
@@ -112,6 +114,13 @@ void AMyrPhyCreature::PreInitializeComponents()
 
 	//инициализируем начальное состояние поведения, чтобы не нарваться на пустоту
 	if(GetGenePool()) BehaveCurrentData = *GetGenePool()->BehaveStates.Find(EBehaveState::walk);
+
+	//если происходит загрузка из сохранения (она в любом случае сопровождается перезагрузкой уровня
+	//и перевысером всех его обитателей, значит и эта функция будет вызывана) заранее вписать указатель на этот объект
+	//в заготовки памяти ИИ всех прочих существ, которые перед сохранением знали это существо,
+	//чтобы к моменту начала игры можно было бы просто слить все гештальты в память ИИ и знать
+	//что все указатели там указывают на реальных существ на уровне
+	ValidateSavedRefsToMe();
 }
 
 //====================================================================================================
@@ -121,10 +130,13 @@ void AMyrPhyCreature::BeginPlay()
 {
 	//против запуска в редакторе блюпринта
 	if (IsTemplate()) { Super::BeginPlay(); return; }
+
+	//построить карту действий для быстрого дсотупа, если она еще не построена другим существом того же вида
+	if (GenePool->ActionMap.Num() == 0)
+		GenePool->AnalyzeActions();
 	
 	//если существо грузится из сохранки, то для него припасена структура данных,
 	//которая после загрузки уровня из сохранки дожидается, когда существо дорастет до BeginPlay
-	
 	FCreatureSaveData* CSD = nullptr;
 	if (GetMyrGameInst()->JustLoadedSlot)
 		CSD = GetMyrGameInst()->JustLoadedSlot->AllCreatures.Find(GetFName());
@@ -132,17 +144,11 @@ void AMyrPhyCreature::BeginPlay()
 	//загрузить, если мы нашлись достойными быть сохраненным
 	if (CSD) Load(*CSD);
 
-	//если нет сохранения или мы высраны в рантайме
+	//если нет сохранения или мы высраны в рантайме / играем тестовов в редакторе
 	else
 	{
 		//сгенерировать человекочитаемое имя по алгоритму из генофонда
 		HumanReadableName = GenerateHumanReadableName();
-
-		//в случае если для данного типа животного не предусмотрен свой список реакций, берется дефолтный из GameInst
-		if (!GenePool->EmoReactions)
-		{	for (auto ER : GetMyrGameInst()->EmoReactionWhatToDisplay)
-				EmoReactions.Map.Add(ER.Key, ER.Value.DefaultStimulus);
-		}
 
 		//задание стартовых, минимальных значений ролевых параметров
 		for (int i = 0; i < (int)EPhene::NUM; i++)
@@ -177,7 +183,7 @@ void AMyrPhyCreature::BeginPlay()
 	//ахуеть! если это вызвать до Super::BeginPlay(), то виджет ещё не будет создан, и ничего не сработает
 	if (StatsWidget())
 	{	StatsWidget()->SetOwnerCreature(this);
-		StatsWidget()->MyrAI = MyrAI();			
+		StatsWidget()->MyrAIC = MyrAIController();			
 	}
 
 	//рассчитать анимации длины/амплитуды ног - пока здесь, потому что чем позже тем лучше
@@ -187,12 +193,20 @@ void AMyrPhyCreature::BeginPlay()
 
 	//задать начальное, нормальное значение длины спины до того как якоря поясов будут расставлены
 	Mesh->CalcSpineVector(SpineVector, SpineLength);
+	Mesh->StartGirdlesDeltaZ = Mesh->GetGirdlesDeltaZ();
 
 	//свойства гашения звука голоса берем из текущего уровня (вероятно, у локаций будут другие)
 	Voice->AttenuationSettings = GetMyrGameMode()->SoundAttenuation;
 
 	//звякнуть геймплейным событием - в основном для высираемых мобов
 	CatchMyrLogicEvent(EMyrLogicEvent::SelfSpawnedAtLevel, Daemon ? 1 : 0, nullptr);
+	SetTickableWhenPaused(false);
+}
+
+void AMyrPhyCreature::EndPlay(EEndPlayReason::Type R)
+{
+	if (GenePool->ActionMap.Num()) GenePool->ActionMap.Empty();
+	Super::EndPlay(R);
 }
 
 //====================================================================================================
@@ -202,6 +216,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 {
 	if (HasAnyFlags(RF_ClassDefaultObject)) return;
 	if (IsTemplate()) return;
+	//if (GetMyrGameMode()->IsPaused()) return;
 
 	//для мертвого ничего больше не нужно, но что конкетно опустить, пока до конца не ясно
 	if (CurrentState == EBehaveState::dead) return;
@@ -217,8 +232,8 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//но пока просто тупо присваивается
 	ConsumeInputFromControllers(DeltaTime);
 
-	//извлечь степень физической уткнутости 
-	Mesh->StuckToStepAmount();
+	//извлечь степень физической уткнутости (найти членик,  
+	if (Mesh->FindBumpingLimb()) BestBumpFactor = 0;
 
 	//нормальная, физическая фаза
 	//обработать пояса конечностей
@@ -229,14 +244,69 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	Mesh->CalcSpineVector(SpineVector, SpineLength);
 
 	//поиск подходящей реакции на затык
-	if(Mesh->Bumper1().Stepped)
-		for (auto R : BehaveCurrentData->BumpReactions)
-		{	auto LaunchResult = TestBumpReaction(&R, Mesh->MaxBumpedLimb1);
-			//UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s TestBumpReaction %s %s coaxis=%g"),
-			//	*GetName(), *TXTENUM(ELimb, Mesh->MaxBumpedLimb1), *TXTENUM(EAttackAttemptResult, LaunchResult), Mesh->Bumper1().GetColinea());
-			if (LaunchResult == EAttackAttemptResult::STARTED) break;
+	if (Mesh->Bumps()					//если в принципе куда-то утыкается боковыми члениками
+		&& !DoesSelfAction())			//если не выполняет самодействие, типа чтоб не прерывать, хотя сомнительно, проще приоритеты растыков занизить
+	{
+		//нахождения лучшей выборки за череду соударений одним и тем же члеником
+		//влияние скорости соударения, берется часть общей скорости пояса в срезе нормали
+		auto& L = Mesh->Bumper1();
+		float Frontality = Mesh->Bumper1().GetColinea();
+		float SpeedFactor = (GetGirdle(L.WhatAmI)->VelocityAgainstFloor / (BehaveCurrentData->MaxVelocity + 1)) | (-L.Floor.Normal);
+		BestBumpFactor = FMath::Max(Frontality * FMath::Max(SpeedFactor, 0.0f), BestBumpFactor);
 
+		//при довольно сильном затыке в режиме детерминированного полёта
+		if (JumpTarget && BestBumpFactor > 0.4) JumpTarget = nullptr;
+
+		//результат вызова реакции на затык
+		EResult R = EResult::NO_WILL;
+		FString TagForLog;
+
+		//ударяемся задней частью членика - по факту задними члениками: тазом, хвостом - случайность, порог срабатывания большой
+		if ((Mesh->GetWholeForth() | L.Floor.Normal) > 0.1)
+		{	if (BestBumpFactor > 0.3)
+			{	TagForLog = TEXT("Rear");
+				if (BestBumpFactor > 0.6)	R = ActionFindStart(EAction::Bump_Rear_Fast);
+				else						R = ActionFindStart(EAction::Bump_Rear_Slow);
+			}						
 		}
+		//ударяемся, когда врублен режим лазанья (широкий порог, важно) если стена, куда ударились, лазибельная, то встаем на дыбы
+		else if (bClimb && !Thorax->Climbing)
+		{	if (BestBumpFactor > 0.2)
+			{	TagForLog = TEXT("PreClimb");
+				if (L.Floor.IsClimbable())	R = ActionFindStart(EAction::Bump_Climb_GoodWall); else
+				if (BestBumpFactor > 0.2)	R = ActionFindStart(EAction::Bump_Climb_BadWall);
+			}
+		}
+		//ударяемся об стену, на которую можно забраться, даже если она не поддерживает карабканье
+		else if (L.Floor.CharCanStep() && !Thorax->Ascending && !Thorax->Descending)
+		{	if(BestBumpFactor > 0.2)
+			{	TagForLog = TEXT("Steppable");
+				if(BestBumpFactor > 0.5)	R = ActionFindStart(EAction::Bump_GoodWall_Fast);
+				else						R = ActionFindStart(EAction::Bump_GoodWall_Slow);
+			}
+		}
+		//ударяемся об стену, которая полностью глухая, на нее нельзя взобраться
+		else
+		{	if (BestBumpFactor > 0.2)
+			{	TagForLog = TEXT("Obstacle");
+				if (BestBumpFactor > 0.5)	R = ActionFindStart(EAction::Bump_BadWall_Fast);
+				else						R = ActionFindStart(EAction::Bump_BadWall_Slow);
+			}
+		}
+
+		if(R != EResult::NO_WILL)
+		{	Mesh->EraseBumpTouch();
+			BestBumpFactor = 0;
+			UE_LOG(LogMyrPhyCreature, Log, TEXT("%s BumpReact %s %s Limb=%s, f=%g"), *GetName(),
+				*TXTENUM(ELimb, L.WhatAmI), *TXTENUM(EResult, R), *TXTENUM(ELimb, L.WhatAmI), BestBumpFactor);
+		}
+	}
+
+	int expo = 0;
+	auto De = FVector::Dist(GetActorLocation(), FVector(-23973.0, -25606.0, 677.0));
+	frexp((float)(FMath::Sqrt(De)), &expo);
+	DrawDebugString(GetWorld(), Thorax->GetComponentLocation() + FVector(0, 0, 20),
+	FString::SanitizeFloat((float)FMath::Sqrt(De)), nullptr, FColor(255, 0, 255 * BestBumpFactor), 0.02, 1.0f);
 
 	//восстановление запаса сил (используется та же функция, что и при трате)
 	StaminaChange (Mesh->DynModel->StaminaAdd * DeltaTime );										
@@ -257,6 +327,12 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 
 	//боль - усиленная разность старого, высокого здоровья и нового, сниженного мгновенным уроном. 
 	Pain *= 1 - DeltaTime * 0.7 * Health;
+
+	//на стадии подготовеи к прыжку производится активный поиск точных целей
+	if (Mesh->DynModel->PreJump && Daemon)
+	{	FVector3f DummyVel;
+		PrepareJumpVelocity(DummyVel);
+	}
 
 	//включение и выключение режима кинематики может происходить в любой кадр, в зависимости от лода
 	bool needkin =  GetBehaveCurrentData()->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel();
@@ -284,85 +360,6 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 
 	//по идее здесь тичат компоненты
 	Super::Tick(DeltaTime);
-
-	//фаза кинематической костыльной доводки до места или удержания на объекте
-/*	if (bKinematicRefine)
-	{
-		//найти триггер, который отвечает за данную фазу
-		FTriggerReason* FoundTR = nullptr;
-		auto RightOv = HasSuchOverlap(EWhyTrigger::KinematicLerpToCenter, EWhyTrigger::KinematicLerpToCenterLocationOrientation, FoundTR);
-		if (RightOv)
-		{
-			//выполнить шаг перемещения (здесь происходит реальное движение), тру = доводка/телепорт доведена до конца
-			if (RightOv->ReactTeleport(*FoundTR, this, nullptr, true))
-			{
-				//здесь же есть дополнительная реакция удерживать на объекте пока игрок не включит атаку
-				if (RightOv->HasReaction(EWhyTrigger::FixUntilAttack))
-				{
-					//включили атаку - вышли из фриза, забыли про триггер
-					if (DoesAttackAction() && CurrentAttackPhase >= EActionPhase::STRIKE)
-					{
-						bKinematicRefine = false;
-						DelOverlap(RightOv);
-					}
-					//продолжаем поддерживать фриз на опоре
-					else
-					{
-						//обработать пояса конечностей
-						//Thorax->ExplicitTraceFeet(0);
-						//Pelvis->ExplicitTraceFeet(0);
-						Thorax->Procede(DeltaTime);
-						Pelvis->Procede(DeltaTime);
-					}
-				}
-				//нет дополнительных реакций - выйти из кинематики по достижению цели
-				else bKinematicRefine = false;
-
-			}
-		}
-	}
-	//другие причины кинематического перемещения
-	else if(bKinematicMove)
-	{
-		//в начале таз, он ближе к началу координат
-		FVector	Touch2 = Pelvis->TraceGirdle();
-		FVector Corr2 = Pelvis->ProcedeFastGetDelta(DeltaTime, &Touch2);
-
-		//новая трансформация тела
-		FTransform T = Mesh->GetComponentTransform();
-
-		//если ведущий всё-таки передний пояс - это четвероногое, и надо более сложно
-		if (Thorax->CurrentDynModel->Leading)
-		{
-			FVector Touch1 = Thorax->TraceGirdle();
-			FVector Corr1 = Thorax->ProcedeFastGetDelta(DeltaTime, &Touch1);
-
-			FVector GlobalGuide = Touch1 - Touch2;
-			GlobalGuide.Normalize();
-
-			//без лерпа почему-то начинаются безумные дрыгания и колебания
-			GlobalGuide = FMath::Lerp(Mesh->GetComponentTransform().GetUnitAxis(EAxis::X), GlobalGuide, 0.1f);
-			FVector Lateral = GlobalGuide ^ (Mesh->Thorax.ImpactNormal + Mesh->Pelvis.ImpactNormal);
-			Lateral.Normalize();
-
-			//полная трансформация, полностью новый угол, а позиция старая + деяние скорости
-			T = FTransform(GlobalGuide, -Lateral, -GlobalGuide ^ Lateral,
-				Mesh->GetComponentLocation() + GetDesiredVelocity() * GlobalGuide * DeltaTime + Corr1 + Corr2);
-
-		}
-		else
-		{
-			//полная трансформация, полностью новый угол, а позиция старая + деяние скорости
-			T = FTransform(Pelvis->GuidedMoveDir, -Pelvis->GuidedMoveDir^Mesh->Pelvis.ImpactNormal, Mesh->Pelvis.ImpactNormal,
-				Mesh->GetComponentLocation() + GetDesiredVelocity() * Pelvis->GuidedMoveDir * DeltaTime);
-
-		}
-
-		//результирующее перемещение
-		Mesh->SetWorldTransform(T, false, nullptr, ETeleportType::ResetPhysics);
-		return;
-		
-	}*/
 
 	FrameCounter++;
 }
@@ -434,7 +431,7 @@ void AMyrPhyCreature::RegisterAsSpawned(AActor* Spawner)
 {
 	SpawnDefaultController();
 	if (StatsWidget())
-		StatsWidget()->MyrAI = MyrAI();
+		StatsWidget()->MyrAIC = MyrAIController();
 }
 
 //==============================================================================================================
@@ -451,8 +448,12 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 	//дабы не считать сложную операцию много раз
 	bool NeedNormalizing = false;
 
+	//особый лучай при кинематическом движении по параболе
+	if (CurrentState == EBehaveState::project)
+		MoveDirection = GetJumpVelAtNow().GetSafeNormal();
+
 	//руление курса движения осуществляется только при наличии тяги
-	if(D->Gain>0)
+	else if(D->Gain > 0)
 	{
 		//любой привод тела с тягой показывает желание двигаться
 		bMove = true;
@@ -517,7 +518,7 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 						if(CourseOff > 0.0)	MoveDirection = SpineVector;
 						else
 						{	
-							BEWARE(walkback, CurrentState == EBehaveState::walk || CurrentState == EBehaveState::stand);
+							BEWARE(walkback, CurrentState == EBehaveState::walk || CurrentState == EBehaveState::stand, "");
 							//MoveDirection = -Thorax->Forward;
 							bMoveBack = true;
 						}
@@ -526,7 +527,6 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 						{	MoveDirection.Z = 0;
 							NeedNormalizing = true;
 						}
-
 				}
 				//UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: ConsumeDrive turn %s, r=%g"),
 				//	*GetOwner()->GetName(), *TXTENUM(ETurnMode, BestTurnReaction->DoIfReached), CourseOff);
@@ -576,11 +576,11 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 	}
 
 	//извлечение конкретных команд и выполнение их
-	if (D->DoThis != ECreatureAction::NONE)
+	if (D->DoThis != EAction::NONE)
 	{
 		if (D->Release) ActionFindRelease(D->DoThis);
 		else ActionFindStart(D->DoThis);
-		D->DoThis = ECreatureAction::NONE;
+		D->DoThis = EAction::NONE;
 		D->Release = false;
 	}
 }
@@ -597,8 +597,8 @@ void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 	//играется игроком
 	if(Daemon)
 	{	
-		//ИИ может частично отбирать управление у игрока
-		if(MyrAI()->AIRuleWeight < 0.1f)
+		//ИИ НЕ может частично отбирать управление у игрока
+		if(MyrAIController()->AIRuleWeight < 0.1f)
 		{
 			//заглотить указания
 			ConsumeDrive(&Daemon->Drive);
@@ -618,44 +618,45 @@ void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 		}
 		//режим раскоряки между управлением 
 		else
-		{	auto D = MyrAI()->MixWithOtherDrive (&Daemon->Drive);
-			ConsumeDrive (&D);
+		{
+			FCreatureDrive D(MyrAIController()->Drive, Daemon->Drive, MyrAIController()->AIRuleWeight);
+			ConsumeDrive ( &D );
 		}
 
 		//направление атаки может быть отдано ИИ для лучшего прицеливания
-		if(Daemon->UseActDirFromAI) AttackDirection = MyrAI()->Drive.ActDir;
+		if(MyrAIController()->AtFocus) AttackDirection = MyrAIController()->AtFocus->Location.DecodeDir();
 	}
 	//непись, только ИИ, стандартно просчитать новые устремления все
-	else ConsumeDrive(&MyrAI()->Drive);
+	else ConsumeDrive(&MyrAIController()->Drive);
 }
 
 //==============================================================================================================
 //оценить применимость реакции на уткнутость и если удачно запустить ее
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb)
+EResult AMyrPhyCreature::TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb)
 {
 	auto& L = Mesh->Bumper1();
 	float B = Mesh->Bumper1().GetColinea();
-	if (BR->Reaction == ECreatureAction::NONE)		return EAttackAttemptResult::INCOMPLETE_DATA;
-	if ((BR->BumperLimb & (1<<(int)L.WhatAmI))==0)	return EAttackAttemptResult::WRONG_ACTOR;
+	if (BR->Reaction == EAction::NONE)		return EResult::INCOMPLETE_DATA;
+	if ((BR->BumperLimb & (1<<(int)L.WhatAmI))==0)	return EResult::WRONG_ACTOR;
 
 	if(L.Floor)
 	{	
 		if(L.Floor.CharCanStep())
-		{	if (BR->Threshold < 0)					return EAttackAttemptResult::WRONG_PHASE;
-			else if (B < BR->Threshold)				return EAttackAttemptResult::OUT_OF_ANGLE;
+		{	if (BR->Threshold < 0)					return EResult::WRONG_PHASE;
+			else if (B < BR->Threshold)				return EResult::OUT_OF_ANGLE;
 		}
 		else
-		{	if (BR->Threshold > 0)					return EAttackAttemptResult::WRONG_PHASE;
-			else if (B < -BR->Threshold)			return EAttackAttemptResult::OUT_OF_ANGLE;
+		{	if (BR->Threshold > 0)					return EResult::WRONG_PHASE;
+			else if (B < -BR->Threshold)			return EResult::OUT_OF_ANGLE;
 		}
-	}else											return EAttackAttemptResult::INCOMPLETE_DATA;
+	}else											return EResult::INCOMPLETE_DATA;
 
 	FVector3f BoSp = 0.5*(Mesh->BodySpeed(L) + Thorax->VelocityAgainstFloor);
 	if((BoSp|(-L.Floor.Normal)) < BR->MinVelocity)
-													return EAttackAttemptResult::OUT_OF_VELOCITY;
+													return EResult::OUT_OF_VELOCITY;
 	
-	ActionFindStart(BR->Reaction);					return EAttackAttemptResult::STARTED;
+	ActionFindStart(BR->Reaction);					return EResult::STARTED;
 }
 
 
@@ -678,7 +679,8 @@ void AMyrPhyCreature::UpdateMobility(bool IncludeExternalGain)
 	if (IncludeExternalGain)
 	{
 		//если есть сильная уткнутость в препятствие, скорость понижается
-		if(Mesh->Bumper1().GetBumpCoaxis() > 0.8) MoveGain *= FMath::Max(5*(1 - Mesh->Bumper1().GetBumpCoaxis()), 0.0f);
+		if (Mesh->Bumps())
+			if(Mesh->Bumper1().GetBumpCoaxis() > 0.8) MoveGain *= FMath::Max(5*(1 - Mesh->Bumper1().GetBumpCoaxis()), 0.0f);
 
 		//особый случай когда в центральных члениках задана команда двигаться даже без тяги
 		if (Mesh->DynModel->MoveWithNoExtGain)
@@ -698,13 +700,13 @@ void AMyrPhyCreature::MakePossessedByDaemon(AActor* aDaemon)
 	//если подан нуль - текущий демон нас покидает
 	if (!aDaemon)
 	{	Daemon = nullptr;
-		if (MyrAI()) MyrAI()->AIRuleWeight = 1.0f;
+		if (MyrAIController()) MyrAIController()->AIRuleWeight = 1.0f;
 	}
 
 	//проверяем типы и если сходятся присваиваем указатель
 	else if (AMyrDaemon* daDaemon = Cast<AMyrDaemon>(aDaemon))
 	{	Daemon = daDaemon;
-		if (MyrAI()) MyrAI()->AIRuleWeight = 0.0f;
+		if (MyrAIController()) MyrAIController()->AIRuleWeight = 0.0f;
 	}
 }
 
@@ -739,11 +741,20 @@ void AMyrPhyCreature::AdoptWholeBodyDynamicsModel(FWholeBodyDynamicsModel* DynMo
 
 		//текущая фаза - прыгнуть
 		if (Mesh->DynModel->JumpImpulse > 0 || Mesh->DynModel->MotionGain > 1)
-			JumpAsAttack();
+		{	FVector3f TempVelo(0,0,0);			// явная скорость
+			PrepareJumpVelocity(TempVelo);			// последний или единственный раз поискать прямые цели
+			JumpAsAttack(TempVelo);				// нашли, направить скорость именно к цели
+		}
 
 		//применить новые настройки динамики движения/поддержки для частей тела поясов
 		Thorax->AdoptDynModel(DynModel->Thorax);
 		Pelvis->AdoptDynModel(DynModel->Pelvis);
+
+		//эффекты для эгрока
+		if (Daemon)
+		{	Daemon->SetTimeDilation(DynModel->TimeDilation);	//замедление времени
+			Daemon->EnableJumpTrajectory(DynModel->PreJump);	//отрисовка параболы будущего прыжка
+		}
 
 		//в дин-моделях есть замедлитель тяги, чтобы его прменить, нужно вызвать вот это
 		UpdateMobility();
@@ -799,13 +810,16 @@ void AMyrPhyCreature::SetKinematic(bool Set)
 
 
 //==============================================================================================================
-//включить или выключить желание при подходящей поверхности зацепиться за нее
+// включить или выключить желание при подходящей поверхности зацепиться за нее
 //==============================================================================================================
 void AMyrPhyCreature::ClimbTryActions()
 {
 	//удачно зацепились - прервать все действия, чтоб не мешались
 	if (Thorax->Climbing || Pelvis->Climbing)
 		CeaseActionsOnHit(1000);
+
+	//для чистого ИИ не подпрыгивать, он сам должен понимать, когда перелезать
+	if(!Daemon) return;
 
 	//не получилось сразу зацепиться, выяснить почему
 	else
@@ -814,13 +828,11 @@ void AMyrPhyCreature::ClimbTryActions()
 		if (!Mesh->Thorax.Floor.IsClimbable())
 		{
 			//попытаться все же подпрыгнуть одной из чстей тела
-			if (SpineVector.Z < 0.7)
-				ActionFindStart(ECreatureAction::SELF_PRANCE1);
-			else ActionFindStart(ECreatureAction::SELF_PRANCE_BACK);
+			if(SpineVector.Z < 0.7)
+				ActionFindStart(EAction::RaiseFront);
+			else ActionFindStart(EAction::RaiseBack);
 		}
 	}
-	//это хз зачем здесь
-	bWannaClimb = false;
 }
 
 
@@ -842,7 +854,7 @@ void AMyrPhyCreature::StaminaChange(float delta)
 		}
 
 		//злоба и страх также отрубают восстановление сил
-		delta -= (MyrAI()->IntegralEmotionFear*0.4 + MyrAI()->IntegralEmotionRage*0.2) * Phenotype.StaminaCurseByEmotion();
+		delta -= (MyrAIController()->IntegralEmotion.fFear() * 0.4 + MyrAIController()->IntegralEmotion.fRage() * 0.2) * Phenotype.StaminaCurseByEmotion();
 
 
 		//но всё же не отнимают сверх меры
@@ -900,7 +912,11 @@ void AMyrPhyCreature::HealthChange(float delta)
 void AMyrPhyCreature::RareTick(float DeltaTime)
 {
 	//исключить метаболизм параметров в мертвом состоянии
-	if (Health <= 0) return;
+	if (Health <= 0)
+	{	if (CurrentState != EBehaveState::dying && CurrentState != EBehaveState::dead)
+			AdoptBehaveState(EBehaveState::dying, "Natural turn to dead, outside the behave machine");
+		return;
+	}
 
 	//напрячь или расслабить спину
 	if(Health < 0.2)
@@ -927,13 +943,9 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	//восстановление здоровья (стамина перенесена в основной тик, чтоб реагировать на быструю смену фаз атаки)
 	HealthChange ((Mesh->DynModel->HealthAdd + SurfaceHealthModifier ) * DeltaTime	);	
 
-	//█▄▌внести эмоциональный стимул по данному каналу
-	if(Health < 0.25) AddEmotionStimulus(EEmoCause::LowHealth, 1 - 4 * Health, this);
-	if(Stamina < 0.25) AddEmotionStimulus(EEmoCause::LowStamina, 1 - 4 * Stamina, this);
-
 	//энергия пищевая тратится на эмоции, чем возбужденнее, тем сильнее
 	//здесь нужен какой-то коэффициент, нагруженный параметром фенотипа
-	Energy -= 0.001*DeltaTime*MyrAI()->IntegralEmotionPower;
+	Energy -= 0.001*DeltaTime*MyrAIController()->IntegralEmotion.UniPower();
 
 	//пересчитать здоровье и мобильность тела
 	UpdateMobility();
@@ -946,17 +958,6 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 	{
 		//разделка суток по периодам
 		auto TimesOfDay = GetMyrGameMode()->Sky->MorningDayEveningNight();
-
-		//█▄▌внести эмоциональный стимул по данному каналу
-		AddEmotionStimulus(EEmoCause::TimeMorning, TimesOfDay.R);
-		AddEmotionStimulus(EEmoCause::TimeDay, TimesOfDay.G);
-		AddEmotionStimulus(EEmoCause::TimeEvening, TimesOfDay.B);
-		AddEmotionStimulus(EEmoCause::TimeNight, TimesOfDay.A);
-		AddEmotionStimulus(EEmoCause::Moon, GetMyrGameMode()->Sky->MoonIntensity());
-		AddEmotionStimulus(EEmoCause::WeatherCloudy, FMath::Max(0.0f, 2 * GetMyrGameMode()->Sky->Cloudiness() - 1.0f));
-		AddEmotionStimulus(EEmoCause::WeatherFoggy, FMath::Max(0.0f, 2 * GetMyrGameMode()->Sky->WeatherDerived.DryFog - 1.0f));
-		AddEmotionStimulus(EEmoCause::TooCold, FMath::Max(0.0f, 5.0f * (0.2f - GetMyrGameMode()->Sky->WeatherDerived.Temperature)));
-		AddEmotionStimulus(EEmoCause::TooHot, FMath::Max(0.0f, 5.0f * (GetMyrGameMode()->Sky->WeatherDerived.Temperature - 0.9f)));
 
 	}
 
@@ -971,13 +972,14 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 int AMyrPhyCreature::FindObjectInFocus(const float Devia2D, const float Devia3D, AActor*& Result, FText& ResultName)
 {
 	//на уровне ИИ для простоты цель ищется по отдельности для каждой ячаейки
-	if (!MyrAI()) return 0;
+	/*if (!MyrAI()) return 0;
 	auto R = MyrAI()->FindGoalInView (AttackDirection, Devia2D, Devia3D, false, Result);
 	if(!R) R = MyrAI()->FindGoalInView (AttackDirection, Devia2D, Devia3D, true, Result);
 	if (R == 1) ResultName = ((AMyrPhyCreature*)(Result))->HumanReadableName; else
 	if (R == 2) ResultName = ((AMyrArtefact*)(Result))->HumanReadableName; 
 	else ResultName = FText();
-	return R;
+	return R;*/
+	return 0;
 }
 
 
@@ -988,19 +990,14 @@ void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVect
 {
 	if (!Mesh->InjureAtHit)
 	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s not applied: Mesh.InjureAtHit disabled"),
-			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
-		return;
-	}
+			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));		return;	}
 	if (Limb.LastlyHurt)
 	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s not applied: this limb already hit in this frame"),
-			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
-		return;
-	}
+			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));		return;	}
 	if(Amount <= 0.01) 
 	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s not applied: too little damage"),
-			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
-		return;
-	}
+			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));		return;	}
+
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s"), *GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
 
 	//для простоты вводится нормаль, а уже тут переводится в кватернион, для позиционирования источника частиц
@@ -1009,11 +1006,9 @@ void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVect
 	//при достаточно сильном ударе членик выключается из прочих ударов на целый кадр, чтобы физдвижок не набрасивал множество касаний за кадр
 	if (Amount > 0.3)
 	{
-		Limb.LastlyHurt = true;
-
 		//вскрикнуть (добавить парметры голоса)
 		MakeVoice(GenePool->SoundAtPain, FMath::Min(Amount, 1.0f) * 4, true);
-
+		Limb.LastlyHurt = true;	//возможно, сразу отключать генерацию хита, а не этот жалкий флаг
 	}
 
 	//увеличить урон сразу здесь, ибо в иных случаях эта переменная не увеличивается
@@ -1022,15 +1017,11 @@ void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVect
 	//привнести толику в общую боль
 	Pain += Amount;
 
-	//█▄▌внести эмоциональный стимул по данному каналу
-	AddEmotionStimulus(EEmoCause::Pain, Pain, this);											
-	AddEmotionStimulus(Mesh->GetDamageEmotionCode(Limb.WhatAmI), Limb.Damage, this);
-
 	//возможно, некоторые действия следует прервать при данном уровне увечья
 	CeaseActionsOnHit(Amount); 
 
 	//◘ прозвучать в ИИ, чтобы другие существа могли слышать
-	MyrAI()->NotifyNoise(ExactHitLoc, Amount);
+	MyrAIController()->NotifyNoise(ExactHitLoc, Amount);
 
 	//сборка данных по поверхности, которая осприкоснулась с этим существом
 	FSurfaceInfluence* ExactSurfInfo = GetMyrGameInst()->Surfaces.Find(Limb.Floor.Surface);
@@ -1049,14 +1040,38 @@ void AMyrPhyCreature::SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucke
 	//если выполняется самодействие или действие-период, но указано его отменять при ударе
 	CeaseActionsOnHit(Amount);
 
+	if(	MyrAIController())
+		MyrAIController()->LetOthersNotice(EHowSensed::HITTER, Amount);
+
+
 	//для осознания нашей связи с противником прогнать его через наш ИИ и уже оттуда вызвать факт геймплейного события
-	MyrAI()->DesideHowToReactOnAggression(Amount, Motherfucker);
+	//if(MyrAI())
+	//	MyrAI()->DesideHowToReactOnAggression(Amount, Motherfucker);
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s SufferFromEnemy by %s for %g"), *GetName(), *Motherfucker->GetName(), Amount);
 }
 void AMyrPhyCreature::EnjoyAGrace(float Amount, AMyrPhyCreature* Sweetheart)
-{	MyrAI()->DesideHowToReactOnGrace(Amount, Sweetheart);
+{	//MyrAI()->DesideHowToReactOnGrace(Amount, Sweetheart);
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s EnjoyAGrace from %s for %g"), *GetName(), *Sweetheart->GetName(), Amount);
 }
+
+//==============================================================================================================
+// огласить на все ИИ, что именно мы ударили какое-то существо, жертва прочтет это через эвент ИИ
+//==============================================================================================================
+void AMyrPhyCreature::MeHavingHit(float Amount, AMyrPhyCreature* Victim)
+{
+	//если ударяли намеренно
+	if(MyrAIController()->ExactVictim)
+		if(MyrAIController()->ExactVictim->GetOwner() == Victim)
+		{
+			MyrAIController()->LetOthersNotice(EHowSensed::HITTER, Amount);
+			return;
+		}
+
+	//если ударили случайно
+	MyrAIController()->LetOthersNotice(EHowSensed::PERCUTED, Amount);
+
+}
+
 
 //==============================================================================================================
 //прервать или запустить прерывание деймтвий, для которых сказано прерывать при сильном касании
@@ -1084,14 +1099,9 @@ void AMyrPhyCreature::CeaseActionsOnHit(float Damage)
 //==============================================================================================================
 void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 {
-	//если колесо ноги не стоит на полу, то и шага нет (это неточно, нужно трассировать)
 	FLimb* Limb = &Mesh->GetLimb(eLimb);
-
-	//пояс
-	auto Girdle = GetGirdle(eLimb);
-
-	//а вот если физически нога или туловище не касается поверхности, шаг нельзязасчитывать
 	if(!Limb->Stepped) return;
+	auto Girdle = GetGirdle(eLimb);
 
 	//тип поверхности - это не точно, так как не нога а колесо - пока неясно, делать трассировку в пол или нет
 	EMyrSurface ExplicitSurface = Limb->Floor.Surface;
@@ -1155,7 +1165,7 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 			Raise ? EBodyImpact::StepRaise : EBodyImpact::StepHit);
 
 		//◘ прозвучать в ИИ, чтобы другие существа могли слышать
-		MyrAI()->NotifyNoise(ExactStepLoc, StepForce);
+		MyrAIController()->NotifyNoise(ExactStepLoc, StepForce);
 
 		//только на максимальной детализации = минимальном расстоянии, для оптимизации 
 		if (Mesh->GetPredictedLODLevel() == 0)
@@ -1183,6 +1193,7 @@ void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 			}
 		}
 	}
+
 }
 
 //==============================================================================================================
@@ -1267,7 +1278,7 @@ void AMyrPhyCreature::MakeVoice(USoundBase* Sound, uint8 strength, bool interrup
 //==============================================================================================================
 //принять новое состояние поведения (логически безусловно, но технически может что-то не сработать, посему буль)
 //==============================================================================================================
-bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
+bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState, const FString Reason)
 {
 	//если мы уже в запрашиваеом состоянии - быстрый выход, сообщить ложь, чтобы вовне не прерывались
 	if (CurrentState == NewState) return false;
@@ -1286,9 +1297,9 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 
 	//сбросить счетчик секунд на состояние
 	StateTime = 0.0f;
-	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s AdoptBehaveState  + (%s >> %s)"), *GetName(),
+	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s AdoptBehaveState  + (%s >> %s), \tReason: %s"), *GetName(),
 		*TXTENUM(EBehaveState, CurrentState),
-		*TXTENUM(EBehaveState, NewState)	);
+		*TXTENUM(EBehaveState, NewState), *Reason);
 
 	//если включено расслабить всё тело
 	if((*BehaveNewData)->MakeAllBodyLax != BehaveCurrentData->MakeAllBodyLax)
@@ -1297,12 +1308,6 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	//если текущий лод (не) подходит под условие полной кинематичности, и при этом текущие параметры не соответствуют новым
 	bool NeedKin = (*BehaveNewData)->FullyKinematicSinceLOD <= Mesh->GetPredictedLODLevel();
 	if (NeedKin != bKinematicMove) SetKinematic(NeedKin);
-
-	//пока для теста, вообще неясно - на этот раз увязчаем корень тела, чтоб не болталось при лазаньи
-	//if (NewState == EBehaveState::climb) Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 100;
-	//else Mesh->GetRootBody()->LinearDamping = Mesh->GetRootBody()->AngularDamping = 0;
-	//Mesh->GetRootBody()->UpdateDampingProperties();
-
 
 	//счастливый финал
 	CurrentState = NewState;
@@ -1333,13 +1338,6 @@ bool AMyrPhyCreature::AdoptBehaveState(EBehaveState NewState)
 	if(NoAnyAction())
 		AdoptWholeBodyDynamicsModel(&BehaveCurrentData->WholeBodyDynamicsModel);
 
-	//если управляется демоном игрока
-	if (Daemon)
-	{
-		//установить эффекты
-		Daemon->SetTimeDilation(BehaveCurrentData->TimeDilation);
-		Daemon->SetMotionBlur(BehaveCurrentData->MotionBlurAmount);
-	}
 	return true;
 }
 
@@ -1354,143 +1352,157 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 	//разбор разных состояний
 	switch (CurrentState)
 	{
-		//шаг по поверхности
+		//простой шаг по поверхности
 		case EBehaveState::stand:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
-			BEWARE(crouch,		bCrouch);
-			BEWARE(soar,		bSoar && MoveGain > 0.1);
-			BEWARE(run,			bRun && Stamina > 0.1f);
-			BEWARE(walk,		MoveGain > 0 || bRun || !GotLandedBoth());
+			BEWARE(fall,		!GotLandedAny(),							"fall if none of the 2 girdles has stand hardness 100+, i.e. at least one paw on floor");
+			BEWARE(crouch,		bCrouch,									"simply obey the flag sent through drive from player or AI");
+			BEWARE(soar,		bSoar && MoveGain > 0.1,					"obey the flag if WASD pressed or AI wants to move");
+			BEWARE(run,			bRun && Stamina > 0.1f,						"obey the flag if we have forces enough to run");
+			BEWARE(walk,		MoveGain > 0 || bRun || !GotLandedBoth(),	"WASD pressed OR we are too tired to run, OR we raise one of our girdles");
+			BEWARE(pullup,		bClimb && Thorax->Climbing,					"hang on upper limbs first if we've clung to climb by the upper girdle");
 			break;
 
 		//шаг по поверхности (боимся упасть, опрокинуться и сбавить скорость до стояния)
 		case EBehaveState::walk:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		Thorax->IsInAir() && Pelvis->IsInAir());
-			BEWARE(stand,		MoveGain==0 && GotSlow(10));
-			//BEWARE(mount,		Mesh->Erection() > 0.7 && Mesh->Thorax.IsClimbable());
-			BEWARE(crouch,		bCrouch);
-			BEWARE(soar,		bSoar && MoveGain > 0.1);
-			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3);
-			BEWARE(tumble,		GotLying());
-			BEWARE(climb,		bClimb && !GotUnclung());
-			BEWARE(run,			bRun && Stamina > 0.1f);
-			break;
-
-		//шаг задом на перед
-		case EBehaveState::walkback:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
-			BEWARE(stand,		ExternalGain == 0 && GotSlow(10));
-			BEWARE(walk,		ExternalGain == 0 || (MoveDirection | Mesh->GetWholeForth()) > -0.9);
-			BEWARE(soar,		bSoar && MoveGain > 0.1);
-			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
-			BEWARE(tumble,		Mesh->IsLyingDown());
+			BEWARE(fall,		Thorax->IsInAir() && Pelvis->IsInAir(),		"fall only if both girdles have lost their floors completely");
+			BEWARE(stand,		MoveGain==0 && GotSlow(10),					"stop moving if our speed (ceased from drive) has fallen to 10cm/s");
+			BEWARE(mount,		Thorax->Ascending && MoveGain>0.1,			"upper girdle found a steep, but mountable slope and set the flag");
+			BEWARE(crouch,		bCrouch,									"simply obey the flag sent through drive from player or AI");
+			BEWARE(soar,		bSoar && MoveGain > 0.1,					"obey the flag if WASD pressed or AI wants to move");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3,		"special conditions for lying, but NPC don't lie, and will to move must be low enough");
+			BEWARE(tumble,		GotLying(),									"special conditions for lying, but trying to rise immediately, if it's NPC or move gain added");
+			BEWARE(pullup,		bClimb && Thorax->Climbing,					"hang on upper limbs first if we've clung to climb by the upper girdle");
+			BEWARE(sprint,		bRun && bCrouch && Stamina > 0.1f,			"ultrafast running, when both SHIFT and CTRL pressed, need walk or run first");
+			BEWARE(run,			bRun && Stamina > 0.1f,						"obey the flag if we have forces enough to run");
 			break;
 
 		//шаг украдкой по поверхности
 		case EBehaveState::crouch:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
-			BEWARE(soar,		bSoar && MoveGain > 0.1);
-			BEWARE(climb,		bClimb && !GotUnclung());
-			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
-			BEWARE(tumble,		Mesh->IsLyingDown());
-			BEWARE(run,			bRun && Stamina > 0.1f);
-			BEWARE(walk,		!bCrouch || bRun);
+			BEWARE(fall,		!GotLandedAny(),							"fall if none of the 2 girdles has at least 1 paw on floor");
+			BEWARE(soar,		bSoar && MoveGain > 0.1,					"obey the flag if WASD pressed or AI wants to move");
+			BEWARE(pullup,		bClimb && Thorax->Climbing,					"hang on upper limbs first if we've clung to climb by the upper girdle");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3,		"special conditions for lying, but NPC don't lie, and will to move must be low enough");
+			BEWARE(tumble,		GotLying(),									"special conditions for lying, but trying to rise immediately, if it's NPC or move gain added");
+			BEWARE(sprint,		bRun && bCrouch && Stamina > 0.1f,			"ultrafast running, when both SHIFT and CTRL pressed, need walk or run first");
+			BEWARE(run,			bRun && Stamina > 0.1f,						"obey the flag if we have forces enough to run");
+			BEWARE(walk,		!bCrouch,									"obey the flag, immediately stop crouhing");	
 			break;
 
-		//бег по поверхности
+		//бег-тыгыдык по поверхности
 		case EBehaveState::run:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny());
-			BEWARE(walk,		GotSlow(10) || !bMove || !bRun);
-			BEWARE(lie,			Mesh->IsLyingDown() && Daemon && MoveGain<0.7);
-			BEWARE(tumble,		Mesh->IsLyingDown());
-			BEWARE(climb,		bClimb && !GotUnclung());
+			BEWARE(fall,		!GotLandedAny(),							"fall if none of the 2 girdles has at least 1 paw on floor");
+			BEWARE(walk,		GotSlow(10) || !bMove || !bRun,				"got running slow enough, or WASD unpressed, or simply the flag (SHIFT) cleared");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3,		"special conditions for lying, but NPC don't lie, and will to move must be low enough");
+			BEWARE(tumble,		GotLying(),									"special conditions for lying, but trying to rise immediately, if it's NPC or move gain added");
+			BEWARE(pullup,		bClimb && Thorax->Climbing,					"hang on upper limbs first if we've clung to climb by the upper girdle");
+			BEWARE(sprint,		bRun && bCrouch && Stamina > 0.1f,			"ultrafast running, when both SHIFT and CTRL pressed, need walk or run first");
+			break;
+
+		//быстрый бег по поверхности
+		case EBehaveState::sprint:
+			BEWARE(fall,		!GotLandedAny(),							"fall if none of the 2 girdles has at least 1 paw on floor");
+			BEWARE(walk,		Stamina<0.1f,								"if we are too tired to run in any manner, roll down to walking directly");
+			BEWARE(walk,		GotSlow(10) || !bMove,						"got running slow enough (e.g. by bumping/sticking), or WASD unpressed");
+			BEWARE(run,			bRun && !bCrouch,							"when crouch flag released, but run is still on, and above tiredness condition failed");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3,		"special conditions for lying, but NPC don't lie, and will to move must be low enough");
+			BEWARE(tumble,		GotLying(),									"special conditions for lying, but trying to rise immediately, if it's NPC or move gain added");
+			BEWARE(pullup,		bClimb && Thorax->Climbing,					"hang on upper limbs first if we've clung to climb by the upper girdle");
 			break;
 
 		//забраться на уступ
 		case EBehaveState::mount:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(climb,		bClimb && !GotUnclung());
-			BEWARE(fall,		!GotLandedAny() || (Mesh->Erection() > 0.9 && MoveGain == 0));
-			//BEWARE(walk,		!Mesh->Bumper1().Stepped || MoveGain==0 || Mesh->Erection() < 0.5);
-			BEWARE(run,			bRun && Stamina > 0.1f);
+			BEWARE(soar,		bSoar && MoveGain > 0.1,					"obey the flag if WASD pressed or AI wants to move");
+			BEWARE(fall,		!GotLandedAny(),							"fall if none of 2 girdles has a paw on floor");		
+			BEWARE(fall,		MoveGain < 0.1,								"fall if WASD not pressed, cuz mount only with force applied");		
+			BEWARE(fall,		StateTime>2,								"fall if time over, prevent climbing-like endless mounting");		
+			BEWARE(fall,		Stamina < 0.1,								"fall if stamina over");		
+			BEWARE(pullup,		bClimb && Thorax->Climbing,					"hang on upper limbs first if we've clung to climb by the upper girdle");
+			BEWARE(walk,		!Thorax->Ascending,							"when upper limb met a flat floor");
+			BEWARE(run,			bRun && Stamina > 0.1f,						"obey the flag if we have forces enough to run");
+			break;
+
+		case EBehaveState::pullup:
+			BEWARE(soar,		bSoar && MoveGain > 0.1,					"obey the flag if WASD pressed or AI wants to move");
+			BEWARE(fall,		Thorax->StandHardness < 100,				"fall if none of 2 girdles has a paw on floor");
+			BEWARE(fall,		!Thorax->Climbing,							"fall if upper limbs lost climbing base");
+			BEWARE(climb,		Pelvis->Climbing,							"turn to full climbing if lower limbs have clung to base");
 			break;
 
 		//лазанье по проивольно крутым поверхностям
 		case EBehaveState::climb:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(soar,		bSoar && Stamina > 0.1f);
-			BEWARE(fall,		!GotLandedAny() || GotUnclung());
+			BEWARE(soar,		bSoar && MoveGain > 0.1,					"obey the flag if WASD pressed or AI wants to move");
+			BEWARE(fall,		!GotLandedAny() || GotUnclung(),			"losing all girdles attachment considered as strating to fall even if limbs floors are sitll present");
+			BEWARE(pullup,		!Pelvis->Climbing,							"turn to upper-only climbing if lower limbs lost the attachment, but upper still have");
 			break;
 
 		//набирание высоты (никаких волевых переходов, только ждать земли и перегиба скорости)
 		case EBehaveState::soar:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fly, 		!bSoar);
-			BEWARE(run,			GotLandedAny(200) && bRun);
-			BEWARE(crouch,		GotLandedAny(200));
+			BEWARE(fly, 		!bSoar,										"obey the flag, usually unpressed button");
+			BEWARE(run,			GotLandedAny(200) && bRun,					"any girdle landed on 2 paws while the run flag set means transition to running directly");
+			BEWARE(crouch,		GotLandedAny(200),							"any girdle landed on 2 paws with no run flag set means transition to crouching to make legs bend low");
+			BEWARE(project,		JumpTarget!=nullptr,						"go to kinematic moving to a target if this target suddenly appeared");
 			break;
 			
 		//падение (никаких волевых переходов, только ждать земли)
 		case EBehaveState::fall:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(soar,		bSoar);
-			BEWARE(fly,			bFly);
-			BEWARE(land,		StateTime>0.5 && !GotLandedAny(1));
-			BEWARE(lie,			Daemon && GotLying());
-			BEWARE(tumble,		GotLying());
-			BEWARE(run,			Thorax->StandHardness + Pelvis->StandHardness > 300 && bRun);
-			BEWARE(crouch,		Thorax->StandHardness + Pelvis->StandHardness > 300);
+			BEWARE(soar,		bSoar,										"obey the flag");
+			BEWARE(fly,			bFly,										"obey the flag");
+			BEWARE(project,		JumpTarget != nullptr,						"obey the flag, suddenly jump target appeared");
+			BEWARE(land,		StateTime>0.5 && !GotLandedAny(1),			"continuous falling for 0.5s with no walls touching causes transition to a `long falling` in slowmo");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3,		"special conditions for lying, but NPC don't lie, and move strength must be low enough");
+			BEWARE(tumble,		GotLying(),									"special conditions for lying, but trying to rise immediately, if it's NPC or move gain added");
+			BEWARE(run,			GotLandedAny(200) && bRun,					"any girdle landed on 2 paws while the run flag set means transition to running directly");
+			BEWARE(crouch,		GotLandedAny(200),							"any girdle landed on 2 paws with no run flag set means transition to crouching to make legs bend low");
 			break;
 
 		//специальное долгое падение, которое включается после некоторрого времени случайного падения
 		//на него вешается слоумо для выворота тела в полете
 		case EBehaveState::land:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(soar,		bSoar);
-			BEWARE(fly,			bFly);
-			BEWARE(lie,			Daemon && GotLying());
-			BEWARE(tumble,		GotLying());
-			BEWARE(run,			Thorax->StandHardness + Pelvis->StandHardness > 300 && bRun);
-			BEWARE(crouch,		Thorax->StandHardness + Pelvis->StandHardness > 300);
+			BEWARE(soar,		bSoar,										"obey the flag");
+			BEWARE(fly,			bFly,										"obey the flag");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain<0.3,		"special conditions for lying, but NPC don't lie, and move strength must be low enough");
+			BEWARE(tumble,		GotLying(),									"special conditions for lying, but trying to rise immediately, if it's NPC or move gain added");
+			BEWARE(run,			GotLandedAny(200) && bRun,					"any girdle landed on 2 paws while the run flag set means transition to running directly");
+			BEWARE(crouch,		GotLandedAny(200),							"any girdle landed on 2 paws with no run flag set means transition to crouching to make legs bend low");
 			break;
 
 		//режим полёта
 		case EBehaveState::fly:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!bFly || Stamina*Health<0.1 || ExternalGain==0);
-			BEWARE(soar,		bSoar);
-			BEWARE(run,			GotLandedAny(200) && bRun);
-			BEWARE(crouch,		GotLandedAny(200));
+			BEWARE(fall,		!bFly || Stamina*Health<0.1 || MoveGain==0,	"fly to fall: too tired and/or injured, or stop wingflapping, or just cleared the flag");
+			BEWARE(soar,		bSoar,										"obey the flag");
+			BEWARE(run,			GotLandedAny(200) && bRun,					"any girdle landed on 2 paws while the run flag set means transition to running directly");
+			BEWARE(crouch,		GotLandedAny(200),							"any girdle landed on 2 paws with no run flag set means transition to crouching to make legs bend low");
+			break;
+
+		//режим движения в воздухе по траектории
+		case EBehaveState::project:
+			BEWARE(fall,		JumpTarget==nullptr,						"sudden loosing target cause immediate cancelling the trajectory to general phy. falling");
+			BEWAREA(fall,		GotStandBoth(120), JumpTarget = nullptr,	"quick touching anything by at least one paw, cancels the projectile motion to general phy. falling");
+			BEWAREA(crouch,		GotStandBoth(300), JumpTarget = nullptr,	"touching by at least 3 paws, cancels the projectile motion to landing crouching");
+			BEWAREA(tumble,		GotLying(), JumpTarget = nullptr,			"touching with lying pose, cancels the projectile motion to lying active");
 			break;
 
 		//опрокидывание (пассивное лежание выход через действия а не состояния) 
 		case EBehaveState::lie:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny(1));
-			BEWARE(tumble,		GotLying() && MoveGain > 0.1f);
-			BEWARE(crouch,		!GotLying());
+			BEWARE(fall,		!GotLandedAny(1),							"lying is fragile so only complete loosing all floors causes transition to falling");
+			BEWARE(tumble,		ExternalGain > 0.2f,						"WASD pressed, start tumbling to rise");
+			BEWARE(crouch,		!GotLying(),								"any lying conditions lost - turn to a ducked pose, i.e.crouch");
 			break;
 
 		//кувыркание, активная попытка встать со спины на ноги
 		case EBehaveState::tumble:
-			BEWARE(dying,		Health <= 0);
-			BEWARE(fall,		!GotLandedAny(5));
-			BEWARE(lie,			GotLying() && Daemon && MoveGain < 0.1f);
-			BEWARE(crouch,		!GotLying());
+			BEWARE(fall,		!GotLandedAny(5),							"tumbling is not so fragile, as lying, so threshold in stand hardness is higher");
+			BEWARE(lie,			GotLying() && Daemon && MoveGain < 0.1f,	"passive lying if WASD released");
+			BEWARE(crouch,		!GotLying(),								"any lying conditions lost - turn to a ducked pose, i.e.crouch");
 			break;
 	
 		//здоровье достигло нуля, просто по рэгдоллиться пару секнуд перед окончательной смертью
 		case EBehaveState::dying:
-			BEWARE(dead, StateTime>2);
+			BEWARE(dead, StateTime>2,										"dying longs 2sec, then any actions ceased, the creature considered dead");
 			if(Stamina == -1) break;
-			ActionFindStart(ECreatureAction::SELF_DYING1);
+			ActionFindStart(EAction::SELF_DYING1);
 			CatchMyrLogicEvent(EMyrLogicEvent::SelfDied, 1.0f, nullptr);
-			MyrAI()->LetOthersNotice(EHowSensed::DIED);
+			MyrAIController()->LetOthersNotice(EHowSensed::DIED);
 			bClimb = 0;
 			Health = 0.0f;
 			Stamina = -1;
@@ -1515,48 +1527,44 @@ void AMyrPhyCreature::ProcessBehaveState(float DeltaTime)
 //==============================================================================================================
 //начать атаку (внимание, сложных проверок нет, применимость атаки должна проверяться заранее)
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::AttackActionStart(int SlotNum, int VictimType)
+EResult AMyrPhyCreature::AttackActionStart(int SlotNum, USceneComponent* ExactVictim)
 {
 	//в генофонде ни одна атака не заполнена на кнопку, из которой вызвалась эта функция
-	if (SlotNum == 255) return EAttackAttemptResult::WRONG_PHASE;//◘◘>;
+	if (SlotNum == 255) return EResult::WRONG_PHASE;//◘◘>;
 
 	//даже если атака не начнётся (а она в этом случае обязательно не начнётся)
 	//но в ней прописано, что в начальной фазе надо съесть то, что мы держим
 	if (GenePool->Actions[SlotNum]->VictimTypes[0].EatHeldPhase == EActionPhase::ASCEND)
-		if (Eat()) return EAttackAttemptResult::ATE_INSTEAD_OF_RUNNING;//◘◘> 
+		if (Eat()) return EResult::ATE_INSTEAD_OF_RUNNING;//◘◘> 
 
 	//уже выполняется какая-то атака, нельзя просто так взять и прервать её
-	if (CurrentAttack != 255) return EAttackAttemptResult::ALREADY_RUNNING;//◘◘>
+	if (CurrentAttack != 255) return EResult::ALREADY_RUNNING;//◘◘>
 
 	//полная связка настроек
 	auto Action = GenePool->Actions[SlotNum];
-	auto& VictimMod = Action->VictimTypes[VictimType];
+	auto& VictimMod = Action->VictimTypes[0];
 
 	//отправить просто звук атаки, чтобы можно было разбегаться (кстати, ввести эту возможность)
-	MyrAI()->LetOthersNotice(EHowSensed::ATTACKSTART);
+	MyrAIController()->LetOthersNotice(EHowSensed::ATTACKSTART);
+
+	//для ИИ важно пометить цель атаки, если сам ИИ инициирует атаку, он знает, на кого замахивается
+	MyrAIController()->ExactVictim = ExactVictim;
 
 	//теперь эта атака точно разрешена к началу, врубить атаку текущей
 	CurrentAttack = SlotNum;
-	CurrentAttackVictimType = VictimType;
 	AttackChangePhase(EActionPhase::ASCEND);
 
 	//для игрока
 	if (Daemon)
 	{
-		//если ИИ детектирует рядом объект точного нацеливания, точно нацелиться на него
-		if (MyrAI()->AimBetter(AttackDirection, 0.5)) Daemon->UseActDirFromAI = true;
-
 		//показать в худе имя начатой атаки
 		Daemon->HUDOfThisPlayer()->OnAction(0, true);
 
-		//если эта фаза такаи подразумевает эффектное размытие резкого движения, то врубить его
-		Daemon->SetMotionBlur(Action->MotionBlurBeginToStrike);
 	}
 	//для непися, которого мы имеем в целях ИИ = значит боремся или просто стоим около, тогда спецеффекты его атак также должны влиять на нас
-	else if(GetMyrGameMode()->GetProtagonist()->MyrAI()->FindAmongGoals(GetMesh()))
+	else if(GetMyrGameMode()->GetProtagonist()->MyrAIController()->MeInYourMemory(this))
 	{
 		//если атака требует размытия, то в любом случае находим протагониста и рамываем у него
-		GetMyrGameMode()->Protagonist->SetMotionBlur(Action->MotionBlurBeginToStrike);
 	}
 
 	//обнаружить, что мы пересекаем умный объём и передать ему, что мы совершаем, возможно, судьбоносное действие
@@ -1568,20 +1576,20 @@ EAttackAttemptResult AMyrPhyCreature::AttackActionStart(int SlotNum, int VictimT
 		 CatchMyrLogicEvent ( EMyrLogicEvent::SelfHarmBegin,  VictimMod.TactileDamage, nullptr);
 	else CatchMyrLogicEvent ( EMyrLogicEvent::SelfGraceBegin,-VictimMod.TactileDamage, nullptr);
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s AttackStart %s"), *GetName(), *Action->GetName());
-	return EAttackAttemptResult::STARTED;//◘◘>
+	return EResult::STARTED;//◘◘>
 }
 
 //==============================================================================================================
 // вызвать переход атаки из подготовки в удар (внимание, проверок нет, применимость атаки должна проверяться заранее)
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::AttackActionStrike()
+EResult AMyrPhyCreature::AttackActionStrike()
 {
 	//если просят применить атаку, а ее нет
-	if (CurrentAttack == 255) return EAttackAttemptResult::WRONG_PHASE;//◘◘>
+	if (CurrentAttack == 255) return EResult::WRONG_PHASE;//◘◘>
 
 	//полная связка настроек
 	auto Action = GenePool->Actions[CurrentAttack];
-	auto& OnVictim = Action->VictimTypes[CurrentAttackVictimType];
+	auto& OnVictim = Action->VictimTypes[0];
 
 	//в зависимости от того, в какой фазе вызвана просьба свершить действие
 	switch (CurrentAttackPhase)
@@ -1589,7 +1597,7 @@ EAttackAttemptResult AMyrPhyCreature::AttackActionStrike()
 		//подготовка еще не завершена, отправить на ожидание, атака свершится по закладке
 		case EActionPhase::ASCEND:
 			AttackChangePhase(EActionPhase::RUSH);
-			return EAttackAttemptResult::RUSHED_TO_STRIKE;//◘◘>
+			return EResult::RUSHED_TO_STRIKE;//◘◘>
 
 		//подготовка завершена, можно вдарить сразу
 		case EActionPhase::READY:
@@ -1599,49 +1607,38 @@ EAttackAttemptResult AMyrPhyCreature::AttackActionStrike()
 		case EActionPhase::STRIKE:
 			if (OnVictim.NumInstantRepeats > CurrentAttackRepeat)
 			{	AttackChangePhase(EActionPhase::DESCEND);
-				return EAttackAttemptResult::GONE_TO_STRIKE_AGAIN;//◘◘>
+				return EResult::GONE_TO_STRIKE_AGAIN;//◘◘>
 			}
 
 		//остальные фазы не приводят к смене
 		case EActionPhase::RUSH:
 		case EActionPhase::DESCEND:
-			return EAttackAttemptResult::WRONG_PHASE;//◘◘>
+			return EResult::WRONG_PHASE;//◘◘>
 	}
 	//по умолчанию непонятно отчего не получилось
-	return EAttackAttemptResult::FAILED_TO_STRIKE;//◘◘>
+	return EResult::FAILED_TO_STRIKE;//◘◘>
 }
 
 //==============================================================================================================
 //непосредственное применение атаки - переход в активную фазу
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::AttackActionStrikePerform()
+EResult AMyrPhyCreature::AttackActionStrikePerform()
 {
 	//полная связка настроек
 	auto Action = GenePool->Actions[CurrentAttack];
-	auto& OnVictim = Action->VictimTypes[CurrentAttackVictimType];
+	auto& OnVictim = Action->VictimTypes[0];
 
 	//уведомить мозги и через них ноосферу о свершении в мире атаки
-	if (MyrAI()) MyrAI()->LetOthersNotice(EHowSensed::ATTACKSTRIKE);
+	if (MyrAIController()) MyrAIController()->LetOthersNotice(EHowSensed::ATTACKSTRIKE);
 
 	//перевести в фазу боя (внимание, если атака-прыжок, то подбрасывание тела здесь, внутри)
 	AttackChangePhase(EActionPhase::STRIKE);
 
-	//для игрока, не ИИ
-	if (Daemon)
-	{
-		//если эта фаза такаи подразумевает эффектное размытие резкого движения, то врубить его
-		Daemon->SetMotionBlur ( Action -> MotionBlurStrikeToEnd);
-
-		//если ранее не вставал вопрос о помощи ИИ в нацеливании, попробовать снова
-		if(!Daemon->UseActDirFromAI)
-			if(MyrAI()->AimBetter(AttackDirection, 0.5))
-				Daemon->UseActDirFromAI = true;
-	}
 	//для непися, которого мы имеем в целях ИИ = значит боремся или просто стоим около, тогда спецеффекты его атак также должны влиять на нас
-	else if (GetMyrGameMode()->GetProtagonist()->MyrAI()->FindAmongGoals(GetMesh()))
+	if (GetMyrGameMode()->GetProtagonist()->MyrAIController()->MeInYourMemory(this))
 	{
 		//если атака требует размытия, то в любом случае находим протагониста и рамываем у него
-		GetMyrGameMode()->Protagonist->SetMotionBlur(Action->MotionBlurBeginToStrike);
+		//GetMyrGameMode()->Protagonist->GetMyrCamera()->SetMotionBlur(Action->MotionBlurBeginToStrike);
 	}
 
 
@@ -1653,7 +1650,7 @@ EAttackAttemptResult AMyrPhyCreature::AttackActionStrikePerform()
 
 	//диагностика
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s AttackActionStrikePerform %s"), *GetName(), *Action->HumanReadableName.ToString());
-	return EAttackAttemptResult::STROKE;//◘◘>
+	return EResult::STROKE;//◘◘>
 }
 
 //==============================================================================================================
@@ -1666,7 +1663,7 @@ void AMyrPhyCreature::AttackChangePhase(EActionPhase NewPhase)
 
 	//полная связка настроек
 	auto Action = GenePool->Actions[CurrentAttack];
-	auto& OnVictim = Action->VictimTypes[CurrentAttackVictimType];
+	auto& OnVictim = Action->VictimTypes[0];
 
 	//не уровне меша принять приготовления атакующих / опасных частей тела
 	for (ELimb li = ELimb::PELVIS; li != ELimb::NOLIMB; li = (ELimb)((int)li+1))
@@ -1727,23 +1724,21 @@ void AMyrPhyCreature::AttackEnd()
 	//аварийный сброс всех удерживаемых предметов, буде таковые имеются
 	UnGrab();
 
-	//если атака сопровождалась эффектами размытия в движении, 
+	//для игрока, несущего интерфейс
 	if (Daemon)
 	{
-		//сейчас она по любому законсилась и надо вернуть старое состояниеспецифичное значение
-		Daemon->SetMotionBlur(BehaveCurrentData->MotionBlurAmount);
-		Daemon->SetTimeDilation(BehaveCurrentData->TimeDilation);
-
 		//удалить в худе имя начатой атаки
 		Daemon->HUDOfThisPlayer()->OnAction(0, false);
 	}
 
 	//финально сбросить все переменные режима
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s AttackEnd %s "), *GetName(), *GetCurrentAttackName());
-	CurrentAttackVictimType = 0;
 	CurrentAttackPhase = EActionPhase::NONE;
 	CurrentAttack = 255;
 	CurrentAttackRepeat = 0;
+
+	//безусловно удалить из ИИ указатель на цель, так как цели без текущей атаки быть не может
+	MyrAIController()->ExactVictim = nullptr;
 
 	//снять дин-модель, данную этой завершенной атакой, в пользу нижележащей (обычно это из behavestate)
 	AdoptWholeBodyDynamicsModel(GetPriorityModel());
@@ -1788,11 +1783,6 @@ void AMyrPhyCreature::AttackNotifyFinish()
 	//если до этого атака была в активной фазе, то финиш - это ее логичное окончание
 	if(CurrentAttackPhase == EActionPhase::STRIKE)
 	{
-		//если в атаке использовалось автонацеливание, завершить его, полностью передать управление игроку
-		if(Daemon)
-			if(Daemon->UseActDirFromAI)
-				Daemon->UseActDirFromAI = false;
-
 		//перевести ее в фазу финального закругления
 		AttackChangePhase(EActionPhase::FINISH);
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s AttackNotifyFinish %s "),
@@ -1818,72 +1808,126 @@ void AMyrPhyCreature::AttackNotifyEnd()
 	AttackEnd();
 }
 
-
 //==============================================================================================================
 //общая процедура для всех видов прыжка, корректно закрывающая предыдущее состояние
 //==============================================================================================================
-bool AMyrPhyCreature::JumpAsAttack()
+bool AMyrPhyCreature::JumpAsAttack(FVector3f ExplicitVel)
 {
-	if (IS_MACRO(CurrentState, AIR))
-	{
-		return false;
-	}
-
-	//пересчитать подвижность безотносительно тяги(которой может не быть если WASD не нажаты)
-	UpdateMobility(false);	
-
-	//влияние прокачки на силу прыжка
-	float JumExperience = Mesh->DynModel->GetJumpAlongImpulse() < 0 ?
-		Phenotype.JumpBackForceFactor() : Phenotype.JumpForceFactor();
-
-	//случай самодействий с внезапным прыжком без подготовительной фазы - пусть прыжок будет сильным
-	if (AttackForceAccum == 0) AttackForceAccum = 1;
-
-	//базис скорости прыжка пока что в генофонде общий для всех существ данного класса
-	float JumpImpulse =
-		  AttackForceAccum							// учет времени прижатия кнопки/ног
-		* MoveGain									// учет моторного здоровья
-		* JumExperience;							// ролевая прокачиваемая сила
-
-	//как правильно и универсально добывать направление прыжка, пока неясно
-	FVector3f JumpDir = FVector3f::VectorPlaneProject(AttackDirection, Mesh->Pelvis.Floor.Normal);
-
-	//прыжок - важное сильновое упражнение, регистрируется 
-	CatchMyrLogicEvent(EMyrLogicEvent::SelfJump, AttackForceAccum, nullptr);
-
-	//█▄▌добавить эмоциональный отклик от данного действия
-	AddEmotionStimulus(EEmoCause::MeJumped, AttackForceAccum, this);
-	
-	//отключить удержание, чтобы прыжок состоялся
-	bKinematicRefine = false;
-
-	//переход в состояние вознесения нужен для фиксации анимации, а не для новой дин-модели, которая всё равно затрётся дальше по ходу атакой
-	AdoptBehaveState(EBehaveState::fall);
-
-	//если посчитанный импульс существенен
-	if (JumpImpulse > 0)
-	{
-		//получить импульсы 
-		const float Long = JumpImpulse * Mesh->DynModel->GetJumpAlongImpulse();
-		const float Up = JumpImpulse * Mesh->DynModel->GetJumpUpImpulse();
-
-		//техническая часть прыжка - одновременное гарцевание обоими поясами
-		Thorax->PhyPrance(JumpDir, Long, Up);
-		Pelvis->PhyPrance(JumpDir, Long, Up);
-		AttackForceAccum = 0;
-		return true;
-	}
-	//если импуль вышел нулевым, это от усталости или ран, нужно выдать самодействия
+	//скорость теперь считается заранее на этапе поиска целей
+	if (ExplicitVel.Z < 1)													// если скорость нулевая - устали или ранены
+		ActionFindStart(EAction::COMPLAIN_TIRED);					// выказать невозможность прыгнуть
 	else
 	{
-		ActionFindStart(ECreatureAction::COMPLAIN_TIRED);
-		AttackForceAccum = 0;
-		return false;
+		Thorax->PhyPranceDirect(ExplicitVel);								// подбросить передок		
+		Pelvis->PhyPranceDirect(ExplicitVel);								// подбросить задок
+		CatchMyrLogicEvent(EMyrLogicEvent::SelfJump, AttackForceAccum, 0);	// повлияет на геймплей
 	}
+	AttackForceAccum = 0;													// сбросить счетчик накопленной силы
+	return (ExplicitVel.Z < 1);
 
-	return false;
 }
 
+//==============================================================================================================
+// для каждого кадра искать положение самой удобной цели прыжка
+//==============================================================================================================
+FVector AMyrPhyCreature::PrepareJumpVelocity(FVector3f& jV)
+{
+	float Time = 0;													//отценка времени полета
+	FVector jA = Mesh->GetComponentLocation();						//начальная точка, место старта, обычно задние ноги, то есть СК мэша
+	FVector jB = jA + FVector(AttackDirection) * SpineLength * 5;	//конечная точка, определяется позицией цели или просто впереди на расстоянии
+	auto jDM = FindJumpDynModel();									//найти дин-модель в текущем действии, которая отвечает за саму физику прыжка
+	if (jDM)														//только если есть, если нет, прыжок не состоится
+	{
+		//пересчитать подвижность безотносительно тяги(которой может не быть если WASD не нажаты)
+		UpdateMobility(false);
+
+		//влияние прокачки на силу прыжка
+		float JumExperience = jDM->GetJumpAlongImpulse() < 0 ?	Phenotype.JumpBackForceFactor() : Phenotype.JumpForceFactor();
+
+		//случай самодействий с внезапным прыжком без подготовительной фазы - пусть прыжок будет сразу сильным, но не очень
+		if (AttackForceAccum == 0) AttackForceAccum = 0.7;
+
+		//множитель скорости прыжка: время прижатия кнопки * моторное здоровье * уровень навыка прыжков
+		float JumpStrength = AttackForceAccum * MoveGain * JumExperience;							
+
+		//перебрать всё, с чем пересекаемся, и выбрать самый ближний и передний
+		uint8 BestOvI = FindMoveTarget(jDM->GetJumpAlongImpulse() * 2, 0.5f);
+
+		//найдена точная цель для прыжка - направленный расчитанный прыжок точно в ценль
+		if (BestOvI < 255 && JumpStrength > 0)
+		{	Time = 2;
+			jB = OverlapByIndex(BestOvI)->GetComponentLocation();
+			jV = FindBallisticStartVelocity(jB, jA, JumpStrength * jDM->GetJumpUpImpulse(), JumpStrength * jDM->GetJumpAlongImpulse(), Time);
+			if(jV.ContainsNaN())
+				UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s PrepareJumpVelocity WTF V nan V=%g/%g, t=%g"),
+					*GetName(), JumpStrength * jDM->GetJumpAlongImpulse(), JumpStrength * jDM->GetJumpUpImpulse(), Time);
+
+			//нулевая скорость - прыжок не состоится
+			if (jV.IsNearlyZero()) return jA;
+		}
+
+		//функция выдала положительное время = нашлись адекватные корни
+		if (Time > 0)
+		{
+			//подготовить режим прямой цели, 
+			Pelvis->SetCachedPreJumpPos();
+			Thorax->SetCachedPreJumpPos();
+			PackJumpStartVelocity(jV);
+			JumpTarget = OverlapByIndex(BestOvI);
+		}
+		//целей для прыжка поблизости нет - свободный прыжок, сотканный из горизонтальной и вертикальной скорости
+		else
+		{	//если посчитанный импульс существенен - полностью родить начальную скорость свободного прыжка
+			if (JumpStrength > 0)
+			{	FVector3f OutDirXY = FVector3f::VectorPlaneProject(AttackDirection, Mesh->Pelvis.Floor.Normal).GetSafeNormal();
+				float Vxy = JumpStrength * jDM->GetJumpAlongImpulse();
+				float Vz = JumpStrength * jDM->GetJumpUpImpulse();
+				jV = OutDirXY * Vxy + FVector3f(0, 0, 1) * Vz;
+			}
+			JumpTarget = nullptr;
+		}
+
+		//сдвинуть начало трассировки траектории вверх условно до головы, чтобы не захватывать пол на старте, а только на конце
+		float OffsetTime = SpineLength / jDM->GetJumpUpImpulse();
+		FVector OffsetOnTraj = PosOnBallisticTrajectory(jV, jA, OffsetTime);
+
+		//теперь предложенную траекторию хорошо бы проверить 
+		//зарядка встроенной системы трассировки по траектории, очень медленно, 
+		FPredictProjectilePathParams PaParam(0, OffsetOnTraj, FVector(jV), 2);
+		PaParam.ActorsToIgnore.Add(this);
+		PaParam.DrawDebugType = EDrawDebugTrace::None;
+		PaParam.ProjectileRadius = 0;
+		PaParam.bTraceWithCollision = 0;
+		PaParam.SimFrequency = 5;
+		PaParam.bTraceWithCollision = true;
+		PaParam.bTraceWithChannel = false;
+		FPredictProjectilePathResult PaResul;
+		UGameplayStatics::PredictProjectilePath(GetWorld(), PaParam, PaResul);
+
+		//если на пути встретилась преграда, пометить конечной точкой именно ее
+		if (PaResul.HitResult.bBlockingHit)
+		{	jB = PaResul.HitResult.Location;
+			Time = PaResul.HitResult.Time;
+		}
+		//если траектория ушла в воздух, пометить просто максимально пройденный параболой путь
+		else
+		{	jB = PaResul.LastTraceDestination.Location;
+			Time = PaResul.LastTraceDestination.Time;
+		}
+
+		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s PrepareJumpVelocity V=%s, pB=%s, t=%g"), *GetName(), *jV.ToString(), *jB.ToString(), Time);
+
+		//показывать траекторию надо только главному герою, (хотя хорошо бы и для его ближайших противников)
+		if (Daemon)	Daemon->ShowJumpTrajectory(OffsetOnTraj, (FVector)jV, Time, jB);
+
+		//вернуть правильное значение для подвижности с включённой внешнея тягой
+		MoveGain *= ExternalGain;
+
+		//выдать конечную точку траектории
+		return jB;
+	}
+	return jA;
+}
 
 //==============================================================================================================
 //отпустить всё, что имелось активно схваченным (в зубах)
@@ -1943,19 +1987,25 @@ void AMyrPhyCreature::Save(FCreatureSaveData& Dst)
 	Dst.Damages.SetNum((int)ELimb::NOLIMB);
 	for(int i=0; i<(int)ELimb::NOLIMB; i++)
 		Dst.Damages[i] = Mesh->GetLimb((ELimb)i).Damage;
-	Dst.Stamina = (uint8)(FMath::Clamp (Stamina, 0.0f, 1.0f) * 255.0f);
-	Dst.Health  = (uint8)(FMath::Clamp (Health, 0.0f, 1.0f) * 255.0f);
-	Dst.Energy  = (uint8)(FMath::Clamp (Energy, 0.0f, 1.0f) * 255.0f);
+	Dst.Stamina = Stamina;
+	Dst.Health  = Health;
+	Dst.Energy  = Energy;
+	Dst.EmoResource = MyrAIController()->EmoResource;
 
 	//сохранение памяти ИИ
-	for (auto G : MyrAI()->Memory)
+	for (auto Gestalt : MyrAIController()->Memory)
 	{
 		//перевод указателя в имя актора
 		FSocialMemory Tuple;
-		Tuple.Key = G.Key->GetFName();
-		Tuple.Value = G.Value;
-		Dst.AIMemory.Add(Tuple);
+		if(Gestalt.IsCreature())
+			Tuple.Key = Gestalt.Creature()->GetFName();
+		else
+			Tuple.Key = Gestalt.Obj->GetFName();
+		Tuple.Value = Gestalt;
+		Tuple.Value.Obj = nullptr;
+		Dst.Memory.Add(Tuple);
 	}
+	Dst.Mich = MyrAIController()->Mich;
 
 	//определить, какая шкурка используется в основном меше
 	auto MainMeshPart = GetMesh()->GetMaterialIndex(TEXT("Body"));
@@ -1979,9 +2029,9 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 	Phenotype = Src.Phenotype; 
 
 	//скаляры
-	Stamina = (float)Src.Stamina / 255.0f;
-	Health = (float)Src.Health / 255.0f;
-	Energy = (float)Src.Energy / 255.0f;
+	Stamina = Src.Stamina;
+	Health = Src.Health;
+	Energy = Src.Energy;
 	for(int i=0; i<(int)ELimb::NOLIMB; i++)
 		Mesh->GetLimb((ELimb)i).Damage = Src.Damages[i];
 
@@ -1990,9 +2040,28 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 	//непосредственно поместить это существо в заданное место
 	TeleportToPlace(Src.Transform);
 
-	//auto MainMeshPart = GetMesh()->GetMaterialIndex(TEXT("Body"));
-	//if (MainMeshPart == INDEX_NONE) MainMeshPart = 0;
-	//UMaterialInterface* Material = GetMesh()->GetMaterial(MainMeshPart);
+	//загрузка ИИ
+	MyrAIController()->EmoResource = Src.EmoResource;
+	MyrAIController()->Mich = Src.Mich;
+
+	//загрузка воспоминаний с ссылками на объекты
+	for(auto &Meme : Src.Memory)
+		if(Meme.Value.Obj.IsValid())
+			MyrAIController()->Memory.Add(Meme.Value);
+}
+//==============================================================================================================
+//обыскать слот сохранения и проставить во всех ссылках на это существо (в памятях других существ) реальный указатель
+//==============================================================================================================
+void AMyrPhyCreature::ValidateSavedRefsToMe()
+{
+	if (!GetMyrGameInst()) return;
+	if (!GetMyrGameInst()->JustLoadedSlot) return;
+	for (auto Cre : GetMyrGameInst()->JustLoadedSlot->AllCreatures)
+	{	for (auto Ges : Cre.Value.Memory)
+		{	if (Ges.Key == GetFName())
+				Ges.Value.Obj = GetMesh();
+		}
+	}
 }
 
 //==============================================================================================================
@@ -2002,10 +2071,9 @@ void AMyrPhyCreature::Load(const FCreatureSaveData& Src)
 void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObject* Patiens, FMyrLogicEventData* ExplicitEmo)
 {
 	if (!GenePool) return;						//нет генофонда вообще нонсенс
-	if (!GenePool->MyrLogicReactions) return;	//забыли вставить в генофонд список реакций
 
 	//для начала инструкции по обслуживанию события должны быть внутри
-	auto EventInfo = MyrAI()->MyrLogicGetData(Event);
+/*	auto EventInfo = MyrAI()->MyrLogicGetData(Event);
 	if (!EventInfo) EventInfo = ExplicitEmo;
 	if (EventInfo)
 	{
@@ -2024,59 +2092,36 @@ void AMyrPhyCreature::CatchMyrLogicEvent(EMyrLogicEvent Event, float Param, UObj
 		}
 	}
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("ACTOR %s CatchMyrLogicEvent %s %g"), *GetName(), *TXTENUM(EMyrLogicEvent, Event), Param);
-
+*/
 	//подняться на уровень сюжета и посмотреть, мож тригернет продвижение истории
 	GetMyrGameInst()->MyrLogicEventCheckForStory(Event, this, Param, Patiens);
 
 }
 
-//==============================================================================================================
-//внести в душу новое эмоциональное переживание, внутри логика отбора значений и сил, если нестандарт, то можно подать извне
-//==============================================================================================================
-void AMyrPhyCreature::AddEmotionStimulus(EEmoCause Cause, float ExplicitStrength, UObject* Responsible, FEmoStimulus* ExplicitStimulus)
-{
-	FEmoStimulus Stimulus;
-	if (!ExplicitStimulus) ExplicitStimulus = GetEmoReaction(Cause);
-	if (ExplicitStimulus) Stimulus = *ExplicitStimulus;
-
-	switch (Cause)
-	{
-	case EEmoCause::LowHealth:
-		break;
-	}
-
-	//применить масштабирование стимула по внешнему параметру
-	if (ExplicitStrength >= 0 && ExplicitStrength < 1)
-		Stimulus.Attenuate(ExplicitStrength);
-
-	//если после аттенюации стимул не ушел в ноль - финальное вливание
-	if(Stimulus.Valid())
-		MyrAI()->EmoMemory.AddEmoFactor(Cause, Responsible, Stimulus);
-}
 
 //◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘
 //==============================================================================================================
 //подали на вход только идентификатор действия, а что это за действие неизвестно, так что нужно его поискать во всех списках и запустить по своему
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
+EResult AMyrPhyCreature::ActionFindStart(EAction Type)
 {
 	//особые действия, которые не сводятся к вызову ресурса, сводятся, в данном случае, к установке режима (или замене)
-	auto R = EAttackAttemptResult::STARTED;
+	auto R = EResult::STARTED;
 	switch (Type)
 	{
-		case ECreatureAction::TOGGLE_MOVE:									return R;//◘◘>
-		case ECreatureAction::TOGGLE_HIGHSPEED:	bRun = 1;					return R;//◘◘>
-		case ECreatureAction::TOGGLE_CROUCH:	bCrouch = 1;				return R;//◘◘>
-		case ECreatureAction::TOGGLE_FLY:		bFly = 1;	bSoar = 0;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_SOAR:		bSoar = 1;					return R;//◘◘>
-		case ECreatureAction::TOGGLE_WALK:		bRun=bCrouch=bSoar=bFly=0;	return R;//◘◘>
-		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 1; bWannaClimb=1;	return R;//◘◘>
+		case EAction::Move:									return R;//◘◘>
+		case EAction::Run:		bRun =		1;				return R;//◘◘>
+		case EAction::Crouch:	bCrouch =	1;				return R;//◘◘>
+		case EAction::Fly:		bFly = 1;	bSoar = 0;		return R;//◘◘>
+		case EAction::Soar:		bSoar = 1;					return R;//◘◘>
+		case EAction::Walk:		bRun=bCrouch=bSoar=bFly=0;	return R;//◘◘>
+		case EAction::Climb:	bClimb = 1;					return R;//◘◘>
 	}
 
 	/////////////////////////////////////////////////////////////////////////
 	//единый список
 	/////////////////////////////////////////////////////////////////////////
-	R = EAttackAttemptResult::INCOMPLETE_DATA;
+	R = EResult::INCOMPLETE_DATA;
 
 	//массив действий с одинаковым ярлычком, найденный через карту
 	TArray<uint8> SameActions;
@@ -2092,9 +2137,9 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
 
 		//сразу протестировать применимость на себя первого действия в охапке найденных
 		R = GenePool->Actions[BestAction]->IsActionFitting(this, false);
-		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindStart %s found %d"), *GetName(), *TXTENUM(ECreatureAction, Type), SameActions.Num());
+		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindStart %s found %d"), *GetName(), *TXTENUM(EAction, Type), SameActions.Num());
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindStart step %d, %s, result %s"), *GetName(),
-			0, *GenePool->Actions[SameActions[0]]->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
+			0, *GenePool->Actions[SameActions[0]]->HumanReadableName.ToString(), *TXTENUM(EResult, R));
 
 		//поиск лучшего в охапке - начиная со второго (а скорее всего второго и нет)
 		for (int i = 1; i < SameActions.Num(); i++)
@@ -2110,31 +2155,15 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
 					BestAction = SameActions[i];
 				}
 				UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindStart step %d, %s, result %s"), *GetName(),
-					i, *GenePool->Actions[SameActions[i]]->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R2));
+					i, *GenePool->Actions[SameActions[i]]->HumanReadableName.ToString(), *TXTENUM(EResult, R2));
 			}
 		}
 
 		//если в конечном счёте удалось найти пригодное действие
-		if (ActOk(R))
-		{ 
-			//это действие - атака, так как есть сборки жертв 
-			//увы, юзается только 1-ый модуль жертвы, иначе надо искать,
-			//что за зверь перед носом, какой тип для него лучше
-			//а мы условились, что ИИ не вызывает эту функцию для пользовательских атак
-			//ИИ перебирает их отдельно и вызывает у NewAttackStart себя сам
-			if (GenePool->Actions[BestAction]->IsAttack())
-				R = AttackActionStart(BestAction);
-
-			//это действие - релакс, так как 3 фазы четко соответствуют входу, пребыванию, выходу
-			else if(GenePool->Actions[BestAction]->IsRelax())
-				RelaxActionStart(BestAction);
-
-			//всё проечее - самодействия
-			else SelfActionStart(BestAction);
-		}
+		if (ActOk(R)) R = ActionStart (BestAction);
 	}
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindStart %s %s"), *GetName(),
-		*TXTENUM(ECreatureAction, Type), *TXTENUM(EAttackAttemptResult, R));
+		*TXTENUM(EAction, Type), *TXTENUM(EResult,R));
 	return R;//◘◘>
 }
 
@@ -2142,39 +2171,39 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindStart(ECreatureAction Type)
 //==============================================================================================================
 //завершить (или наоборот вдарить после подготовки) конкретное действие
 //==============================================================================================================
-EAttackAttemptResult AMyrPhyCreature::ActionFindRelease(ECreatureAction Type, UPrimitiveComponent* ExactGoal)
+EResult AMyrPhyCreature::ActionFindRelease(EAction Type, UPrimitiveComponent* ExactGoal)
 {
 	//отсев действий, не являющихся атаками
-	auto R = EAttackAttemptResult::STARTED;
+	auto R = EResult::STARTED;
 	switch (Type)
 	{
 		
-		case ECreatureAction::TOGGLE_HIGHSPEED:	bRun = 0;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_CROUCH:	bCrouch = 0;	return R;//◘◘>
-		case ECreatureAction::TOGGLE_FLY:		bFly = 0;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_SOAR:		bSoar = 0;		return R;//◘◘>
-		case ECreatureAction::TOGGLE_CLIMB:		bClimb = 0;		return R;//◘◘>
+		case EAction::Run:	bRun = 0;		return R;//◘◘>
+		case EAction::Crouch:	bCrouch = 0;	return R;//◘◘>
+		case EAction::Fly:		bFly = 0;		return R;//◘◘>
+		case EAction::Soar:		bSoar = 0;		return R;//◘◘>
+		case EAction::Climb:		bClimb = 0;		return R;//◘◘>
 	}
 
 	//по умолчанию для неудачи непонятной
-	R = EAttackAttemptResult::FAILED_TO_STRIKE;
+	R = EResult::FAILED_TO_STRIKE;
 
 	//если выполняется действие-атака и именно то выполняетсяч действие, которое мы хотим продолжить
-	if (DoesAttackAction() && GetAttackAction()->Type == Type)
+	if (DoesAttackAction() && GetAttackAction()->UsedAs.Contains(Type))
 	{
 		//не проверяем, муторно - этот тракт не вызывается из ИИ - сразу вдаряем
 		R = AttackActionStrike();
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindRelease %s %s"), *GetName(),
-			*GetAttackAction()->GetName(), *TXTENUM(EAttackAttemptResult, R));
+			*GetAttackAction()->GetName(), *TXTENUM(EResult, R));
 	}
 	//выполняется действие-релакс - отжатие есть старт выхода из релакса
-	else if(DoesRelaxAction() && GetRelaxAction()->Type == Type)
+	else if(DoesRelaxAction() && GetRelaxAction()->UsedAs.Contains(Type))
 		RelaxActionStartGetOut();
 
 	//такое не бывает, но надо предусмотреть
-	else if (DoesSelfAction() && GetSelfAction()->Type == Type)
+	else if (DoesSelfAction() && GetSelfAction()->UsedAs.Contains(Type))
 	{	UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s ActionFindRelease WTF SelfAction Release %s"), *GetName(),
-			*TXTENUM(ECreatureAction, Type ));
+			*TXTENUM(EAction, Type ));
 	}
 
 	//прочие соотношения, неясно, стоит или их рассматривать
@@ -2187,17 +2216,32 @@ EAttackAttemptResult AMyrPhyCreature::ActionFindRelease(ECreatureAction Type, UP
 	return R;
 }
 
+//==============================================================================================================
+//распознать суть действия: атака/самодействие/релакс и запустить в нужном слоте, должно вызываться после проверок
+//==============================================================================================================
+EResult	AMyrPhyCreature::ActionStart(uint8 Number)
+{
+	if (GenePool->Actions[Number]->IsAttack())
+		return AttackActionStart(Number);
+
+	else if(GenePool->Actions[Number]->IsRelax())
+		return RelaxActionStart(Number);
+
+	else return SelfActionStart(Number);
+}
+
+
 //◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘◘
 //==============================================================================================================
 //начать самодействие (внимание, проверка применимости здесь не производится, надо раньше проверять)
 //==============================================================================================================
-void AMyrPhyCreature::SelfActionStart(int SlotNum)
+EResult AMyrPhyCreature::SelfActionStart(int SlotNum)
 {
 	//если в это же время происходит атака, которая не допускает поверх себя самодействия
 	if(Attacking())
 		if (GetAttackActionVictim().ForbidSelfActions)
 		{	UE_LOG(LogMyrPhyCreature, Error, TEXT("ACTOR %s SelfActionStart NO - forbidden by current attack"), *GetName());
-			return;
+			return EResult::LOW_PRIORITY;
 		}
 
 	//самодействия могут выбивать друг друга, кроме самих себя
@@ -2212,13 +2256,14 @@ void AMyrPhyCreature::SelfActionStart(int SlotNum)
 
 		//отправить символический звук выражения, чтобы очевидцы приняли во внимание и эмоционально пережили
 		//здесь вообще-то нужно не для каждого самодействия, а только для значимых и видных
-		MyrAI()->LetOthersNotice(EHowSensed::EXPRESSED); 
+		MyrAIController()->LetOthersNotice(EHowSensed::EXPRESSED); 
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s SelfActionStart OK %s"), *GetName(), *GetCurrentSelfActionName());
 
 		//показать в худе имя начатого действия
 		if(Daemon) Daemon->HUDOfThisPlayer()->OnAction(1, true);
-
+		return EResult::STARTED;
 	}
+	return EResult::FAILED_TO_START;
 }
 
 //==============================================================================================================
@@ -2267,7 +2312,7 @@ void AMyrPhyCreature::SelfActionCease()
 //==============================================================================================================
 //найти список применимых в данный момент самодействий и внести их в массив
 //==============================================================================================================
-void AMyrPhyCreature::ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutActionIndices, ECreatureAction Restrict)
+void AMyrPhyCreature::ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutActionIndices, EAction Restrict)
 {
 	//отыскать подходящее, изнутри вызвав оценку применимости
 	for(int i=0; i<GenePool->Actions.Num(); i++)
@@ -2276,7 +2321,7 @@ void AMyrPhyCreature::ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutAction
 		if (GenePool->Actions[i]->IsRelax() == RelaxNotSelf)
 
 			//если ограничение на константу темы действия
-			if (Restrict == ECreatureAction::NONE || GenePool->Actions[i]->Type == Restrict)
+			if (Restrict == EAction::NONE || GenePool->Actions[i]->UsedAs.Contains(Restrict))
 			{
 
 				//полная проверка всех критериев применимости, за исключение вероятности
@@ -2286,17 +2331,41 @@ void AMyrPhyCreature::ActionFindList(bool RelaxNotSelf, TArray<uint8>& OutAction
 				if (ActOk(R)) OutActionIndices.Add(i);
 				else
 					UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindList Reject %s cause %s"),
-						*GetName(), *GenePool->Actions[i]->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
+						*GetName(), *GenePool->Actions[i]->HumanReadableName.ToString(), *TXTENUM(EResult, R));
 			}
 	}
 		
+}
+
+//==============================================================================================================
+// 	найти наиболее подходящее по контексту действие (в основном для ИИ)
+//==============================================================================================================
+uint8 AMyrPhyCreature::ActionFindBest(USceneComponent* VictimBody, float Damage, float Dist, float Coaxis, bool ByAI, bool Chance)
+{
+	//возвращается индекс в массиве, если остлся 255, значит ничего не нашли
+	uint8 IndexOfBest = 255;
+	for (int i = 0; i < GenePool->Actions.Num(); i++)
+	{
+		//вначале отсеиваем те, которые не выдерживают текущей опасности, это для контратаки, в остальных не нужно, по умолчанию 0
+		auto A = GenePool->Actions[i];
+		if (Damage < A->MaxDamageWeCounterByThis)
+		{	
+			//стандартная проверка в полном контексте (пока неясно, что делать с типом жертвы, будет ли ненулевой)
+			auto R = A->IsActionFitting (this, VictimBody, Dist, Coaxis, ByAI, Chance);
+			if (ActOk(R))
+			{	if(IndexOfBest == 255)							IndexOfBest = i; else
+				if(A->Better(GenePool->Actions[IndexOfBest]))	IndexOfBest = i;
+			}
+		}
+	}
+	return IndexOfBest;
 }
 
 
 //==============================================================================================================
 //стартануть релакс уже известный по индексу
 //==============================================================================================================
-void AMyrPhyCreature::RelaxActionStart(int Slot)
+EResult AMyrPhyCreature::RelaxActionStart(int Slot)
 {
 	//присвоить, анимация сама это далее воспримет
 	CurrentRelaxAction = Slot;
@@ -2307,7 +2376,7 @@ void AMyrPhyCreature::RelaxActionStart(int Slot)
 	//применить новые настройки динамики движения/поддержки для частей тела поясов
 	AdoptWholeBodyDynamicsModel(&GetRelaxAction()->DynModelsPerPhase[RelaxActionPhase]);
 	UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s RelaxActionStart %s"), *GetName(), *GetRelaxAction()->GetName());
-
+	return EResult::STARTED;
 }
 
 //==============================================================================================================
@@ -2502,6 +2571,7 @@ void AMyrPhyCreature::WidgetOnUnGrab(AActor* Victim)
 
 //==============================================================================================================
 //показать на виджете худа то, что пересечённый григгер-волюм имел нам сообщить
+//==============================================================================================================
 void AMyrPhyCreature::WigdetOnTriggerNotify(EWhyTrigger ExactReaction, AActor* What, USceneComponent* WhatIn, bool On)
 {
 	if (Daemon)
@@ -2511,16 +2581,17 @@ void AMyrPhyCreature::WigdetOnTriggerNotify(EWhyTrigger ExactReaction, AActor* W
 }
 
 
+
 //==============================================================================================================
 //передать информацию в анимацию из ИИ (чтобы не светить ИИ в классе анимации)
 //==============================================================================================================
 void AMyrPhyCreature::TransferIntegralEmotion(float& Rage, float& Fear, float& Power, float &Amount)
 {
-	Rage = MyrAI()->IntegralEmotionRage;
-	Fear = MyrAI()->IntegralEmotionFear;
-	Power = MyrAI()->IntegralEmotionPower;
-	Amount = FMath::Lerp(Amount,
-		NoAttack() ? GetBehaveCurrentData()->ExpressEmotionPower : 0.0f, 0.1f);
+	//Rage = MyrAI()->IntegralEmotionRage;
+	//Fear = MyrAI()->IntegralEmotionFear;
+	//Power = MyrAI()->IntegralEmotionPower;
+	//Amount = FMath::Lerp(Amount,
+	//	NoAttack() ? GetBehaveCurrentData()->ExpressEmotionPower : 0.0f, 0.1f);
 }
 
 //==============================================================================================================
@@ -2573,20 +2644,6 @@ bool AMyrPhyCreature::DelOverlap(UMyrTriggerComponent* Ov)
 	return false;
 }
 
-//==============================================================================================================
-//выдать сборку эмоциональной реакции для данной причины, в основном будет вызываться из ИИ
-//==============================================================================================================
-FEmoStimulus* AMyrPhyCreature::GetEmoReaction(EEmoCause Cause)
-{
-	if (EmoReactions.Map.Num() == 0)
-		return GenePool->EmoReactions->List.Map.Find(Cause);
-	else return EmoReactions.Map.Find(Cause);
-}
-
-//выдать вовне память эмоциональных стимулов, которая лежит в ИИ
-FEmoMemory* AMyrPhyCreature::GetMyEmoMemory() { if(MyrAI()) return &MyrAI()->EmoMemory; else return nullptr; }
-
-
 //найти объём, в котором есть интересующая реакция, если нет выдать нуль
 UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger r, FTriggerReason*& TR)
 {
@@ -2614,6 +2671,38 @@ UMyrTriggerComponent* AMyrPhyCreature::HasSuchOverlap(EWhyTrigger rmin, EWhyTrig
 	if (Overlap2) { TR = Overlap2->HasReaction(rmin, rmax); if (TR) return Overlap2; }
 	return nullptr;
 }
+UMyrTriggerComponent* AMyrPhyCreature::HasGoalOverlap(FTriggerReason*& TR)
+{
+	if (Overlap0) { TR = Overlap0->HasReaction(EWhyTrigger::KinematicLerpToCenter); if (TR) return Overlap0; }
+	if (Overlap1) { TR = Overlap1->HasReaction(EWhyTrigger::KinematicLerpToCenter); if (TR) return Overlap1; }
+	if (Overlap2) { TR = Overlap2->HasReaction(EWhyTrigger::KinematicLerpToCenter); if (TR) return Overlap2; }
+
+	return nullptr;
+}
+
+AMyrLocation* AMyrPhyCreature::IsInLocation() const
+{
+	if (Overlap0) { if (Overlap0->GetOwner()->IsA<AMyrLocation>()) return (AMyrLocation*)Overlap0->GetOwner(); }
+	if (Overlap1) { if (Overlap1->GetOwner()->IsA<AMyrLocation>()) return (AMyrLocation*)Overlap1->GetOwner(); }
+	if (Overlap2) { if (Overlap2->GetOwner()->IsA<AMyrLocation>()) return (AMyrLocation*)Overlap2->GetOwner(); }
+	return nullptr;
+}
+
+//==============================================================================================================
+//найти среди объёмов самую лучшую цель
+//==============================================================================================================
+int AMyrPhyCreature::FindMoveTarget(float Radius, float Coaxis)
+{
+	uint8 BestOvI = 255;									//индекс, номер по счёту
+	float BestOvRa = 0;										//рейтинг цели для прыжка, ничего не значит, только сравнение
+	UMyrTriggerComponent** Ovs = &Overlap0;					//для адресации массивом
+	for (int i = 0; i < 3; i++)
+		if (Ovs[i])
+		{	float R = Ovs[i]->JumpGoalRating(this, Radius, Coaxis);
+			if (R > BestOvRa) { BestOvRa = R; BestOvI = i; }
+		}
+	return BestOvI;
+}
 //==============================================================================================================
 //извлечь вектор из триггера и направить тело по нему - внимание, здесь нет нормализации!
 //==============================================================================================================
@@ -2635,6 +2724,16 @@ bool AMyrPhyCreature::ModifyMoveDirByOverlap(FVector3f& InMoveDir, EWhoCame WhoA
 	InMoveDir += Force;
 	return true;
 }
+
+//==============================================================================================================
+//в момент исчезновения объекта сделать так, чтобы в памяти ИИ ничего не сломалось
+//==============================================================================================================
+void AMyrPhyCreature::HaveThisDisappeared(USceneComponent* This)
+{
+	//MyrAIController()->LetOthersNotice(EHowSensed::REMOVE);
+	//if(MyrAI()) MyrAI()->SeeThatObjectDisappeared((UPrimitiveComponent*)This);
+}
+
 
 
 //==============================================================================================================
@@ -2694,7 +2793,7 @@ FVector AMyrPhyCreature::GetVisEndPoint()
 {
 	//в каждый момент щупаем разные, случайно выбранные части тела
 	//возможно, стоит ввести коэффициенты вероятности, чтобы выбирать осознанно
-	int li = MyrAI()->RandVar&15; if(li >= (int)ELimb::NOLIMB) li = 15-li;
+	int li = FUrGestalt::RandVar&15; if(li >= (int)ELimb::NOLIMB) li = 15-li;
 	return GetBodyPartLocation((ELimb)li);
 }
 
@@ -2704,6 +2803,7 @@ FVector AMyrPhyCreature::GetVisEndPoint()
 bool AMyrPhyCreature::IsStandingOnThisActor(AActor* A) { return Mesh->IsStandingOnActor(A); }
 bool AMyrPhyCreature::IsTouchingThisActor(AActor* A) { return Mesh->IsTouchingActor(A); }
 bool AMyrPhyCreature::IsTouchingThisComponent(UPrimitiveComponent* A) { return Mesh->IsTouchingComponent(A); }
+
 
 
 //==============================================================================================================
@@ -2768,6 +2868,14 @@ float AMyrPhyCreature::GetCurrentSurfaceStealthFactor() const
 	return FMath::Max(PelvisStealthFactor, ThoraxStealthFactor);
 }
 
+//выдать, если есть, цель, на которую можно кинематически наброситься. может выдать нуль
+USceneComponent* AMyrPhyCreature::GetRushGoal()
+{
+	//if(MyrAI()->Goal_1().Object && (MyrAI()->Goal_1().LookAtDist < SpineLength*2))
+	//	return MyrAI()->Goal_1().Object; else
+	 return nullptr;
+}
+
 //рассеяние звука текущее - от уровня и локации
 USoundAttenuation* AMyrPhyCreature::GetCurSoundAttenuation()
 {
@@ -2797,31 +2905,7 @@ bool AMyrPhyCreature::IsLimbAttacking(ELimb eLimb)
 	return false;
 }
 
-
-//==============================================================================================================
-//межклассовое взаимоотношение - для ИИ, чтобы сформировать отношение при первой встрече с представителем другого класса
-//==============================================================================================================
-FColor AMyrPhyCreature::ClassRelationToClass(AActor* obj)
+USceneComponent* AMyrPhyCreature::GetObjectIStandOn()
 {
-	//сам себя - начальное отношение полная любовь
-	if (obj == this) return FColor::Green;
-
-	//найти сборку типовых отношений в генофонде, если не нашли - к неизвестному отношение "никак"
-	FAttitudeTo* res = GenePool->AttitudeToOthers.Find(obj->GetClass());
-	if (!res) return FColor::Black;
-
-	//если нашли, зависит от того, живое или мёртвое
-	else if (auto MyrAim = Cast<AMyrPhyCreature>(obj))
-	{	if (MyrAim->Health <= 0)
-			return res->EmotionToDeadColor;
-	}
-	return res->EmotionToLivingColor;
-}
-
-FColor AMyrPhyCreature::ClassRelationToDeadClass(AMyrPhyCreature* obj)
-{
-	//найти сборку типовых отношений в генофонде, если не нашли - к неизвестному отношение "никак"
-	FAttitudeTo* res = GenePool->AttitudeToOthers.Find(obj->GetClass());
-	if (!res) return FColor::Black;
-	return res->EmotionToDeadColor;
+	return Mesh->Pelvis.Floor.Component();
 }

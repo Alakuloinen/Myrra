@@ -23,8 +23,15 @@ public:
 
 public:	
 
+	//указатель на меш, который добавлен в блюпринте, материальное воплощение, может быть скелетным или статическим, цепляется автоматически
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UMeshComponent* Mesh = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool Skeletal = false;
+
 	//имя
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText HumanReadableName;
+
+	//место, на котором этот артефакт лежит, для локализации, получается из меша при касании 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FFloor Floor;
 
 	//данные по типу артефакта
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UMyrArtefactInfo* Archetype;
@@ -52,6 +59,9 @@ public:
 #endif
 
 public:	
+
+	//удар твердлого тела
+	UFUNCTION()	void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
 	//охватить этот артефакт при загрузке и сохранении игры
 	UFUNCTION(BlueprintCallable) void Save(FArtefactSaveData& Dst);

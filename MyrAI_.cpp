@@ -25,7 +25,7 @@ uint32 AMyrAI::RandVar = 1;
 //свой лог
 DEFINE_LOG_CATEGORY(LogMyrAI);
 
-#define TRA(br, cmd, gain, cond)       if(cond) { Drive.Gain = gain; Drive.DoThis = ECreatureAction::##cmd; MoveBranch=br; return;  }
+#define TRA(br, cmd, gain, cond)       if(cond) { Drive.Gain = gain; Drive.DoThis = EAction::##cmd; MoveBranch=br; return;  }
 #define BEH1(b1)      (me()->CurrentState == EBehaveState::##b1)
 #define BEH2(b1, b2)  (me()->CurrentState == EBehaveState::##b1 || me()->CurrentState == EBehaveState::##b2)
 
@@ -285,13 +285,13 @@ void AMyrAI::Tick(float DeltaTime)
 			{	PrimaryActorTick.TickInterval = 0.15;				// быстрое обновление 
 				Drive.ActDir = Goals[PrimaryGoal].LookAtDir;		// смотреть строго на цель атаки
 				R = me()->AttackActionStrike();						// попытаться запустить напрямую
-				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackStrike cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult, R));
+				UE_LOG(LogMyrAI, Warning, TEXT("AI %s NewAttackStrike cause %s"), *me()->GetName(), *TXTENUM(EResult, R));
 			}
 			//если атаку нельзя продолжить по материальным причинам, а не потому что уже фаза не та
 			else
 			{	PrimaryActorTick.TickInterval = 0.25;				// успокоить метаболизм
 				me()->AttackEnd();
-				UE_LOG(LogMyrAI, Warning, TEXT("AI %s AttackEnd cause %s"), *me()->GetName(), *TXTENUM(EAttackAttemptResult,R));
+				UE_LOG(LogMyrAI, Warning, TEXT("AI %s AttackEnd cause %s"), *me()->GetName(), *TXTENUM(EResult,R));
 			}
 		}
 	}
@@ -303,8 +303,8 @@ void AMyrAI::Tick(float DeltaTime)
 	{
 		uint8 VictimType = 255;
 		auto A = me()->GetGenePool()->Actions[i];
-		auto R = A -> IsActionFitting (me(), Goal_1().Object, &Goal_1(), VictimType, true, true);
-		//UE_LOG(LogMyrAI, Warning, TEXT("AI %s Trying %s cause %s"), *me()->GetName(), *A->HumanReadableName.ToString(), *TXTENUM(EAttackAttemptResult, R));
+		auto R = A -> IsActionFitting (me(), Goal_1().Object, Goal_1().LookAtDist, Goal_1().LookAlign, VictimType, true, true);
+		//UE_LOG(LogMyrAI, Warning, TEXT("AI %s Trying %s cause %s"), *me()->GetName(), *A->HumanReadableName.ToString(), *TXTENUM(EResult, R));
 		if(ActOk(R))
 		{
 			//если нашли атаку
@@ -396,9 +396,9 @@ void AMyrAI::Tick(float DeltaTime)
 		bool TooFar = (Goal_1().LookAtDist > me()->GetBodyLength() * 20);
 
 		//включение механик полета
-		TRA(3, TOGGLE_SOAR, Drive.Gain, (TooFar || Away) && (!FlewHigh));								// взлетать если надо улепетывать или птица достаточно далеко от цели (пока не надо пикировать в нее)
-		TRA(2, TOGGLE_FLY, Drive.Gain, FlewHigh);										// переходить с подъёма на нормальный полёт, когда очень высоко 
-		TRA(1, TOGGLE_WALK, Drive.Gain, OnAir && Drive.Gain > 1 && !Away && !TooFar);	// пикировать, когда цель близко, тяга к ней высока 
+		TRA(3, Soar, Drive.Gain, (TooFar || Away) && (!FlewHigh));								// взлетать если надо улепетывать или птица достаточно далеко от цели (пока не надо пикировать в нее)
+		TRA(2, Fly, Drive.Gain, FlewHigh);										// переходить с подъёма на нормальный полёт, когда очень высоко 
+		TRA(1, Walk, Drive.Gain, OnAir && Drive.Gain > 1 && !Away && !TooFar);	// пикировать, когда цель близко, тяга к ней высока 
 
 	}
 
@@ -407,24 +407,24 @@ void AMyrAI::Tick(float DeltaTime)
 	{
 		//стартовая небольшая вариация скорости (вокруг единицы) - для большой тяги способ стабилизировать
 		float AltGain = 0.8f + 0.2f * Drive.Gain;
-		TRA ( 2, TOGGLE_CROUCH,		AltGain,		StealthAmount > 0.7 + 0.6 * Paranoia);		// при высокой тяге паранойя сильно отвращает от скрадывания, и вообще хочется бежать а не ползти
-		TRA ( 4, TOGGLE_WALK,		0.5 + 0.3*KeepDir,	KeepDir < 0.5);								// в бегу перейти на шаг, если нажо резко развернуться
-		TRA ( 5, TOGGLE_HIGHSPEED,	AltGain,		true);										// перейти на бег - если всё прочее не сработало, то важна только тяга
+		TRA ( 2, Crouch,		AltGain,		StealthAmount > 0.7 + 0.6 * Paranoia);		// при высокой тяге паранойя сильно отвращает от скрадывания, и вообще хочется бежать а не ползти
+		TRA ( 4, Walk,		0.5 + 0.3*KeepDir,	KeepDir < 0.5);								// в бегу перейти на шаг, если нажо резко развернуться
+		TRA ( 5, Run,	AltGain,		true);										// перейти на бег - если всё прочее не сработало, то важна только тяга
 	}
 	//очень низкая тяга
 	else if(Drive.Gain < 0.4f)
 	{
 		//стартовый базис скорости - периодичность
 		float AltGain = Period(0, 1, 2*Drive.Gain);
-		TRA ( 7, TOGGLE_CROUCH,		AltGain,		StealthAmount > 0.8);						// очень исльная тяга скрадывания - чередовать скрадывание и застывание
-		TRA ( 8, TOGGLE_CROUCH,		Drive.Gain,		StealthAmount > 0.4 + 0.2 * Paranoia);		// очень сильная тяга скрыться - чередовать стойку и скрадывание
-		TRA ( 9, TOGGLE_WALK,		AltGain,		true);										// по умолчанию прерывистый шаг, так как медленный шаг некрасив, если в полёте, то парение вниз
+		TRA ( 7, Crouch,		AltGain,		StealthAmount > 0.8);						// очень исльная тяга скрадывания - чередовать скрадывание и застывание
+		TRA ( 8, Crouch,		Drive.Gain,		StealthAmount > 0.4 + 0.2 * Paranoia);		// очень сильная тяга скрыться - чередовать стойку и скрадывание
+		TRA ( 9, Walk,		AltGain,		true);										// по умолчанию прерывистый шаг, так как медленный шаг некрасив, если в полёте, то парение вниз
 	}
 	//нормальная тяга
 	else
-	{	TRA (10, TOGGLE_CROUCH,		Drive.Gain,		StealthAmount > 0.6+0.3*Paranoia);			// скрадывание
-		TRA (11, TOGGLE_WALK,		Drive.Gain,		true);										// стандартное хождение по земле от или на
-		TRA ( 3, TOGGLE_SOAR,		Drive.Gain,		me()->CanFly() && Away);					// при средней тяге взлёт с места только если от цели улепетываем
+	{	TRA (10, Crouch,		Drive.Gain,		StealthAmount > 0.6+0.3*Paranoia);			// скрадывание
+		TRA (11, Walk,		Drive.Gain,		true);										// стандартное хождение по земле от или на
+		TRA ( 3, Soar,		Drive.Gain,		me()->CanFly() && Away);					// при средней тяге взлёт с места только если от цели улепетываем
 	}
 
 }
@@ -450,9 +450,7 @@ void AMyrAI::OnUnPossess()
 		{
 			//для каждого потенциального свидетеля вызвать спец-функцию
 			//которая удаляет ссылку на нас
-			auto Myr = Cast<AMyrPhyCreature>(Actor);
-			if (Myr->MyrAI())
-				Myr->MyrAI()->SeeThatObjectDisappeared(me()->GetMesh());
+			if(auto Myr = Cast<AMyrPhyCreature>(Actor)) Myr->HaveThisDisappeared(me()->GetMesh());
 		}
 	}
 
@@ -1060,10 +1058,18 @@ ERouteResult AMyrAI::SimpleWalkAroundObstacle(FVector3f LookDir, FHitResult* Hit
 	FVector3f NewDir = ClosestPoint - (FVector3f)me()->GetHeadLocation();
 	NewDir.Normalize();
 	UE_LOG(LogTemp, Log, TEXT("AI %s SimpleWalkAroundObstacle %s"), *me()->GetName(), *Hit->Component->GetOwner()->GetName());
-	return ERouteResult::Simple_Walkaround;
+	return ERouteResult::Away_Walkaround;
 }
 
 
+
+//==============================================================================================================
+//новый способ представлять расстояние до цели
+//==============================================================================================================
+uint8 AMyrAI::PackDist(FVector YourLoc)
+{
+	return FMath::Loge(FVector::DistSquared(me()->GetHeadLocation(), YourLoc))*14;
+}
 
 //==============================================================================================================
 //раздобыть данные по конкретному эмоуиональному событию
@@ -1161,7 +1167,7 @@ EMyrLogicEvent operator+(const EMyrLogicEvent& o1, const int& o2) { return (EMyr
 void AMyrAI::DesideHowToReactOnAggression(float Amount, AMyrPhyCreature* Motherfucker)
 {
 
-	// найти противника в памяти
+/*	// найти противника в памяти
 	auto SeinGestaltInMir = Memory.Find(Motherfucker->GetMesh());
 	
 	//агрессия свершается первый раз или нет = почти все эвенты имеют пары отстоящие на 1 (первый не первый)
@@ -1241,7 +1247,7 @@ void AMyrAI::DesideHowToReactOnAggression(float Amount, AMyrPhyCreature* Motherf
 	Motherfucker->	CatchMyrLogicEvent (ExactEventForAgent,		Amount, me()         -> GetMesh());
 
 	//вынести факт повреждения нас на уровень всего слышимого сообщества, чтобы, например, друзья заступились
-	if(Amount > 0.2) LetOthersNotice (EHowSensed::PERCUTED, Amount);
+	if(Amount > 0.2) LetOthersNotice (EHowSensed::PERCUTED, Amount);*/
 }
 
 //==============================================================================================================
@@ -1249,7 +1255,7 @@ void AMyrAI::DesideHowToReactOnAggression(float Amount, AMyrPhyCreature* Motherf
 //==============================================================================================================
 void AMyrAI::DesideHowToReactOnGrace(float Amount, AMyrPhyCreature* Sweetheart)
 {
-	//по умолчанию считаем, что нас задели случайно (презумпция невиновности)
+/*	//по умолчанию считаем, что нас задели случайно (презумпция невиновности)
 	EMyrLogicEvent ExactEventForPatient = EMyrLogicEvent::MePatient_CasualGrace;//▄
 	EMyrLogicEvent ExactEventForAgent = EMyrLogicEvent::MeAgent_CasualGrace;//▄
 
@@ -1287,7 +1293,7 @@ void AMyrAI::DesideHowToReactOnGrace(float Amount, AMyrPhyCreature* Sweetheart)
 
 	//вызвать, наконец, функцию регистрации отысканного события
 	ME()->			CatchMyrLogicEvent (ExactEventForPatient, Amount, Sweetheart->GetMesh());
-	Sweetheart->	CatchMyrLogicEvent (ExactEventForAgent, Amount, me()->GetMesh());
+	Sweetheart->	CatchMyrLogicEvent (ExactEventForAgent, Amount, me()->GetMesh());*/
 }
 
 
@@ -1354,7 +1360,7 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 						uint8 VictimType = 0;
 
 						//комплексная проверка применимости действия с учётом субьъекта, объекта и нацеленности ИИ
-						auto R = A->IsActionFitting (me(), Suspect, SuspectAsMyGoal, VictimType, true, true);
+						auto R = A->IsActionFitting (me(), Suspect, SuspectAsMyGoal->LookAtDist, SuspectAsMyGoal->LookAlign, VictimType, true, true);
 
 						//действие оказалось применимым по всем статьям
 						if(ActOk(R))
@@ -1378,7 +1384,7 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 										if(me()->CanFly())
 										{
 											//для летающих вспархивать при первой замашке
-											Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
+											Drive.DoThis = EAction::Soar;
 											return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
 										}
 										//для нелетающих время еще есть
@@ -1399,8 +1405,8 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 				Drive.MoveDir = -SuspectAsMyGoal->LookAtDir;
 				Drive.Release = false;
 				Drive.Gain = 1.0f;
-				if(me()->CanFly()) Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
-				else Drive.DoThis = ECreatureAction::TOGGLE_HIGHSPEED;
+				if(me()->CanFly()) Drive.DoThis = EAction::Soar;
+				else Drive.DoThis = EAction::Run;
 				return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
 
 			}
@@ -1413,13 +1419,13 @@ EAttackEscapeResult AMyrAI::BewareAttack (UPrimitiveComponent* Suspect, FGoal* S
 				if (SuspectAsMyGoal->LookAtDist < 10 * me()->GetBodyLength())
 				{
 					if (me()->CanFly())
-					{	Drive.DoThis = ECreatureAction::TOGGLE_SOAR;
+					{	Drive.DoThis = EAction::Soar;
 						Drive.Gain = 1.0f;
 						return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
 					}
 					//для сильного страха также по ложной тревоге срываться на бег
 					else if (Goal_1().EventMemory.GetFear() > 0.7)
-					{	Drive.DoThis = ECreatureAction::TOGGLE_HIGHSPEED;
+					{	Drive.DoThis = EAction::Run;
 						Drive.Gain = 1.0f;
 						return EAttackEscapeResult::WE_GONNA_RUN;//◘◘>
 					}
@@ -1457,7 +1463,7 @@ EAttackEscapeResult AMyrAI::CounterStrike(float RealDanger, AMyrPhyCreature* You
 
 	//запустить немедленный переход к активной фазе (сама фаза, может, наступит не сразу)
 	auto R = ME()->AttackActionStrike ();
-	UE_LOG(LogTemp, Warning, TEXT("AI %s CounterStrike AttackStrike %s, accum=%d"), *me()->GetName(), *TXTENUM(EAttackAttemptResult, R), ME()->AttackForceAccum);
+	UE_LOG(LogTemp, Warning, TEXT("AI %s CounterStrike AttackStrike %s, accum=%d"), *me()->GetName(), *TXTENUM(EResult, R), ME()->AttackForceAccum);
 	
 	//если в том или ином виде удалось запустить активную фазу
 	if(StrOk(R))
@@ -1703,14 +1709,14 @@ FColor AMyrAI::ClassRelationToClass (AActor* obj)
 //==============================================================================================================
 FGoal* AMyrAI::MeAsGoalOfThis(const AMyrPhyCreature* MyrAim) const
 {
-	const auto gn1 = MyrAim->MyrAI()->PrimaryGoal;
+/*	const auto gn1 = MyrAim->MyrAI()->PrimaryGoal;
 	FGoal* G = &MyrAim->MyrAI()->Goals[gn1];
 	if (G->Object == me()->GetMesh()) return G;
 
 	const auto gn2 = MyrAim->MyrAI()->SecondaryGoal;
 	G = &MyrAim->MyrAI()->Goals[gn2];
 	if (G->Object == me()->GetMesh()) return G;
-
+	*/
 	return nullptr;
 }
 //==============================================================================================================

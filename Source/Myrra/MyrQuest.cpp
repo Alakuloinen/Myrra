@@ -19,7 +19,7 @@ void FMyrQuestState::PutToWaitingList(TMultiMap<EMyrLogicEvent, FMyrQuestTrigger
 		QT.Value.QuestNextStateName = QT.Key;		//в транзиции ключ - это имя результирующего состояния
 		QT.Value.QuestCurStateName = ThisInMap;		//имя состояния - берется из внешней карты в классе квеста
 		MyrQuestWaitingList.Add(QT.Value.Event, &QT.Value);
-		UE_LOG(LogTemp, Log, TEXT("Quest %s PutToWaitingList - %s"), *Owner->GetName(), *TXTENUM(EMyrLogicEvent, QT.Value.Event));
+		UE_LOG(LogTemp, Log, TEXT("Quest %s PutToWaitingList - %s"), *Owner->GetName(), *UEnum::GetValueAsString(QT.Value.Event));
 	}
 }
 

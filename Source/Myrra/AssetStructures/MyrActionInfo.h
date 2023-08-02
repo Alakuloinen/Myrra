@@ -1,7 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "..\Myrra.h"
-#include "MyrCreatureAttackInfo.generated.h"
+#include "MyrActionInfo.generated.h"
 
 //###################################################################################################################
 // структура полностью посвященная условиям для срабатывания атаки либо самодействия
@@ -11,7 +11,9 @@ USTRUCT(BlueprintType) struct FActionCondition
 	GENERATED_BODY()
 
 	//пределы эмоционального отношения к цели, при которых хочется совершить сие действия
-	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FEmotionRadius FeelToCause;
+	//UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FEmotionRadius FeelToCause;
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FPathia EmotionLim1 = EPathia::Void;
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FPathia EmotionLim2 = EPathia::Insanity;
 
 	//пределы скорости, здоровья, запаса сил, давности установления состояния поведения когда это действие осмысленно
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) FFloatRange Velocities;
@@ -49,19 +51,11 @@ USTRUCT(BlueprintType) struct FActionCondition
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) bool SkipDuringRelax = true;
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////
-	FActionCondition() : Velocities(0.0f, 150.0f), Healthes(0.0f, 1.1f), Staminas(0.0f, 1.1f), StateAges(0.0f, 1000.1f), Sleepinesses(-0.1f, 1.1f) { FeelToCause.EmotionRGBRadiusAlpha = FColor(127,127,127,255);  }
+	FActionCondition() : Velocities(0.0f, 150.0f), Healthes(0.0f, 1.1f), Staminas(0.0f, 1.1f), StateAges(0.0f, 1000.1f), Sleepinesses(-0.1f, 1.1f) {  }
 
 	//подходит ли данное действие для выполнения данным существом
-	EAttackAttemptResult IsFitting(class AMyrPhyCreature* Owner, bool PlayerCommand = true);
+	EResult IsFitting(AActor* Owner, bool PlayerCommand = true);
 
-	//упрощенный путь проверки для неживых предметов (в качестве жертвы)
-	EAttackAttemptResult IsFittingSimple(AActor* Obj)
-	{	if (Actors.Contains(Obj->StaticClass()))
-			if (StatesForbidden) return EAttackAttemptResult::WRONG_ACTOR;//◘◘>
-		if (!Velocities.Contains(Obj->GetVelocity().Size()))
-			return EAttackAttemptResult::OUT_OF_VELOCITY;//◘◘>
-		return EAttackAttemptResult::OKAY_FOR_NOW;//◘◘>
-	}
 
 
 };
@@ -138,7 +132,18 @@ public:
 	float IntegralAmount(float Dist, float AngleDot) {	if (!CheckByRadius(Dist)) return 0.0f; else return AmountByRadius(Dist) * AmountByAngle(AngleDot);	}
 
 	//подходит ли данное данное существо на роль жертвы данной атаки
-	EAttackAttemptResult IsVictimFitting(class AMyrPhyCreature* Owner, UPrimitiveComponent* Victim, bool CheckByChance = true, FGoal* Goal = nullptr, bool ByAI = true);
+	EResult IsVictimFitting(class AMyrPhyCreature* Owner, USceneComponent* Victim, float Rad, float Ang, bool CheckByChance = true, bool ByAI = true)
+	{
+		if (!Victim) return EResult::WRONG_ACTOR;//◘◘>
+		if (Condition.Actors.Contains(((AActor*)Owner)->StaticClass()) == Condition.ActorsForbidden)
+			return EResult::WRONG_ACTOR;//◘◘>
+		if (ByAI)
+		{	if (!CheckByRadius(Rad))	return EResult::OUT_OF_RADIUS;//◘◘>
+			if (!CheckByAngle(Ang))		return EResult::OUT_OF_ANGLE;//◘◘>
+		}
+
+		return Condition.IsFitting(Victim->GetOwner(), CheckByChance);
+	}
 
 };
 
@@ -160,8 +165,9 @@ public:
 	//человекопонятное имя, которое можно отобразить на экране как пункт меню и переовдить
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FText HumanReadableName;
 
-	//тип действия, случай применения, в общем чтобы специальные искать
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction Type;
+	//новый вариант идентификации, одна сборка может использоваться по нескольким типам действий
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<EAction> UsedAs;
+
 
 public:
 
@@ -171,14 +177,21 @@ public:
 	//новый способ совместить атаки и самодействия - массив типов жертв, обычно в нём только одна строчка
 	UPROPERTY(EditAnywhere, Category = "Victim", BlueprintReadWrite) TArray<FVictimType> VictimTypes;
 
+	//если вес ИИ выше этого значения, ИИ может сам инициировать это дйствие,
+	//если тут 0, значит действие может случайно вызываться на персе игрока в нормальном состоянии,
+	//если 1 - ИИ может вызывать это действие только будучи полноправлным хозяином неписи
+	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) float MinAIWeight = 0.0f;
+
 	//если противник сам нас атакует, то вот это - его урон, который мы можем отразить этим действием (даже самодействием) как контратакой, если превышает, то прекратить атаку
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) float MaxDamageWeCounterByThis = 0.0f;
-
 
 	//прерывать или отправлять вспять атаку, если произошло столкновение или увечье
 	UPROPERTY(EditAnywhere, Category = "Conditions", BlueprintReadWrite) float MinHitDamageToCease = 10.0f;
 
 public:
+
+	//кинематический режим, анимация накладывается на стартовую позу без учёта физики и окружения
+	UPROPERTY(EditAnywhere, Category = "Appearance", BlueprintReadWrite) bool LayAnimOnRefPose = false;
 
 	//использовать введенные здесь динамические модели - или не использовать, а продолжать те, что уже установлены
 	//например, если действие содержит мелкую анимацию, но не содержит отдельных физических поз
@@ -217,19 +230,19 @@ public:
 	//подходит ли данное действие для выполнения данным существом
 	//простая форма для игрока, который сам должен думать о цели
 	//вызывается при поиске по ИД действия, может попасть и в ИИ, если прописать
-	EAttackAttemptResult IsActionFitting(class AMyrPhyCreature* Owner, bool CheckByChance = true)
-	{		return Condition.IsFitting(Owner, CheckByChance);	}
+	EResult IsActionFitting(class AMyrPhyCreature* Owner, bool CheckByChance = true)
+	{		return Condition.IsFitting((AActor*)Owner, CheckByChance);	}
 
 	//подходит ли данное действие для выполнения данным существом
 	//сложная форма, только для ИИ, проверяет резон применения на конкретную цель
 	//в ИИ вызывается в переборе всех доступных 
-	EAttackAttemptResult IsActionFitting(class AMyrPhyCreature* Owner,
-		UPrimitiveComponent* ExactVictim,
-		FGoal* Goal, uint8& VictimType,
+	EResult IsActionFitting(class AMyrPhyCreature* Owner,
+		USceneComponent* ExactVictim,
+		float LookAtDist, float LookAlign, 
 		bool ByAI = true, bool CheckByChance = true);
 
 	//упрощенный вариант перетестирования для ИИ
-	EAttackAttemptResult RetestForStrikeForAI(class AMyrPhyCreature* Owner, UPrimitiveComponent* ExactVictim, FGoal* Goal);
+	EResult RetestForStrikeForAI(class AMyrPhyCreature* Owner, UPrimitiveComponent* ExactVictim, float Dist, float Ang);
 
 	//рассчитать время, которое займёт прокат ролика между данными фазами
 	float PhaseTimes(TArray<float> &OutTimes);
@@ -247,23 +260,41 @@ public:
 	bool Better(UMyrActionInfo* Other) const {	return OverallStaminaFactor >= Other->OverallStaminaFactor; 	}
 
 	//проверка возможности попадения в цель, для автонацеливания
-	bool QuickAimResult(class AMyrPhyCreature* Owner, FGoal* Goal, float Accuracy);
+	bool QuickAimResult(class AMyrPhyCreature* Owner, FGestalt Gestalt, float Accuracy);
 
 	//после загрузки (здесь пересчитывается энергоемкость)
 	virtual void PostLoad() override
 	{
-		Super::PostLoad(); RecalcOverallStaminaFactor();
-		for (auto& DM : DynModelsPerPhase)
-		{
-			DM.Pelvis.Correction();
-			DM.Thorax.Correction();
-		}
-		this->GetPackage()->MarkPackageDirty();
+		Super::PostLoad();
 	}
 
+	//найти среди списка динамических моделей, внедряемых этим действием, ту, которая результирует прыжок
+	FWholeBodyDynamicsModel* FindJumpDynModel(int StartFrom = 0)
+	{	for (int i = StartFrom; i<DynModelsPerPhase.Num(); i++)
+			if (DynModelsPerPhase[i].IsJump()) return &DynModelsPerPhase[i];
+		return nullptr;
+	}
+
+	//пересчитать суммарную, максимальную способность этого действия противостоять урону
+	void RecalcMaxDamage()
+	{	MaxDamageWeCounterByThis = 0;
+		for(auto& DM : DynModelsPerPhase)
+			if(DM.DamageLim > MaxDamageWeCounterByThis) MaxDamageWeCounterByThis = DM.DamageLim;
+	}
+
+	
 	//для автоматического пересчета при редактировании
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	void Refine()
+	{
+		//if (UsedAs.Num() == 0)	UsedAs.Add(Type);
+		RecalcOverallStaminaFactor();
+		bool Mut = false;
+		for (auto& DM : DynModelsPerPhase)
+			Mut = Mut || DM.Correction();
+		if(Mut) MarkPackageDirty();
+	}
 #endif
 
 };

@@ -30,11 +30,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb Pectus;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb Thorax;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb Head;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb Tail;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb LArm;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb RArm;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb LLeg;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb RLeg;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FLimb Tail;
 
 	//скорость излечения полученного повреждения, 1 означает, что полное исцеление за секунду
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float HealRate = 0.1;
@@ -49,25 +49,13 @@ public:
 	FWholeBodyDynamicsModel* DynModel;
 
 	//часть тела, в которой зафиксирована максимальная упёртость, для коррекции пути
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb MaxBumpedLimb1 = ELimb::NOLIMB;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb MaxBumpedLimb2 = ELimb::NOLIMB;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb MaxBumpedLimb1 = ELimb::HEAD;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ELimb MaxBumpedLimb2 = ELimb::HEAD;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f IntegralBumpNormal;
 
-
-//статические - только для этого типа скелета
-private:
-
-	//к какому поясу конечностей принадлежит каждая из доступных частей тела - для N(0) поиска
-	static uint8 Section[(int)ELimb::NOLIMB];
-
-	//какой родитель у каждой части тела (в рамках этого класса фиксирован)
-	static ELimb Parent[(int)ELimb::NOLIMB];
-
-	//номер такого же, но с другой стороны, для лап это лево-право, для спины \то перед-назад
-	static ELimb DirectOpposite[(int)ELimb::NOLIMB];
-
-	//таблица доступа для кодов эмоциональных стимулов при повреждении определенной части тела
-	static EEmoCause FeelLimbDamaged[(int)ELimb::NOLIMB];
+	//в начальной позе разница положений таза и груди по оси вверх локальной
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float StartGirdlesDeltaZ;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float StartGirdlesDeltaX;
 
 //стандартные методы и переопределения
 public: 
@@ -126,14 +114,16 @@ public:
 	//взять часть тела по индексу (трюк с последовательным расположением в памяти)
 	FLimb& GetLimb(ELimb li)					{ return ((FLimb*)(&Pelvis))[(int)(li)]; }
 	FLimb& cGetLimb(ELimb li)const				{ return ((FLimb*)(&Pelvis))[(int)(li)]; }
-	FLimb& GetLimbParent(ELimb li)				{ return ((FLimb*)(&Pelvis))[(int) Parent[(int)li] ]; }
+	FLimb& GetLimbParent(ELimb li)				{ return ((FLimb*)(&Pelvis))[(int)LimbParent(li)]; }
 	FLimb& GetLimbParent(FLimb Limb)			{ return GetLimbParent(Limb.WhatAmI); }
-	FLimb& GetOppositeLimb(const FLimb& Limb)	{ return GetLimb((DirectOpposite[(int)Limb.WhatAmI])); }
-	int		GetGirdleId(ELimb li)				{ return Section[(int)li]; }
+	FLimb& GetOppositeLimb(const FLimb& Limb)	{ return GetLimb(LimbOpposite(Limb.WhatAmI)); }
+	FLimb& GetMirrorLimb(const FLimb& Limb)		{ return GetLimb(LimbMirror(Limb.WhatAmI)); }
 
 	//части тела, которые упираются во что-то
 	FLimb& Bumper1()							{ return GetLimb(MaxBumpedLimb1); }
 	FLimb& Bumper2()							{ return GetLimb(MaxBumpedLimb2); }
+	bool Bumps() const 							{ return (MaxBumpedLimb1 != ELimb::NOLIMB && const_cast<UMyrPhyCreatureMesh*>(this)->Bumper1().Floor.IsValid()); }
+	float BumpSteepness() const					{ return FMath::Abs(IntegralBumpNormal | GetLimbAxisUp(MaxBumpedLimb1)); }
 
 	//механизм-поддержка для части тела
 	int				GetMachineBodyIndex (ELimb Limb)  const			{ return MachineGene(Limb)->TipBodyIndex; }
@@ -220,16 +210,13 @@ public:
 	float Erection() const { return (GetLimbPos(ELimb::THORAX) - GetLimbPos(ELimb::PELVIS)).Z; }
 
 	bool LimbLying(FLimb& L, float DownLim = -0.3) const
-	{
-		auto Dn = GetLimbAxisDown(L);
+	{	auto Dn = GetLimbAxisDown(L);
 		return L.Stepped > 0 ? ((L.Floor.Normal | Dn) > DownLim) : Dn.Z > DownLim;
 	}
+
 	//порог опрокидываемости берется по задней-центральной части спины, так как "хабы" могут быть вывернуты из-за подкошенных ног
 	bool IsLyingDown(float DownLim = -0.3) const
-	{ 
-
-		return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisDown(ELimb::LUMBUS).Z > DownLim;
-	}
+	{ 	return cGetLimb(MaxBumpedLimb1).Stepped && IntegralBumpNormal.Z > 0.5 && GetLimbAxisDown(ELimb::LUMBUS).Z > DownLim;	}
 
 	//существо не касается опоры конечностями
 	bool AreFeetInAir() const { return RArm.Stepped + LArm.Stepped + RLeg.Stepped + LLeg.Stepped == 0; }
@@ -249,31 +236,29 @@ public:
 	bool IsTouchingComponent(UPrimitiveComponent* A) { return Tango(Pelvis, A) || Tango(Lumbus, A) || Tango(Thorax, A) || Tango(Pectus, A) || Tango(RArm, A) || Tango(LArm, A) || Tango(LLeg, A) || Tango(RLeg, A) || Tango(Head, A) || Tango(Tail, A); }
 
 	//детекция намеренного натыкания на стену
-	void CheckLimbForBumpedOrder(FLimb& Limb)
+	bool CheckLimbForBumpedOrder(FLimb& Limb)
 	{	const float A = Limb.GetBumpCoaxis();
 		if(A > GetLimb(MaxBumpedLimb1).GetBumpCoaxis())
-			MaxBumpedLimb1 = Limb.WhatAmI; else
+		{ MaxBumpedLimb1 = Limb.WhatAmI; return true; } else
 		if(A > GetLimb(MaxBumpedLimb2).GetBumpCoaxis())
-			MaxBumpedLimb2 = Limb.WhatAmI; 
+		{ MaxBumpedLimb2 = Limb.WhatAmI; return true; }
+		return false;
 	}
 
 	//детекция намеренного натыкания на стену
-	void StuckToStepAmount()
-	{	
-		//по умолчанию уткнутым членом считается голова
-		MaxBumpedLimb1 = MaxBumpedLimb2 = ELimb::HEAD;
-		CheckLimbForBumpedOrder(Head);
-		CheckLimbForBumpedOrder(Pectus);
-		CheckLimbForBumpedOrder(Lumbus);
-		CheckLimbForBumpedOrder(Tail);
-
-		//если нашли реальный уткнутый член, то выгнуть нормаль в его сторону, иначе по умолчанию уткнутость полным передом
-		if (GetLimb(MaxBumpedLimb2).Stepped)
-		{	IntegralBumpNormal += GetLimb(MaxBumpedLimb1).GetWeightedNormal() + GetLimb(MaxBumpedLimb2).GetWeightedNormal();
-			IntegralBumpNormal.Normalize(1.0f);
-		}
-		else IntegralBumpNormal = FMath::Lerp(IntegralBumpNormal, GetLimbAxisBack(Thorax), 0.01);
+	bool FindBumpingLimb()
+	{	auto OldB1 = MaxBumpedLimb1;
+		bool Resu = 
+			CheckLimbForBumpedOrder(Head) ||
+			CheckLimbForBumpedOrder(Pectus) ||
+			CheckLimbForBumpedOrder(Lumbus) ||
+			CheckLimbForBumpedOrder(Tail);
+		IntegralBumpNormal = FMath::Lerp(IntegralBumpNormal, GetLimbAxisBack(Thorax), 0.01);
+		return Resu;
 	}
+
+	//расстояние между костями поясов по оси З
+	float GetGirdlesDeltaZ();
 
 	//изогнуть вектор курса так, чтоб он огибал препятствие или отражался от него; внимание, вектор искажается и не нормируется!
 	bool GuideAlongObstacle (FVector3f &Guide, bool Penetra = false, float Amount = 0.5f);
@@ -301,14 +286,14 @@ public:
 	//скорее всего не нужен
 	bool HasNonFeetImpacts() const { return (Head.Stepped || Pectus.Stepped || Lumbus.Stepped || Thorax.Stepped || Pelvis.Stepped); }
 
-	//скорости для сокращения
+	//скорости отдельных члеников из физдвижка (для сокращения)
 	FVector3f BodySpeed(FLimb& L) const { return (FVector3f)const_cast<UMyrPhyCreatureMesh*>(this)->GetMachineBody(L)->GetUnrealWorldVelocity(); }
 	FVector3f BodySpeed(ELimb L) const { return (FVector3f)const_cast<UMyrPhyCreatureMesh*>(this)->GetMachineBody(L)->GetUnrealWorldVelocity(); }
 	FVector3f BodySpeed(FLimb& L, uint8 Flesh) const	{ return (FVector3f)const_cast<UMyrPhyCreatureMesh*>(this)->GetFleshBody(L,Flesh)->GetUnrealWorldVelocity();	}
 
 	//уровень упертости членика в препятствие - сонаправленность скорости и нормали к поверхности * давность контакта
 	float GetLimbBump(FLimb &L) const
-	{	if (L.Stepped) return ((int)L.Colinea * L.Stepped) / (float)(255 * STEPPED_MAX);
+	{	if (L.Stepped) return L.Stepped / (float)(STEPPED_MAX) * L.Colinea;
 		else return 0.0f;
 	}
 
@@ -325,9 +310,6 @@ public:
 
 	//совершить прыжок
 	void PhyJumpLimb(FLimb& Limb, FVector3f Dir);
-
-	//телепортировать всё тело на седло ветки
-	void TeleportOntoBranch(FBodyInstance* CapsuleBranch);
 
 	//дополнительная инициализация части тела
 	void InitLimb(FLimb& Limb, ELimb Me) {Limb.WhatAmI = Me;}
@@ -351,9 +333,6 @@ public:
 
 	//применить вес физики
 	void PhyDeflect(FLimb& Limb, float Weight);
-
-	//обновить веса физики и увечья для этой части тела
-	void ProcessBodyWeights(FLimb& Limb, float DeltaTime);
 
 	//взять данный предмет за данный членик данной частью тела
 	void Grab (FLimb& GrabberLimb, uint8 ExactBody, FBodyInstance* GrabbedBody, FLimb* GrabbedLimb, FVector ExactAt);
@@ -379,7 +358,11 @@ public:
 	//обнаружение частичного провала под поверхность/зажатия медлу плоскостью
 	ELimb DetectPasThrough();
 
+	void EraseBumpTouch()	{ Bumper1().EraseFloor();	}
+
 	UFUNCTION(BlueprintCallable) float GetDamage(ELimb eLimb) const { return ((FLimb*)(&Pelvis))[(int)(eLimb)].Damage; }
+
+	FTransform GetBoneTransformInRef(FReferenceSkeleton RefSkel, int32 BoneIdx);
 
 //фигня для отладки
 public:
@@ -390,8 +373,12 @@ public:
 	void Log(FLimb& L, FString Addi, float Param, float Param2) { UE_LOG(LogTemp, Log, TEXT("%s: Limb %s: %s %g %g"), *GetOwner()->GetName(), *TXTENUM(ELimb, L.WhatAmI), *Addi, Param, Param2); }
 	void Log(FLimb& L, FString Addi, FString Param) { UE_LOG(LogTemp, Log, TEXT("%s: Limb %s: %s %s"), *GetOwner()->GetName(), *TXTENUM(ELimb, L.WhatAmI), *Addi, *Param); }
 
+
 //статические
 public:
+
+	static FTransform GetBoneTransformRel(FReferenceSkeleton RefSkel, FName Tip, FName Root = NAME_None);
+
 
 	//дурацкая рутина с установкой штук по умолчанию
 	static FConstraintInstance* PreInit()
@@ -424,9 +411,6 @@ public:
 	{	auto DirAlong = Branch->GetUnrealWorldTransform().GetUnitAxis(EAxis::Y);
 		if (DirAlong.Z < 0) DirAlong = -DirAlong; return DirAlong;
 	}
-
-	//выдать вовне номер эмо-стимула при повреждении части тела
-	static EEmoCause GetDamageEmotionCode(ELimb eL) { return FeelLimbDamaged[(int)eL]; }
 
 	//"торможение" переменной - если новое значение меньше - принять сразу (разгон), если больше - впитывать плавно (тормозной путь) со скоростью А
 	static inline void BrakeD (float &D, const float nD, const float A) { if(nD < D) D = nD; else D = FMath::Lerp(D, nD, A); }

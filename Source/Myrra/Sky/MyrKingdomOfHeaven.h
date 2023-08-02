@@ -120,7 +120,7 @@ USTRUCT(BlueprintType) struct FWeatherBase
 	//сила ветра для разнообразия берется как взвешенная разность не только давлений, но и непосредственно облаков
 	float WindSpeed(const FLinearColor& New) const 
 	{	auto D = (AsVector() - FVector3f(New));
-		return D | (D * FVector3f(2,1,4));
+		return D | (D * D * FVector3f(2,1,4));
 	}
 
 	//уровень дождя
@@ -519,11 +519,15 @@ public:	//▄▀ - возвращуны
 	//униполярная фаза луны, если вектора строго разнонаправлены, это полная луна, нуль это нет луны, растущая/стареющая не различаются ибо нах
 	float MoonPhase() const { return 0.5f * FVector::DotProduct(-SunDir(), MoonDir()); }
 
-	//интенсивность, сила вклада луны
-	float MoonIntensity() const { return MoonPhase() * NightAmount() * (-MoonDir().Z); }
-
 	//текущий уровень облачности
 	float Cloudiness() const { return WeatherBase.Cloudiness(WeatherDerived.DryFog); }
+
+	//интенсивность, сила вклада луны
+	float MoonIntensity() const { return (1 - Cloudiness()) * MoonPhase() * NightAmount() * (-MoonDir().Z); }
+
+	//интенсивность, сила вклада луны
+	float SunIntensity() const { return (1 - Cloudiness()) * (-SunDir().Z); }
+
 
 	// астрономия
 	//-----------------------------------------------------

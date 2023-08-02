@@ -1,7 +1,8 @@
 #include "MyrCreatureGenePool.h"
 
 #include "Engine/SkeletalMeshSocket.h"			//для поиска сокетов-хваталок
-#include "MyrCreatureAttackInfo.h"				//для сортировки атак
+#include "MyrActionInfo.h"						//для сортировки атак
+#include "MyrCreatureBehaveStateInfo.h"			//для скоррекции
 
 #include "PhysicsEngine/PhysicsConstraintTemplate.h"//для разбора списка физ-связок в регдолле
 #include "PhysicalMaterials/PhysicalMaterial.h"			// для выкорчевывания материала поверхности пола
@@ -14,7 +15,6 @@ void UMyrCreatureGenePool::PostLoad()
 	//переопределить свойства (возможно, незачем, ибо ассет сохраняется на диске)
 	Super::PostLoad();
 	AnalyseBodyParts();
-	AnalyzeActions();
 }
 
 //==============================================================================================================
@@ -35,10 +35,45 @@ void UMyrCreatureGenePool::PostEditChangeProperty (FPropertyChangedEvent & Prope
 		//пересортировать атаки
 		AnalyzeActions();
 	}
+	if ((PropertyName == GET_MEMBER_NAME_CHECKED(UMyrCreatureGenePool, UpdateActions)))
+	{
+		//пересортировать атаки
+		AnalyzeActions();
+		for (auto& A : Actions)
+			A->Refine();
+		for (auto& B : BehaveStates)
+			B.Value->Refine();
+		UpdateActions = false;
+	}
 
+	
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif
+
+//==============================================================================================================
+//==============================================================================================================
+void UMyrCreatureGenePool::PrepareEmotions()
+{
+	ElementaryEmotionsYe[(int)EYeAt::NotMe]			= FPathia (Peace,		+10, +10, +50, 0);
+	ElementaryEmotionsYe[(int)EYeAt::Big]			= FPathia (Peace,		-10, -10, +90, 0);
+	ElementaryEmotionsYe[(int)EYeAt::New]			= FPathia (Peace,		-10, +30, +30, +10);
+
+	//внешние условия, природа
+	ElementaryEmotionsYe[(int)EYeAt::Shine]			= FPathia (Peace,		+10, +10, -50, +20);
+	ElementaryEmotionsYe[(int)EYeAt::Rain]			= FPathia (Peace,		+50, -50, +20, -2);
+	ElementaryEmotionsYe[(int)EYeAt::Cold]			= FPathia (Peace,		+50, -40, +40, -5);
+	ElementaryEmotionsYe[(int)EYeAt::Night]			= FPathia (Peace,		-5, -10, +40, -1);
+	ElementaryEmotionsYe[(int)EYeAt::Fog]			= FPathia (Peace,		-5, -5,	+60, -1);
+	ElementaryEmotionsYe[(int)EYeAt::Indoor]		= FPathia (Peace,		-5, +30, -20, +10);
+
+	ElementaryEmotionsYe[(int)EYeAt::Dying]			= FPathia (Anxiety,		+20, 0, 0, +20);
+	ElementaryEmotionsYe[(int)EYeAt::Tired]			= FPathia (Pessimism,	0, 0, 0, -2);
+	ElementaryEmotionsYe[(int)EYeAt::Jumping]		= FPathia (Pride,		+10, -20, 0, +10);
+	ElementaryEmotionsYe[(int)EYeAt::Flying]		= FPathia (Mania,		-10, -20, 0, +5);
+
+	ElementaryEmotionsMe[(int)EMeAt::Falling]		= FPathia (Horror,		+0, +0, +50, +1);
+}
 
 
 //==============================================================================================================
@@ -84,9 +119,13 @@ void UMyrCreatureGenePool::AnalyzeActions()
 	for (int i = 0; i < Actions.Num(); i++)
 		if (Actions[i])
 		{
-			ActionMap.Add(Actions[i]->Type, i);
-			UE_LOG(LogTemp, Log, TEXT("GenePool %s, AnalyzeActions, add %s=%d, map num = %d"), *GetName(),
-				*TXTENUM(ECreatureAction, Actions[i]->Type), i, ActionMap.Num());
+			for (auto a : Actions[i]->UsedAs)
+			{
+				ActionMap.Add(a, i);
+				UE_LOG(LogTemp, Warning, TEXT("GenePool %s, AnalyzeActions, Type %s : %d(%s), count = %d"), *GetName(),
+					*TXTENUM(EAction,a), i, *Actions[i]->HumanReadableName.ToString(), ActionMap.Num());
+			}
+
 		}
 	
 }

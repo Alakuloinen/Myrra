@@ -31,7 +31,7 @@ bool UMyrBioStatUserWidget::KeyToEscape(FKey KeyHappened, FName ActionMap, bool 
 //==============================================================================================================
 //вывести для худа называние клавиш, которыми делается следующее действие (или перенести в виджет)
 //==============================================================================================================
-UFUNCTION(BlueprintCallable) bool UMyrBioStatUserWidget::GetKeysForCreatureAction(ECreatureAction Action, FString& OutString) const
+UFUNCTION(BlueprintCallable) bool UMyrBioStatUserWidget::GetKeysForCreatureAction(EAction Action, FString& OutString) const
 {
 	OutString = TEXT("");
 	if(MyrOwner)
@@ -84,31 +84,6 @@ void UMyrBioStatUserWidget::SetProgressBarFillType(UProgressBar* PB, TEnumAsByte
 	PB->BarFillType = Newft;
 	if( Newft==EProgressBarFillType::RightToLeft) PB->SetRenderTransformAngle(180); else
 		PB->SetRenderTransformAngle(0);
-}
-
-//окрасить кнопку нужными цветами
-void UMyrBioStatUserWidget::PaintButton(UButton* Butt, bool Selected)
-{
-	if (!Butt->GetIsEnabled())
-	{
-		Butt->SetColorAndOpacity(FLinearColor(0.5, 0.5, 0.5, 1));
-		Butt->SetBackgroundColor(FLinearColor(0,0,0,1));
-	}
-	else
-	{
-		if (Selected)
-		{
-			Butt->SetColorAndOpacity(GetMyrraGameInstance()->ButtonTextSelected);
-			if (Butt->IsHovered())	Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundSelectedHovered);
-			else					Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundSelected);
-		}
-		else
-		{
-			Butt->SetColorAndOpacity(GetMyrraGameInstance()->ButtonTextUnSelected);
-			if (Butt->IsHovered())	Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundUnSelectedHovered);
-			else					Butt->SetBackgroundColor(GetMyrraGameInstance()->ButtonBackgroundUnSelected);
-		}
-	}
 }
 
 

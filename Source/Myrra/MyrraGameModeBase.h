@@ -101,8 +101,18 @@ public: //возвращуны
 	//протагониста в виде конесного существа
 	UFUNCTION(BlueprintCallable) class AMyrPhyCreature* GetProtagonist();
 
-	//для списка воздействий в интерфейсе выдать вот это вот воздействие для главного героя
-	UFUNCTION(BlueprintCallable) FEmoStimulus GetMyStimulus(EEmoCause Cause) const;
+	//степень выраженности утра, дня, вечера, ночи
+	UFUNCTION(BlueprintCallable) float MorningAmount() const;
+	UFUNCTION(BlueprintCallable) float DayAmount() const;
+	UFUNCTION(BlueprintCallable) float EveningAmount() const;
+	UFUNCTION(BlueprintCallable) float NightAmount() const;
+	UFUNCTION(BlueprintCallable) float MoonIntensity() const;
+	UFUNCTION(BlueprintCallable) float SunIntensity() const;
+	UFUNCTION(BlueprintCallable) float Cloudiness() const;
+	UFUNCTION(BlueprintCallable) float RainAmount() const;
+	UFUNCTION(BlueprintCallable) float FogAmount() const;
+	UFUNCTION(BlueprintCallable) float Temperature() const;
+
 
 	//тип восприятия протагониста - нормальное, чутьё на одних, чутьё на других
 	//от этого зависит, что рисовать на экране

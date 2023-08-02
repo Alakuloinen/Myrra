@@ -92,7 +92,7 @@ void AMyrPlayerController::UpdateRotation(float DeltaTime)
 void AMyrPlayerController::ChangeWidgetRefs(AMyrPhyCreature* PC)
 {
 	WidgetHUD->MyrOwner = PC;
-	WidgetHUD->MyrAI = PC->MyrAI();
+	WidgetHUD->MyrAIC = PC->MyrAIController();
 	WidgetUI->MyrOwner = PC;
 }
 
@@ -121,12 +121,12 @@ void AMyrPlayerController::ChangeWidgets(EUIEntry NewEntry)
 	auto GameMode = Cast<AMyrraGameModeBase>(GetWorld()->GetAuthGameMode());
 
 
-	//переключение на меню конкретное
+	//переключение на меню, а не выход в режим игры (эта ветка внутри заканчивает функцию)
 	if(NewEntry != EUIEntry::NONE)
 	{
 		//поискать в принципе такую команду в этом гейммоде, если нет, то вызов некорректный
-		auto Data = GameMode->MenuSets.Find(NewEntry);
-		if (!Data) return;
+		auto MenuEntryData = GameMode->MenuSets.Find(NewEntry);
+		if (!MenuEntryData) return;
 
 		//если замещается игровой интерфейс 
 		if (!bUI)
@@ -134,14 +134,16 @@ void AMyrPlayerController::ChangeWidgets(EUIEntry NewEntry)
 			//удалить виджет худа с экрана
 			WidgetHUD->RemoveFromParent();
 
-			//записать если нужно, новый набор меню
-			WidgetUI->InitNewMenuSet(Data->AsMenu);
 
 			//переключить внутренний набор на нужное окно
-			WidgetUI->ChangeCurrentWidget(NewEntry);
+			auto oldEntry = WidgetUI->CurrentWidgetId;
+			WidgetUI->MakeWidgetCurrent(NewEntry);
 
 			//сразу поместить на экран
 			WidgetUI->AddToViewport();
+
+			//пересоздать меню кнопок и набор окон с опциями
+			WidgetUI->InitNewMenuSet(MenuEntryData->AsMenu);
 
 			//настроить управление, характерное для меню, с курсором и кнопками
 			FInputModeUIOnly InputModeData;
@@ -161,6 +163,7 @@ void AMyrPlayerController::ChangeWidgets(EUIEntry NewEntry)
 			SetTickableWhenPaused(true);
 			UGameplayStatics::SetGamePaused(GetWorld(), true);
 			bUI = true;
+			UE_LOG(LogTemp, Log, TEXT("ChangeWidgets %s from game [%s >> %s]"), *WidgetUI->GetName(), *TXTENUM(EUIEntry, oldEntry), *TXTENUM(EUIEntry, NewEntry));
 			return;
 		}
 
@@ -168,8 +171,10 @@ void AMyrPlayerController::ChangeWidgets(EUIEntry NewEntry)
 		else if (WidgetUI->CurrentWidgetId != NewEntry)
 		{
 			//переключить внутренний набор на нужное окно
-			WidgetUI->ChangeCurrentWidget(NewEntry);
+			auto oldEntry = WidgetUI->CurrentWidgetId;
+			WidgetUI->MakeWidgetCurrent(NewEntry);
 			bUI = true;
+			UE_LOG(LogTemp, Log, TEXT("ChangeWidgets %s within menu [%s >> %s]"), *WidgetUI->GetName(), *TXTENUM(EUIEntry, oldEntry), *TXTENUM(EUIEntry, NewEntry));
 			return;
 		}
 
@@ -178,6 +183,7 @@ void AMyrPlayerController::ChangeWidgets(EUIEntry NewEntry)
 	//если функция до сих пор не закончилась, наступает черед смены режима с меню на игровой худ
 	//убрать с экрана старый виджет
 	WidgetUI->RemoveFromParent();
+	UE_LOG(LogTemp, Log, TEXT("ChangeWidgets: switch to game %s"), *WidgetHUD->GetName());
 
 	//сразу поместить на экран
 	WidgetHUD->AddToViewport();

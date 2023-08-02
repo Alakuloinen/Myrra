@@ -3,44 +3,95 @@
 #include "CoreMinimal.h"
 #include "AdvMath.generated.h"
 
-//для векторов, обозначающих короткие и нормированные направления (коль скоро пиздохуёблядский УЕ5 перекроил все под double)
-//typedef UE::Math::TVector<float> FVector3f;
-//#define FVector3f FVector3f
-/*USTRUCT(BlueprintType) struct FVector3f
-{	GENERATED_BODY()
-public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FVector3f M;
-	FVector3f():M(0){}
-	FVector3f(float A):M(A){}
-	FVector3f(float iX, float iY, float iZ) :M(iX, iY, iZ) {}
-	FVector3f(const FVector3f& iM) :M(iM) {}
-	FVector3f(const FVector& iM) :M(iM) {}
-	operator FVector() { return (FVector)M; }
-	operator FVector3f() { return M; }
-	float operator|(const FVector3f& D) { return M | D.M; }
-	FVector3f operator^(const FVector3f& D) { return M ^ D.M; }
-	float SizeSquared() const { return M.SizeSquared(); }
-};*/
+#define VF(x) ((FVector3f)(x))
+#define VD(x) ((FVector)(x))
+
+//###################################################################################################################
+// представление байта как нормированного дробного
+//###################################################################################################################
+USTRUCT(BlueprintType) struct FRatio
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	uint8 M;
+
+	uint8 iAdd(const int O) const { return FMath::Clamp((int)M + (int)O, 0, 255); }
+	uint8 Intp(const uint8 O) const { int A = (int)M-O; return M + (A<0)?1:(A>0)?-1:0; }
+	uint8 Diff(const uint8 O) const { FMath::Abs((int)M - O); }
+
+	uint8 fAdd(const float O) const { return iAdd(O*255); }
+	operator float() { return (float)M / 255; }
+	operator float() const { return (float)M / 255; }
+
+	FRatio() :M(0) {}
+	FRatio(float In):M(0) { fAdd(In); }
+	FRatio(int In) :M(0) { iAdd(In); }
+
+	FRatio operator+(const int &O) { return FRatio(iAdd(O)); }
+	FRatio operator-(const int &O) { return FRatio(iAdd(-O)); }
+	FRatio operator++(int nahui) { return FRatio(iAdd(1)); }
+	FRatio operator--(int nahui) { return FRatio(iAdd(-1)); }
+	FRatio operator+(const float& O) { return FRatio(fAdd(O)); }
+	FRatio operator-(const float& O) { return FRatio(fAdd(-O)); }
+
+	FRatio operator+(const FRatio& O) { return *this + (int)(O.M); }
+	FRatio operator-(const FRatio& O) { return *this - (int)(O.M); }
+	FRatio operator|(const FRatio& O) const { return Diff(O.M); }	// разница, дельта
+	FRatio operator>>(const FRatio& O) { return Intp(O.M); }		// интерполяция линейная
+};
+
+USTRUCT(BlueprintType) struct FBipolar : public FRatio
+{
+	GENERATED_BODY()
+
+	operator float() { return (float)M / 127.0f - 1.0f; }
+	operator float() const { return (float)M / 127.0f - 1.0f; }
+	uint8 fAdd(const float O) const { return iAdd((0.5*O+0.5f)*255); }
+
+	FBipolar() :FRatio(0) {}
+	FBipolar(float In):FRatio(0) { M = fAdd(In); }
+	FBipolar(int In) :FRatio(0) { M = iAdd(In); }
+
+	FBipolar operator+(const int &O) { return FBipolar(iAdd(O)); }
+	FBipolar operator-(const int &O) { return FBipolar(iAdd(-O)); }
+	FBipolar operator++(int nahui) { return FBipolar(iAdd(1)); }
+	FBipolar operator--(int nahui) { return FBipolar(iAdd(-1)); }
+	FBipolar operator+(const float& O) { return FBipolar(fAdd(O)); }
+	FBipolar operator-(const float& O) { return FBipolar(fAdd(-O)); }
+
+	FBipolar operator+(const FBipolar& O) { return *this + (int)(O.M); }
+	FBipolar operator-(const FBipolar& O) { return *this - (int)(O.M); }
+	FBipolar operator|(const FBipolar& O) const { return Diff(O.M); }	// разница, дельта
+	FBipolar operator>>(const FBipolar& O) { return Intp(O.M); }		// интерполяция линейная
+};
+
 
 inline FVector3f operator*(FVector A, FVector3f B) { return (FVector3f)(A * (FVector)B); }
-inline FVector3f operator+(FVector A, FVector3f B) { return (FVector3f)(A + (FVector)B); }
+//inline FVector3f operator+(FVector A, FVector3f B) { return (FVector3f)(A + (FVector)B); }
 inline FVector3f operator-(FVector A, FVector3f B) { return (FVector3f)(A - (FVector)B); }
 inline FVector3f operator-(FVector3f A, FVector B) { return (FVector3f)((FVector)A - B); }
+inline FVector   operator+(FVector A, FVector3f B) { return (FVector)(A + (FVector)B); }
 
 
 //ограничить нулем и единицей с насыщением (чтоб не писать длинные FMath::Clamp(...) )
 float FORCEINLINE SAT01(float v) { return v>1.0f ? 1.0f : (v<0.0f ? 0.0f : v); }
+
+#define VMID (FVector3f(0.5f, 0.5f, 0.5f))
+
 
 //==============================================================================================================
 //линейная интерполяция в прямом смысле, с константным шагом, никаких кривых
 //==============================================================================================================
 float FORCEINLINE StepTo( float OldVal, float NewVal, float Step)
 {
-	
 	float Diffe = NewVal - OldVal;
 	if(Diffe > Step)	return OldVal + Step; else
 	if(Diffe < -Step)	return OldVal - Step; else
 						return NewVal;
+}
+
+uint8 FORCEINLINE To(const uint8 Me, const uint8 You)
+{
+	if (You > Me) return Me + 1; else if (You < Me) return Me - 1; else return Me;
 }
 
 
@@ -66,6 +117,23 @@ float FORCEINLINE SmoothDistortion01(const float& PrevValue, const float NewValu
 float FORCEINLINE SmoothDistortion01uni(const float& PrevValue, const float NewValue, float Coeff)
 {
 	return PrevValue + (NewValue - PrevValue)*Coeff*(1.0 - 0.9*FMath::Abs(NewValue - PrevValue));
+}
+
+//==============================================================================================================
+//функция колокол
+//==============================================================================================================
+float FORCEINLINE Bell(float X)
+{
+	if (X > 1 || X < 0) return 0;
+	auto x = X * 2 - 1;
+	auto xx = x * x;
+	return 1 + 2 * FMath::Abs(x * xx) - 3 * xx;
+}
+
+float FORCEINLINE HardBell(float X)
+{
+	if (X > 1 || X < 0) return 0;
+	return 4 * X * (1 - X);
 }
 
 //==============================================================================================================
@@ -154,3 +222,87 @@ float FORCEINLINE UFastArcSin(float X)
 	return X * ( 1 + X*X*( 1/6 + X*X*(3/8 + 15/48*X*X))); 
 }
 
+uint8 FORCEINLINE FastLog2(uint64 A)
+{
+	const uint8 tab64[64] = {
+    63,  0, 58,  1, 59, 47, 53,  2,
+    60, 39, 48, 27, 54, 33, 42,  3,
+    61, 51, 37, 40, 49, 18, 28, 20,
+    55, 30, 34, 11, 43, 14, 22,  4,
+    62, 57, 46, 52, 38, 26, 32, 41,
+    50, 36, 17, 19, 29, 10, 13, 21,
+    56, 45, 25, 31, 35, 16,  9, 12,
+    44, 24, 15,  8, 23,  7,  6,  5};
+    A |= A >> 1;
+    A |= A >> 2;
+    A |= A >> 4;
+    A |= A >> 8;
+    A |= A >> 16;
+    A |= A >> 32;
+    return tab64[((uint64_t)((A - (A >> 1))*0x07EDD5E59A4E28C2)) >> 58];
+}
+
+uint8 FORCEINLINE FastLog2(uint32 A)
+{
+	const uint8 tab32[32] = {
+     0,  9,  1, 10, 13, 21,  2, 29,
+    11, 14, 16, 18, 22, 25,  3, 30,
+     8, 12, 20, 28, 15, 17, 24,  7,
+    19, 27, 23,  6, 26,  5,  4, 31};
+    A |= A >> 1;
+    A |= A >> 2;
+    A |= A >> 4;
+    A |= A >> 8;
+    A |= A >> 16;
+    return tab32[(uint32_t)(A*0x07C4ACDD) >> 27];
+}
+
+//==============================================================================================================
+// оценка скорости для достижения цели по баллистической траектории
+//==============================================================================================================
+
+	//TargetPos = MyPos + V*Time + a*Time*Time/2
+	//MyPos - TargetPos + V*Time + a*Time*Time/2 = 0
+	//(a/2)t^2 + (V)t + (-R) = 0
+
+//скорость начальная баллистической траектории при заданных начальной и конечной точке, времени полёта
+FVector3f FORCEINLINE BallisticStartVel(FVector3f YouMinusMe, float Time)
+{ return (YouMinusMe - 0.5 * FVector3f(0,0,-981) * Time * Time) / Time; }
+
+//оценка времени для пролёта по вектору с заданной скоростью
+float FORCEINLINE BallisticMinTime(FVector3f YouMinusMe, float MaxVz, float MaxVxy)
+{ return FMath::Sqrt((FMath::Abs(YouMinusMe.X*YouMinusMe.Y) + YouMinusMe.Z*YouMinusMe.Z)/(MaxVz*MaxVz + MaxVxy*MaxVxy)); }
+
+//два корня квадратного уровненения, два времени пути для достижения заданной точки
+FVector2f FORCEINLINE BallisticFlightTimes(FVector3f YouMinusMe, FVector3f V)
+{	FVector3f g(0,0,-981);											// ускорение
+	auto D = V.Z * V.Z - 4 * (g.Z/2) * (-YouMinusMe.Z);				// дискриминант b^2 - 4ac
+	if (D >= 0)														// имеются корни, то есть траектория существует (а может здесь быть иначе?)
+	{	float rD = FMath::Sqrt(D);									
+		float Divi = 1 / (2 * (g.Z / 2));
+		return FVector2f (-V.Z + rD, -V.Z - rD) * Divi;				// вычисление двух корней (-b+-rD)/2a
+	}else return FVector2f (-1, -1);								// неверные времена
+}
+
+FVector3f FORCEINLINE FindBallisticStartVelocity(FVector TargetPos, FVector MyPos, float MaxVz, float MaxVxy, float& Time)
+{
+	float MaxTime = Time;										// сохранить максимально отведенное для прыжка время
+	FVector3f R = FVector3f(TargetPos - MyPos);					// радиус-вектор, прямая дорога до цели
+	Time = BallisticMinTime(R, MaxVz, MaxVxy);					// оценка времени на преодоление расстояния
+	FVector3f V = BallisticStartVel(R, Time);					// первое приближение для скорости
+	
+	// если скорость получается больше, чем можно выдюжить
+	while (FMath::Abs(V.Z) > MaxVz || V.SizeSquared2D() > MaxVxy * MaxVxy)
+	{	Time *= 1.1;
+		V = BallisticStartVel(R, Time);
+		if (Time > MaxTime) return FVector3f(0);
+	}
+	return V;
+}
+//extern FVector3f FindBallisticStartVelocity(FVector TargetPos, FVector MyPos, float MaxVz, float MaxVxy, float& Time);
+
+//просто точку на параболе с нужным сдвигом времени
+FVector FORCEINLINE PosOnBallisticTrajectory(FVector3f V, FVector StartPos, float T)
+{
+	return StartPos + FVector(V)*T + FVector(0,0,-981)*T*T/2;
+}

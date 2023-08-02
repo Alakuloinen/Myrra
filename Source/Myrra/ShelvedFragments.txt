@@ -1,4 +1,16 @@
-﻿
+﻿				//определение фазы как сетпени раскоряки ноги сзада на перед
+				auto FootShadow = PROJ(UnpackLegLine(Foot), Foot.Floor.Normal);
+				FVector3f Frontal = PROJ(LAXIS(SPN, Forth), Foot.Floor.Normal); Frontal *= FMath::Sign(GuidedMoveDir | Frontal);
+				FVector3f Lateral = PROJ(LAXIS(SPN, Left ), Foot.Floor.Normal); Lateral *= FMath::Sign(GuidedMoveDir | Lateral);
+				float TempPhase = (FootShadow|Lateral)/10 + (FootShadow|Frontal); // степень прошагивания через раскоряку ноги относительно курса
+				TempPhase = TempPhase / (2 * IdealStepSizeX(Speed));	// приведение степени прошагивания в диапазон  0-1
+				if (TempPhase > -StepMech.Phase) StepMech.Phase = -TempPhase;	// если абсолютная фаза растет монотонно, то она хорошо отмеряет процент шага
+				else StepMech.ShiftPhaseOnGnd(ShiftForFrame / StepLenNow);		// если фаза растет немонотонно, отмеряем фазу примерно - через приращения
+				PackLegLine(Foot, StepMech.NewFootPos - Start);					// рутинная постановка ноги в след
+				UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: ProcessSteps %s Phase %g"),
+					*GetOwner()->GetName(), *TXTENUM(ELimb, Foot.WhatAmI), TempPhase);
+
+
 //==============================================================================================================
 // обновить нормаль после удара (развернуть компонент-стрелку плавно в сторону новой нормали)
 //==============================================================================================================

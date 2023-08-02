@@ -146,6 +146,10 @@ public:
 	FTriggerReason* HasReaction(EWhyTrigger Tmin, EWhyTrigger Tmax)				{ for (auto& R : Reactions) if ((int)R.Why >= (int)Tmin && (int)R.Why <= (int)Tmax) return &R; return nullptr; }
 	FTriggerReason* HasReaction(EWhyTrigger T, EWhoCame W)						{ for (auto& R : Reactions) if (R.Why == T) if(R.MayIt(W)) return &R; return nullptr; }
 
+	//если в этом тригер объеме содержится цель прыжка, то выдает степень пригодности этой цели для прыжка, чтобы существо выбрало лучший из триггеров
+	float JumpGoalRating(AMyrPhyCreature* C, float Radius, float Coaxis);
+
+
 	///////////////////////////////////////
 
 	//прореагировать одну строку реакции

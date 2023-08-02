@@ -7,7 +7,7 @@
 //обобщение атак и прочих действий существа - для замены существующей тесной системы атак
 //ЭТО МАРАЗАМ, ТОВАРИЩИ - чтобы в анимации узел Blend Poses by Enum работал привильно, нужно объявлять ВСЕ значения в числовом интервале
 //просто иначе последняя константа, равная 255 никогда не видится блюпринтом
-UENUM(BlueprintType) enum class ECreatureAction : uint8
+UENUM(BlueprintType) enum class EAction : uint8
 {
 	ATTACK_PAW_1 = 0,				//атака передней конечностью
 	ATTACK_PAW_2 = 1,				//атака передней конечностью 
@@ -162,16 +162,24 @@ UENUM(BlueprintType) enum class ECreatureAction : uint8
 	ATTACK146 = 146 UMETA(Hidden),
 	ATTACK147 = 147 UMETA(Hidden),
 	ATTACK148 = 148 UMETA(Hidden),
-	ATTACK149 = 149 UMETA(Hidden),
-	ATTACK150 = 150 UMETA(Hidden),
-	ATTACK151 = 151 UMETA(Hidden),
-	ATTACK152 = 152 UMETA(Hidden),
-	ATTACK153 = 153 UMETA(Hidden),
-	ATTACK154 = 154 UMETA(Hidden),
-	ATTACK155 = 155 UMETA(Hidden),
-	ATTACK156 = 156 UMETA(Hidden),
-	ATTACK157 = 157 UMETA(Hidden),
-	ATTACK158 = 158 UMETA(Hidden),
+
+	Bump_GoodWall_Fast = 149,
+	Bump_GoodWall_Slow = 150,
+	Bump_BadWall_Slow = 151,
+	Bump_BadWall_Fast = 152,
+	Bump_Rear_Slow = 153,
+	Bump_Rear_Fast = 154,
+
+	//действие при желании залезть и обнаружении пригодной для лазанья поверхности, которую касается передняя часть тела или виртуальные ноги
+	Bump_Climb_GoodWall = 155,
+
+	//действие при желании залезть и обнаружении неподходящей поверхности под ногами или в контакте с верхом
+	Bump_Climb_BadWall = 156,
+
+	RaiseFront = 157,
+
+	RaiseBack = 158,
+
 	ATTACK159 = 159 UMETA(Hidden),
 	ATTACK160 = 160 UMETA(Hidden),
 	ATTACK161 = 161 UMETA(Hidden),
@@ -284,15 +292,15 @@ UENUM(BlueprintType) enum class ECreatureAction : uint8
 
 	JUMP_BACK1 = 245,				//прыгнуть назад
 	JUMP_BACK2 = 246,				//прыгнуть назад
-	JUMP_BACK3 = 247,				//прыгнуть назад
 
-	TOGGLE_MOVE = 248,
-	TOGGLE_WALK = 249,
-	TOGGLE_HIGHSPEED = 250,
-	TOGGLE_CROUCH = 251,
-	TOGGLE_CLIMB = 252,
-	TOGGLE_FLY = 253,
-	TOGGLE_SOAR = 254,
+	Sprint = 247,				
+	Move = 248,
+	Walk = 249,
+	Run = 250,
+	Crouch = 251,
+	Climb = 252,
+	Fly = 253,
+	Soar = 254,
 	NONE = 255
 };
 
@@ -319,7 +327,7 @@ USTRUCT(BlueprintType) struct FActionPhaseSet
 
 
 //для отладки и не только - результат предложения сделать атаку
-UENUM() enum class EAttackAttemptResult : uint8
+UENUM() enum class EResult : uint8
 {
 	NO_WILL = 0,
 	WRONG_ACTOR,
@@ -331,6 +339,7 @@ UENUM() enum class EAttackAttemptResult : uint8
 	OUT_OF_CHANCE,		// не атаковали потому что вероятность не выпала
 	OUT_OF_BEHAVE_STATE,
 	OUT_OF_STAYING_MUTE,
+	TOO_WEAK_AI,
 	FORBIDDEN_IN_RELAX,
 	OUT_OF_STAMINA,
 	OUT_OF_HEALTH,
@@ -352,11 +361,14 @@ UENUM() enum class EAttackAttemptResult : uint8
 	LOW_PRIORITY,
 	INJURED,
 	NO_GOAL,
-	OKAY_FOR_NOW
+	OKAY_FOR_NOW,
+
+	
+
 };
 
-inline bool ActOk(EAttackAttemptResult R) { return (R == EAttackAttemptResult::OKAY_FOR_NOW); }
-inline bool StrOk(EAttackAttemptResult R) { return (R == EAttackAttemptResult::STROKE || R == EAttackAttemptResult::RUSHED_TO_STRIKE || R == EAttackAttemptResult::GONE_TO_STRIKE_AGAIN); }
+inline bool ActOk(EResult R) { return (R == EResult::OKAY_FOR_NOW); }
+inline bool StrOk(EResult R) { return (R == EResult::STROKE || R == EResult::RUSHED_TO_STRIKE || R == EResult::GONE_TO_STRIKE_AGAIN); }
 
 
 //кнопки мыши и клавиши
@@ -380,16 +392,16 @@ enum PLAYER_CAUSE
 USTRUCT(BlueprintType) struct FBehaveStatePlayerTriggeredActions
 {
 	GENERATED_USTRUCT_BODY()
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionLButton = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionMButton = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionRButton = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionQParry = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionEUse = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionSpace = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionAlt = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionCtrl = ECreatureAction::NONE;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction ActionShift = ECreatureAction::NONE;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionLButton = EAction::ATTACK_PAW_1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionMButton = EAction::Climb;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionRButton = EAction::ATTACK_MOUTH_1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionQParry = EAction::ATTACK_PARRY1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionEUse = EAction::PICK_AT_START1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionSpace = EAction::JUMP_FORTH1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionAlt = EAction::JUMP_BACK1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionCtrl = EAction::Crouch;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction ActionShift = EAction::Run;
 
 	//обращение по индексу
-	ECreatureAction ByIndex(int i) { return ((ECreatureAction*)this)[i]; }
+	EAction ByIndex(int i) { return ((EAction*)this)[i]; }
 };

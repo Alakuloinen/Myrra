@@ -34,6 +34,7 @@
 
 //свои
 #include "MyrPlayerController.h"						// специальный контроллер игрока
+#include "MyrCamera.h"									// камера
 #include "../MyrraGameInstance.h"						// самые общие на всю игру данные
 #include "../MyrraGameModeBase.h"						// общие для данного уровня данные
 #include "../Creature/MyrPhyCreature.h"					// ПОДОПЕЧНОЕ СУЩЕСТВО
@@ -59,9 +60,9 @@ AMyrraGameModeBase* AMyrDaemon::GetMyrGameMode()
 //==============================================================================================================
 //найти идентификатор реального действия (специфичный для этого существа) привязанный к условной кнопке
 //==============================================================================================================
-ECreatureAction AMyrDaemon::FindActionForPlayerButton(uint8 Button)
+EAction AMyrDaemon::FindActionForPlayerButton(uint8 Button)
 {
-	if (Button > PCK_MAXIMUM) return ECreatureAction::NONE;
+	if (Button > PCK_MAXIMUM) return EAction::NONE;
 	auto BehaveSpecificActions = OwnedCreature->GetGenePool()->PlayerStateTriggeredActions.Find(OwnedCreature->GetBehaveCurrentState());
 	if (BehaveSpecificActions) return BehaveSpecificActions->ByIndex(Button);
 	else return OwnedCreature->GetGenePool()->PlayerDefaultTriggeredActions.ByIndex(Button);
@@ -104,9 +105,8 @@ AMyrDaemon::AMyrDaemon()
 	RootComp->SetUsingAbsoluteRotation(true);	// чтобы не поворачивалось пространства вместе с существом
 
 	// Create a follow camera
-	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+	Camera = CreateDefaultSubobject<UMyrCamera>(TEXT("FollowCamera"));
 	Camera->SetupAttachment(RootComponent);
-	MoveCamera3p();
 	Camera->bUsePawnControlRotation = false;
 
 
@@ -122,13 +122,6 @@ AMyrDaemon::AMyrDaemon()
 	ParticleSystem->SetupAttachment(RootComponent);
 	ParticleSystem->SetRelativeLocation(FVector(0, 0, 0));
 	ParticleSystem->SetUsingAbsoluteRotation(true);
-
-	//вспомогательный источник эффекта частиц
-	SecondaryParticleSystem = CreateDefaultSubobject<UNiagaraComponent>(TEXT("SecondaryParticles"));
-	SecondaryParticleSystem->SetupAttachment(RootComponent);
-	SecondaryParticleSystem->SetRelativeLocation(FVector(0, 0, 0));
-	SecondaryParticleSystem->SetUsingAbsoluteRotation(true);
-	SecondaryParticleSystem->SetUsingAbsoluteLocation(true);
 
 	//звуки природы, окружения
 	AmbientSounds = CreateDefaultSubobject<UAudioComponent>(TEXT("Ambient Sound"));
@@ -319,14 +312,15 @@ void AMyrDaemon::BeginPlay()
 	CaptureLighting->HiddenActors.Add(OwnedCreature);
 
 	//расстояние камеры от цели, зависит от размера цели, хотя лучше завести переменную в генофонде
-	ThirdPersonDist = OwnedCreature->GetBodyLength()*2;
-	MoveCamera3p();
+	Camera->DistanceBasis = OwnedCreature->GetBodyLength()*2;
+	Camera->SetPerson(33);
+	//MoveCamera3p();
 
-	//закрепить камеру на правильной секции
+	//закрепить всю конструкцию на правильной секции
 	PoseInsideCreature();
 
 	//здесь инициализируется экран боли
-	SetFirstPerson(false);
+	//SetFirstPerson(false);
 
 	//сбросить счетчик, пока не собираемся выбывать
 	PreGameOverLimit = 0;
@@ -339,11 +333,11 @@ void AMyrDaemon::BeginPlay()
 	PreviousPosition = GetActorLocation();
 
 	//запустить тряску камеры, она бесконечна и регулируется параметрами
-	if (Shake.Get())	MyrController()->AddCameraShake(Shake);
-	if (PainShake.Get())	MyrController()->AddPainCameraShake(PainShake);
+	//if (Shake.Get())	MyrController()->AddCameraShake(Shake);
+	//if (PainShake.Get())	MyrController()->AddPainCameraShake(PainShake);
 
 	//разблокировать настройку контраста = его регулирует сонность
-	Camera->PostProcessSettings.bOverride_ColorContrastMidtones = true;
+	//Camera->PostProcessSettings.bOverride_ColorContrastMidtones = true;
 
 	//для реакции на капли дождя
 	ParticleSystem->SetNiagaraVariableObject(TEXT("MyrDaemonBP"), this);
@@ -367,27 +361,20 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
-	if (!EnvMatParam) return;
-	auto MPC = GetWorld()->GetParameterCollectionInstance(EnvMatParam);
 
 	if(!GetMyrGameInst()) return;
 	if(!GetMyrGameMode()) return;
+	if (!EnvMatParam) return;
 	if(!OwnedCreature) return;
 
 	//направление действий/атак/головы - куда смотрим, туда и направляем
 	Drive.ActDir = (FVector3f)Controller->GetControlRotation().Vector();
+	if (Camera->GetPerson() == 44) Drive.ActDir = OwnedCreature->SpineVector;
 
-	if (IsCameraOnExternalPoser()) Drive.ActDir = OwnedCreature->SpineVector;
-
-	//усиление двоения в глазах при резкой боли - здесь нужно каждый кадр ибо боль скоротечна
-	Camera->PostProcessSettings.SceneFringeIntensity = OwnedCreature->Pain;
 
 	//инстанция глобальных параметров материалов
 	//нужна именно локальная переменная, поскольку новые значения отгружаются только в деструкторе
-	//auto MPC = GetMyrGameInst()->MakeMPCInst();
-	// 
-	//каждый кадр записывать для всех материалов локацию игрока
-	//и в четвертый компонент еще и сырость, чтоб не создавать лишний параметр
+	auto MPC = GetWorld()->GetParameterCollectionInstance(EnvMatParam);
 	MPC->SetVectorParameterValue(TEXT("PlayerLocation"), FLinearColor(GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z, Wetness));
 	MPC->SetVectorParameterValue(TEXT("PlayerOffsetFromPreviousLocation"), GetActorLocation() - PreviousPosition);
 
@@ -399,12 +386,12 @@ void AMyrDaemon::Tick(float DeltaTime)
 	}
 	PreviousPosition = GetActorLocation();
 
-		//применение расчёта следов
+	//применение расчёта следов
 	UpdateTrailRender();
 
 	////////////////////////////////////////////////////////////////////////////////////
 	//если указан внешний источник позиции камеры - нас хотят видно в катстцену загнать
-	if (ExternalCameraPoser && AllowExtCameraPosing)
+/*	if (ExternalCameraPoser && AllowExtCameraPosing)
 	{
 		//разложение значений позиции внешнего оператора камеры в координаты, гомологичные внутреннему представлению
 		FVector TempDir;	float TempLngt;
@@ -451,7 +438,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 	}
 	
 	//в режиме активной игры
-	else 
+	else */
 	////////////////////////////////////////////////////////////////////////////////////
 	//проверка подопечного существа на мертвость - переход на экран конца игры
 	if (PreGameOverLimit > 0)
@@ -459,23 +446,9 @@ void AMyrDaemon::Tick(float DeltaTime)
 		//выдержка, показываем мертвое тело еще какое-то время
 		if (PreGameOverTimer < PreGameOverLimit)
 		{
-			//включение замедления времени
-			Camera->PostProcessSettings.MotionBlurAmount = 20 * PreGameOverTimer;
-
-			//включить функцию обесцвечивания экрана
-			Camera->PostProcessSettings.bOverride_ColorSaturation = true;
-
-			//плавно снести уровень цветности до нуля (ЧБ)
-			Camera->PostProcessSettings.ColorSaturation.W *= 0.8f;
-
 			PreGameOverTimer += DeltaTime;
-
 			BaseTurnRate *= 1 - DeltaTime;
 			BaseLookUpRate *= 1 - DeltaTime;
-
-			//усилить слепоту
-			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), FMath::Min(FMath::Max(Psychedelic, PreGameOverTimer/PreGameOverLimit), 1.0f));
-			HealthReactionScreen->SetScalarParameterValue(TEXT("Desaturate"), FMath::Min(PreGameOverTimer, 1.0f));
 		}
 		else
 		{
@@ -489,32 +462,20 @@ void AMyrDaemon::Tick(float DeltaTime)
 	}
 	else
 	{
-		//если есть градус упоротости
+		//градус упоротости
 		if (Psychedelic > 0)
-		{
-			//упоротость передается в шейдер и снижается, чем больше здоровья и сил, тем быстрее
-			HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), Psychedelic);
 			Psychedelic *= 1 - 0.01 * DeltaTime * (OwnedCreature->Health + OwnedCreature->Stamina + OwnedCreature->GetMetabolism());
-			SetMotionBlur(Psychedelic * 10);
-		}
-
-		//размах тряски камеры
-		if (MyrController())
-		{	if (MyrController()->GetCameraShake())
-				MyrController()->GetCameraShake()->ShakeScale = Psychedelic;
-			if (MyrController()->GetPainCameraShake())
-				MyrController()->GetPainCameraShake()->ShakeScale = FMath::Clamp(OwnedCreature->Pain-0.9f, 0.0f, 1.0f);
-		}
-
-		//от сонности изображение становится блёклым
-		Camera->PostProcessSettings.ColorContrastMidtones.W = 1.0f - Sleepiness*0.5f;
-
 	}
 
+	//полная визуализация параметров существа в экран
+	Camera->SetFeelings(Psychedelic, OwnedCreature->Pain, PreGameOverTimer);
+
+	//вычисление положения камеры в пространстве
+	Camera->ProcessDistance(DeltaTime, GetControlRotation().Vector());
 
 
 	
-	/////////////////////////////////////////////////////////////////////////////////
+/*	/////////////////////////////////////////////////////////////////////////////////
 	//постоянная подстройка расстояния камеры
 	//ещё здесь можно добавить смесь фиксированного угла и задаваемого мышкой
 	switch (MyrCameraMode)
@@ -574,7 +535,7 @@ void AMyrDaemon::Tick(float DeltaTime)
 
 			//самое главное, позиционирование камеры по выше расчитанным данным
 			MoveCamera3p();
-	}
+	}*/
 }
 
 
@@ -590,22 +551,14 @@ void AMyrDaemon::LowPaceTick(float DeltaTime)
 	//закоментарено, потому что пока непонятно, как будет выражен метаболизм в новом существе
 	GetMyrGameMode()->SetSoundLowHealth(1.0f - OwnedCreature->Health, 1.0f - OwnedCreature->GetMetabolism(), OwnedCreature->Pain);
 
-	//спецэффект низкого здоровья - переименовать, ведь это не эффект боли, а эффект агонии
-	if (HealthReactionScreen)
-		HealthReactionScreen->SetScalarParameterValue(TEXT("LowHealthAmount"), FMath::Clamp(1.2f - 1.1f * OwnedCreature->Health, 0.0f, 1.0f));
-
-	//применение эффекта размытия, специфичного для данного состояния
-	if (Camera->PostProcessSettings.bOverride_MotionBlurAmount)
-		Camera->PostProcessSettings.MotionBlurAmount = FMath::Lerp(
-			0.0f,
-			OwnedCreature->GetBehaveCurrentData()->MotionBlurAmount,
-			FMath::Clamp(OwnedCreature->StateTime, 0.0f, 1.0f));
-
 	//вывод имени объекта в фокусе камеры (хз, нужно ли теперь)
 	auto R = OwnedCreature->FindObjectInFocus(0.1, 0.3, ObjectAtFocus, ObjectNameAtFocus);
 
 	//пока неясно, как нормально выставлять приращение сонности,
 	Sleepiness += 0.001*DeltaTime;
+
+	//визуализация параметров существа в экран - медленно меняющиеся
+	Camera->SetFeelingsSlow(OwnedCreature->Health, Sleepiness, Psychedelic, PreGameOverTimer);
 
 	//пересчитать уровень освещенности для зрачков (освещенность камеры не подходит, так как если видны зрачки, камера смотрит в другую сторону)
 	if(!IsFirstPerson())
@@ -702,23 +655,6 @@ void AMyrDaemon::PoseInsideCreature(bool ResetCameraRot)
 
 	Drive.MoveDir.Z = 0;
 	Drive.MoveDir.Normalize();
-	MoveCamera3p();
-}
-
-//==============================================================================================================
-//двигать камеру согласно контроллеру
-//==============================================================================================================
-void AMyrDaemon::MoveCamera3p()
-{
-	//FQuat CamQ = FQuat(CamExtTargetVector, 0.0f);
-	auto CamRot = FRotationMatrix::MakeFromXZ(CamExtTargetVector, FVector::UpVector).ToQuat();
-	Camera->SetRelativeLocationAndRotation(
-		CamRot.RotateVector(FVector(-CamDistNormFactor * CamExtTargetDist, 0, 0)),
-		CamRot);
-}
-void AMyrDaemon::MoveCamera1p()
-{
-	Camera->SetRelativeLocationAndRotation(FVector(0, 0, 0), GetControlRotation());
 }
 
 
@@ -736,12 +672,12 @@ void AMyrDaemon::ProcessMotionInput(float* NGain, float Value)
 		//если эти изменения выливаются в обнуление коэффициентов - движение прервалось
 		if (XGain == 0.0f && YGain == 0.0f)
 		{	bMove = 0;
-			SendAction(PCK_MAXIMUM, false, ECreatureAction::TOGGLE_MOVE);
+			SendAction(PCK_MAXIMUM, false, EAction::Move);
 		}
 
 		//иначе, если коэффициенты не нулевые, движение возобновилось или изменило силу/курс
 		else
-		{	SendAction(PCK_MAXIMUM, true, ECreatureAction::TOGGLE_MOVE);
+		{	SendAction(PCK_MAXIMUM, true, EAction::Move);
 			bMove = 1;
 		}
 	}
@@ -792,92 +728,12 @@ bool AMyrDaemon::MakeMoveDir(bool MoveIn3D)
 }
 
 
-//==============================================================================================================
-//новый способ определить расстояние до камеры -пока неясно, где лучше вызывать, посему отдельной функцией
-//==============================================================================================================
-void AMyrDaemon::TraceForCamDist()
-{
-#if WITH_EDITOR
-	if (!CameraCollision) return;
-#endif
-
-	//ориентировочное расстоянияе камеры с учётом ужатия, продиктованого триггерами
-	float RealCamDist = CamExtTargetDist * CamDistNewFactor;
-
-	//заряжаем пушку
-	FHitResult Hit;
-	FVector Start = RootComp->GetComponentLocation();
-	FVector End = RootComp->GetComponentLocation() - CamExtTargetVector * (CamSoftBallRadius + RealCamDist);
-
-	//здесь имя, фолс - трассировать по простым объектам, а не по полигонам, зыс - текущий актор (демон) игнорировать
-	FCollisionQueryParams RV_TraceParams = FCollisionQueryParams(FName(TEXT("Daemon_TraceForCamera")), true, this);
-
-	//помимо себя добавить еще подопечное существо
-	RV_TraceParams.AddIgnoredActor(OwnedCreature);
-
-	//трассируем из центра демона в позицию камеры и ещё дальше на радиус сферы сенсора препядствий
-	GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, RV_TraceParams);
-
-	//поскольку Hit.Distance почему-то всегда ноль, хотя ничего не задевает, высчитываем расстояние по-другому
-	float TrueDistance = Hit.Time * (RealCamDist + CamSoftBallRadius);
-
-	//реакция на канал камеры - для отсеения случая когда трассировка обнаружила препятствие, но его совсем не надо огибать
-	auto ObstacleToCam = ECollisionResponse::ECR_Ignore;
-	auto ObstacleMob = EComponentMobility::Movable;
-	if (Hit.Component.Get())
-	{	ObstacleMob = Hit.Component->Mobility;
-		ObstacleToCam = Hit.Component->GetCollisionResponseToChannel(ECollisionChannel::ECC_Camera);
-	}
-
-	//по оси камеры сфера всё же впячивается в стену - ставим целевую позицию на центр сферы минус ещё немного - чтобы не затмило плоскостю
-	if (Hit.Time < 1.0f && ObstacleToCam != ECollisionResponse::ECR_Ignore)
-		CamDistCurrentByTrace = (TrueDistance - CamSoftBallRadius - CamHardCoreRadius) / RealCamDist;
-	else CamDistCurrentByTrace = 1.0f;
-
-	//насколько глубоко шарик вошёл в стену по оси згляда (ProbeSize - чтобы отодвинуть мягкую зону от "орешка" вокруг камеры)
-	//0 - значит орешек ксается стены; 1 - значит расстояние полное; -Х - значит перекрывает орешек и скорее всего обзор
-	float UnPenetration = (TrueDistance - RealCamDist - CamHardCoreRadius) / (CamSoftBallRadius - CamHardCoreRadius);
-
-	//камера не загораживается и сзади ничего не мешает - надо побыстрее вернуть нормальную оттяжку от тела
-	if (UnPenetration >= 1)
-	{	UnPenetration = 1;
-		CamDistRepulsion = 0.2;
-	}
-
-	//камера все видит, но сзади уже давит какая-то стена - нужно упруго отодвигать
-	//чем ближе к нулю тем сильнее упругая реакция отжима от стены
-	else if (UnPenetration > 0)
-	{
-		//чем вертикальнее нормаль, тем быстрее отбрыкивать - способ борьбы с уходом под землю
-		CamDistRepulsion = (1.5 - UnPenetration) * (0.01 + FMath::Max(Hit.Normal.Z, 0.0f));
-		if (CamDistRepulsion > 1) CamDistRepulsion = 1.0f;
-	}
-
-	//UnPenetration<=0 орешек погружен в стену - надо срочно оттянуть камеру, чтоб не утопилась в толще
-	else
-	{
-		//резкая подтяжка камеры сквозь неподвижные объекты
-		if (ObstacleMob == EComponentMobility::Static)
-		{
-			CamDistRepulsion = 1.0f;
-		}
-
-		//плавная подтяжка камеры 
-		else CamDistRepulsion = 0.1 + 0.2 * FMath::Min(-UnPenetration, 1.0f);
-	}
-	//if (CamDistRepulsion>1)
-	//	UE_LOG(LogTemp, Error, TEXT("TraceForCamDist %s WTF CamDistRepulsion NaN"), *OwnedCreature->GetName());
-
-}
 
 //==============================================================================================================
 //переместить камеру в положение строго за спиной
 //==============================================================================================================
 void AMyrDaemon::ResetCamera()
 {
-	//с катстценной камерой пока неясно, как, нужно ли
-	if (ExternalCameraPoser) return;
-
 	//отстоять от центра так, чтобы попадало точно в место головы, но было развернуто по направлению носа
 	SetActorLocationAndRotation (OwnedCreature->GetHeadLocation(), OwnedCreature->GetActorRotation());
 	FRotator R = OwnedCreature->GetActorRotation();
@@ -889,7 +745,7 @@ void AMyrDaemon::ResetCamera()
 //==============================================================================================================
 //установить величину размытия в движении, если надо, включить/выключить
 //==============================================================================================================
-void AMyrDaemon::SetMotionBlur(float Amount)
+/*void AMyrDaemon::SetMotionBlur(float Amount)
 {
 	if (Amount == 0.0f)
 		Camera->PostProcessSettings.bOverride_MotionBlurAmount = false;
@@ -897,7 +753,7 @@ void AMyrDaemon::SetMotionBlur(float Amount)
 	{	Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
 		Camera->PostProcessSettings.MotionBlurAmount = 0.1;
 	}
-}
+}*/
 
 //==============================================================================================================
 //установить величину глобального замедления времени, слоумо
@@ -924,9 +780,7 @@ void AMyrDaemon::PersonToggle()
 {
 	//транзиция к первому лицу происходит независимо от настроек расстояния при 3ем лице,
 	//чтобы не сбить установки, продиктованные окружением
-	if (IsFirstPerson())
-		SetFirstPerson(false);							
-	else MyrCameraMode = EMyrCameraMode::Transition31;
+	SetFirstPerson(!IsFirstPerson());
 }
 
 //==============================================================================================================
@@ -934,7 +788,6 @@ void AMyrDaemon::PersonToggle()
 //==============================================================================================================
 void AMyrDaemon::CineCameraToggle()
 {
-	AllowExtCameraPosing = !AllowExtCameraPosing;
 }
 
 //==============================================================================================================
@@ -1006,7 +859,7 @@ void AMyrDaemon::ExpressPress()
 
 	//получить список доступных самодействий по теме выражения эмоций, false - самодействия, не релакс-действия
 	AvailableExpressActions.SetNum(0);
-	OwnedCreature -> ActionFindList (false, AvailableExpressActions, ECreatureAction::SELF_EXPRESS1);
+	OwnedCreature -> ActionFindList (false, AvailableExpressActions, EAction::SELF_EXPRESS1);
 
 	//если нашлось - сделать активной рандомную, чтобы если игрок ничего не выбирает, результат всё же различался
 	if(AvailableExpressActions.Num()>0)
@@ -1052,35 +905,6 @@ void AMyrDaemon::SetAttackDir()
 	}
 }
 
-//==============================================================================================================
-//загнать в текущую камеру настройки эффектов - при смене вида 1/3 лица
-//==============================================================================================================
-void AMyrDaemon::AdoptCameraVisuals(const FEyeVisuals& EV)
-{
-	//переприсвоение структуры с эффектами камеры и глобальный расстояний отсечения
-	Camera->PostProcessSettings = EV.OphtalmoEffects;
-	Camera->FieldOfView = EV.FieldOfView;
-	GNearClippingPlane = EV.NearClipPlane;
-
-	//установка материала для постэффектов
-	//мы заранее не знаем, что это за материал, и для разных лиц и существ он может быть разный, 
-	//но ссылка на него хранится в структуре PostProcessSettings в массиве WeightedBlendables
-	if (Camera->PostProcessSettings.WeightedBlendables.Array.Num() > 0)
-	{
-		//ссылка на материал в структуре - статическая
-		//нужно сделать из нее динамическую. непонятно, будет ли удаляться старая 
-		auto* mat = Cast<UMaterialInterface>(Camera->PostProcessSettings.WeightedBlendables.Array[0].Object);
-		HealthReactionScreen = UMaterialInstanceDynamic::Create(mat, this);
-
-		//заменить в том же слоте статическую на динамическую
-		Camera->PostProcessSettings.WeightedBlendables.Array[0].Object = HealthReactionScreen;
-
-		//сразу же настроить параметр (надо бы переименовать, так как это не боль, а просто низкое здоровье)
-		HealthReactionScreen->SetScalarParameterValue(TEXT("LowHealthAmount"), FMath::Min(1.0f - OwnedCreature->Health, 1.0f));
-		HealthReactionScreen->SetScalarParameterValue(TEXT("Psychedelic"), 0);
-	}
-}
-
 
 //==============================================================================================================
 //установить уровень дождя и мокроты - вызывается из KingdomOfHeaven в редком тике
@@ -1090,14 +914,9 @@ void AMyrDaemon::SetWeatherRainAmount(float Amount)
 	//если мы в локации, которыая исключает дождь, 
 	if(CurLocNoRain) Amount = 0;
 
-	//вторичный источник дождя ваще обрать, если дождя нет, чтоб не мешался
-	//а вот первичный не убирать, там еще насекомые и пушинки
-	SecondaryParticleSystem->SetVisibility(Amount > 0.01);
-	
-
 	//регулирование плотности падающих капель дождя - без других условий
-	ParticleSystem->SetFloatParameter(TEXT("RainAmount"), Amount);
-	SecondaryParticleSystem->SetFloatParameter(TEXT("RainAmount"), Amount);
+	ParticleSystem->SetFloatParameter(TEXT("RainAmount"), FMath::Clamp(Amount, 0, 1));
+	RainAmount = FRatio(Amount);
 }
 
 //==============================================================================================================
@@ -1127,51 +946,17 @@ void AMyrDaemon::SetFirstPerson(bool Set)
 {
 	//перейти к первому лицу
 	if (Set)
-	{
-		//коэффициент близости к первому лицу
-		CamDistNormFactor = 0.0;
-
-		//полностью сменить настройки камеры на специфичные для существа
-		AdoptCameraVisuals(OwnedCreature->GetGenePool()->FirstPersonVisuals);
-
-		//чтобы не поворачивался внутрь шеи
-		MyrController()->SetFirstPerson(true);
-
-		//флаг
-		MyrCameraMode = EMyrCameraMode::FirstPerson;
-
-		//поставить камеру в нужную точку
-		MoveCamera1p();
-
-		//включить запахи
-		SwitchToSmellChannel.Broadcast(AdvSenseChannel);
-
+	{	Camera->SetPerson(11);								// основное действие
+		SwitchToSmellChannel.Broadcast(AdvSenseChannel);	// включить запахи
 	}
 	//перейти к третьему лицу
 	else
-	{
-		//полностью сменить настройки камеры - вернуть глобальные
-		auto GM = GetMyrGameMode();
-		if(GM) AdoptCameraVisuals(GM->ThirdPersonVisuals);
-
-		//убрать ограничения на поворот - эти действия проще делаются внутри контроллера
-		if(MyrController())	MyrController()->SetFirstPerson(false);
-
-		//флаг
-		MyrCameraMode = EMyrCameraMode::ThirdPerson;
-
-		//поставить камеру в нужную точку
-		MoveCamera3p();
-
-		//выключить запахи
-		SwitchToSmellChannel.Broadcast(-1);
+	{	Camera->SetPerson(33);								// основное действие
+		SwitchToSmellChannel.Broadcast(-1);					// выключить запахи
 	}
 
 	//дополнительно, если будут введены два сокета для разных лиц
 	PoseInsideCreature();
-
-	//перезапустить возможность вывода боли на экран в виде разкоряки цветов
-	Camera->PostProcessSettings.bOverride_SceneFringeIntensity = true;
 }
 
 
@@ -1179,14 +964,14 @@ void AMyrDaemon::SetFirstPerson(bool Set)
 //найти подходящее действие для выбранных элементов управления
 //пока не перенесено
 //==============================================================================================================
-void AMyrDaemon::SendAction(int Button, bool StrikeOrRelease, ECreatureAction ExplicitAction)
+void AMyrDaemon::SendAction(int Button, bool StrikeOrRelease, EAction ExplicitAction)
 {
 	//если действие не указано явно, найти его как соответствие кнопке
-	if(ExplicitAction == ECreatureAction::NONE)
+	if(ExplicitAction == EAction::NONE)
 		ExplicitAction = FindActionForPlayerButton(Button);
 
 	//вложить в движ, если место свободно
-	if (Drive.DoThis == ECreatureAction::NONE)
+	if (Drive.DoThis == EAction::NONE)
 	{	Drive.DoThis = ExplicitAction;
 		Drive.Release = StrikeOrRelease;
 	}
@@ -1203,7 +988,7 @@ UMyrBioStatUserWidget* AMyrDaemon::HUDOfThisPlayer()
 //==============================================================================================================
 //нужно для подсказки, на какую кнопку действие уровня существа повешено - может быть ни на какую - тогда -1
 //==============================================================================================================
-int AMyrDaemon::GetButtonUsedForThisAction(ECreatureAction Action)
+int AMyrDaemon::GetButtonUsedForThisAction(EAction Action)
 {
 	//распределение действий зависит от состояния поведения, так что сначала найти по текущему
 	auto CurBehave = OwnedCreature->GetBehaveCurrentState();
@@ -1241,11 +1026,11 @@ void AMyrDaemon::MouseWheel(float value)
 	}
 
 	//это двигать камеру для эксперимента и отладки
-	if (MyrCameraMode == EMyrCameraMode::ThirdPerson)
+	if (Camera->GetPerson() == 33)
 	{
 		//просто присвоить опору, а дальше в тике само
-		if (value > 0 && CamDistNewFactor < 1)	CamDistNewFactor += 0.05;
-		if (value < 0 && CamDistNewFactor > 0)	CamDistNewFactor -= 0.05;
+		if (value > 0 && Camera->DistanceModifier < 1)	Camera->DistanceModifier += 0.05;
+		if (value < 0 && Camera->DistanceModifier > 0.1) Camera->DistanceModifier -= 0.05;
 	}
 	//от первого лица - менять каналы запаха
 	else
@@ -1253,16 +1038,55 @@ void AMyrDaemon::MouseWheel(float value)
 		if (value < 0 && AdvSenseChannel > 0)	{ AdvSenseChannel--; SwitchToSmellChannel.Broadcast(AdvSenseChannel);	}
 	}
 }
-float AMyrDaemon::ResetCameraPos()
-{	if (OwnedCreature->Overlap0)
-		CamDistNewFactor = OwnedCreature->Overlap0->GetCameraDistIfPresent();
-	else CamDistNewFactor = 1.0f;
-	return CamDistNewFactor;
+void AMyrDaemon::ChangeCameraPos(float ExactValue)
+{
+	if (Camera->DistanceModifier != 0) Camera->DistanceModifier = ExactValue;
 }
-bool AMyrDaemon::IsFirstPerson() { return (MyrCameraMode == EMyrCameraMode::FirstPerson); }
+float AMyrDaemon::ResetCameraPos()
+{
+	if (Camera->DistanceModifier == 0) return 0.0f;
+	float RestoredCamDist = 1.0f;
+	if (OwnedCreature->Overlap0) RestoredCamDist = FMath::Min(RestoredCamDist, OwnedCreature->Overlap0->GetCameraDistIfPresent());
+	if (OwnedCreature->Overlap1) RestoredCamDist = FMath::Min(RestoredCamDist, OwnedCreature->Overlap1->GetCameraDistIfPresent());
+	if (OwnedCreature->Overlap2) RestoredCamDist = FMath::Min(RestoredCamDist, OwnedCreature->Overlap2->GetCameraDistIfPresent());
+	Camera->DistanceModifier = RestoredCamDist;
+	return RestoredCamDist;
+}
+
+bool AMyrDaemon::IsFirstPerson() { return (Camera->GetPerson() == 11); }
+
 
 //==============================================================================================================
-//поместить или удалить маркер квеста - извне
+//отобразить параболу прыжка
+//==============================================================================================================
+void AMyrDaemon::ShowJumpTrajectory(FVector Pos, FVector jV, float Time, FVector EndPosition)
+{
+	//отражение посчитанной траектории системой частиц
+	ParticleSystem->SetVectorParameter(TEXT("TrajStartPosition"), Pos);
+	ParticleSystem->SetVectorParameter(TEXT("TrajStartVel"), jV);
+	ParticleSystem->SetVectorParameter(TEXT("TrajFinal"), EndPosition);
+	ParticleSystem->SetFloatParameter(TEXT("TrajFinalTime"), Time);
+	ParticleSystem->SetBoolParameter(TEXT("TrajBound"), (OwnedCreature->JumpTarget != nullptr));
+}
+
+//==============================================================================================================
+//включить или выключить показ траектории возможного прыжка
+//==============================================================================================================
+void AMyrDaemon::EnableJumpTrajectory(bool Set)
+{
+	//эта фигня не работает, потому что разработчики запутались
+	//ParticleSystem->SetEmitterEnable(TEXT("Trajectory"), Set);
+
+	//это работает, если правильно подцепить внутри системы частиц
+	ParticleSystem->SetBoolParameter(TEXT("ShowTraj"), Set);
+
+	//во время прицеливания позиция камеры смещается, чтобы видеть паработлу
+	if (Set) Camera->SeerOffsetTarget = 50; else Camera->SeerOffsetTarget = 0;
+}
+
+
+//==============================================================================================================
+//поместить или удалить маркер квеста - извне, тут нужно ему еще настраивать внешний вид
 //==============================================================================================================
 void AMyrDaemon::PlaceMarker(USceneComponent* Dst)
 {
@@ -1325,37 +1149,76 @@ float AMyrDaemon::GetLightingAtVector(FVector3f V)
 	return Accum;
 }
 
+//==============================================================================================================
 //среагировать на удар капли по земле
+// ВНИМАНИЕ: эта функция подвязывается в блюпринтах к блюпринт-потомку этого класса с интерфейсом ниагары
+// интерфейс генерирует событие, а из него ручками нужно вывязать аргументы этой функции
+//==============================================================================================================
 void AMyrDaemon::ReactOnRainDrop(float Size, FVector Position, FVector Velocity)
 {
+	if (!GetWorld()) return;
+
 	//радиус вектор - если удар произошёл на метр и выше нас - значит то была крыша и декал создавать не надо
-	FVector Ra = GetActorLocation() - Position;
-	if (Ra.Z < -100.0f) return;
+	FVector3f Look = FVector3f(Position - Camera->GetComponentLocation());
+	FVector3f Height = FVector3f(Position - GetActorLocation());
+	float Coaxis = (Look | Drive.ActDir);
+	if (Height.Z > 100.0f || Coaxis < 0)
+	{
+		//ParticleSystem->SetBoolParameter(TEXT("RainCloseEnable"), false);
+		return;
+	}
 
 	//участок кмокроты
 	if (WetDecalMat)
-	{	auto Decal = UGameplayStatics::SpawnDecalAtLocation(GetWorld(), WetDecalMat, FVector(50, 50, 150), Position, FRotator(), 4);
+	{	auto Decal = UGameplayStatics::SpawnDecalAtLocation(GetWorld(),
+			WetDecalMat,
+			FVector(50, 50, 150),
+			FVector(FMath::Floor(Position.X/50)*50, FMath::Floor(Position.Y / 50) * 50, Position.Z),
+			FRotator(),
+			4);
 		Decal->SetFadeIn(0, 1);
 		Decal->SetFadeOut(0, 2);
 	}
-
-	if (Ra.SizeSquared2D() < 10000)
-		SecondaryParticleSystem->SetWorldLocation(Position);
-
-	//запустить дождь дополнительный для густоты
-	//if (SecondaryRain && Ra.SizeSquared2D() < 10000)
-	//{
-	//	auto Rain = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), SecondaryRain, Position, FRotator(), FVector(1, 1, 1), true);
-	//}
-
+	//дополнительный дождь вблизи глаз, поместить туда, куда прорвались капли, где нет крыши 
+	//хотя зачем вторая система частиц, если можно задавать стартовую позицию отдельного эмиттера
+	ParticleSystem->SetBoolParameter(TEXT("RainCloseEnable"), true);
+	ParticleSystem->SetVariablePosition(TEXT("RainClosePosition"), Position + FVector(0,0,200));
 
 	//промокание
 	if (Wetness < 1.0f)
 	{
+		//уровень мокроты снижается с расстоянием, чтобы плавно переходить в незатронутые эффектом дали
 		float Affect = 10000 / FVector::DistSquared(GetActorLocation(), Position);
 		Wetness = FMath::Min(1.0f, Wetness + Affect);
-
-		UE_LOG(LogTemp, Log, TEXT("DAEMON %s: ReactOnRainDrop Wetness + %g = %g"), *GetName(), Affect, Wetness);
 	}
 	else Wetness = 1.0f;
 }
+
+//источник данных камеры по лицам
+FEyeVisuals* AMyrDaemon::GetEyeVisuals(int P)
+{
+	if (P == 33)
+	{
+		auto GM = GetMyrGameMode();
+		if (GM) return &GM->ThirdPersonVisuals;
+
+	}
+	else if(P == 11)
+	{
+		if(OwnedCreature) return &OwnedCreature->GetGenePool()->FirstPersonVisuals;
+	}
+	return nullptr;
+}
+
+//привзяать камеру к внешнему актору
+void AMyrDaemon::AdoptExtCameraPoser(USceneComponent* A) { Camera->SetPerson(44, A); }
+
+//отменить внешнего наблюдателя
+void AMyrDaemon::DeleteExtCameraPoser() { Camera->SetPerson(33); }
+
+//режим внешнего наблюдателя - кат сцена или геймплейная бесиловка
+bool AMyrDaemon::IsCameraOnExternalPoser() { return (Camera->GetPerson() == 44); }
+
+
+//выдать уровень размытия в движении, который был установлен для текущего состояния
+float AMyrDaemon::GetCurMotionBlur() const { return OwnedCreature->GetMesh()->DynModel->MotionBlur; }

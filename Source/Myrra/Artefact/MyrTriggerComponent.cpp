@@ -377,9 +377,6 @@ bool UMyrTriggerComponent::ReactTeleport(FTriggerReason& R, class AMyrPhyCreatur
 					C->GetMesh()->SetSimulatePhysics(true);
 				}
 
-				//убрать размовение
-				if (C->Daemon) C->Daemon->SetMotionBlur(0);
-
 				//возвратить колизии телу существа перед выходом из кинематики
 				if(!C->GetMesh()->IsBumpable()) C->GetMesh()->SetPhyBodiesBumpable(true);
 				return true;
@@ -555,6 +552,28 @@ FVector3f UMyrTriggerComponent::ReactGravityPitMove(FTriggerReason& R, AMyrPhyCr
 }
 
 
+
+//==============================================================================================================
+//если в этом тригер объеме содержится цель прыжка, то выдает степень пригодности этой цели для прыжка, чтобы существо выбрало лучший из триггеров
+//==============================================================================================================
+float UMyrTriggerComponent::JumpGoalRating(AMyrPhyCreature* C, float Radius, float Coaxis)
+{
+	auto TR = HasReaction(EWhyTrigger::JumpTarget);
+	if (TR)
+	{
+		auto Dir = FVector3f(GetComponentLocation() - C->GetActorLocation());
+		float Dist = Dir.SizeSquared();
+		if (Dist < Radius * Radius)
+		{
+			Dir *= FMath::InvSqrtEst(Dist);
+			float CosAngle = Dir | C->AttackDirection;
+			if (CosAngle >= Coaxis)
+				return CosAngle * Dist;
+		}
+	}
+	return 0.0f;
+}
+
 //==============================================================================================================
 //прореагировать одну строку реакции - возвращает тру когда объект еще включается, для интерфейса написать
 //==============================================================================================================
@@ -604,16 +623,14 @@ bool UMyrTriggerComponent::ReactSingle(FTriggerReason& Reaction, class AMyrPhyCr
 			if(!Release) ReactTeleport(Reaction, C, A, false);
 			break;
 
-		case EWhyTrigger::KinematicLerpToCenter:
+/*		case EWhyTrigger::KinematicLerpToCenter:
 		case EWhyTrigger::KinematicLerpToCenterLocationOnly:
 		case EWhyTrigger::KinematicLerpToCenterLocationOrientation:
 			C->bKinematicRefine = !Release;
 			if (C->bKinematicRefine)
 			{	C->GetMesh()->SetPhyBodiesBumpable(false);
-				if (C->Daemon)
-					C->Daemon->SetMotionBlur(10.0f);
 			}
-			break;
+			break;*/
 
 		case EWhyTrigger::Quiet:
 			ReactQuiet(C, Release);
@@ -742,17 +759,19 @@ void UMyrTriggerComponent::OverlapEvent(AActor* OtherActor, UPrimitiveComponent*
 	if (OtherActor->IsA<AMyrPhyCreature>())
 	{	C = (AMyrPhyCreature*)OtherActor;
 		D = C->Daemon;
-		if(C->IsUnderDaemon()) WhoCame = EWhoCame::Player;
-		else WhoCame = EWhoCame::Creature;
-	}
-	else if (OtherActor->IsA<AMyrArtefact>())
-	{	WhoCame = EWhoCame::Artefact;
-		A = (AMyrArtefact*)OtherActor;
+		if (C->CurrentState != EBehaveState::project)
+		{	if (C->IsUnderDaemon()) WhoCame = EWhoCame::Player;
+			else WhoCame = EWhoCame::Creature;
+		}
 	}
 	else if(OtherActor->IsA<AMyrDaemon>())
 	{	WhoCame = EWhoCame::PlayerBubble;
 		D = (AMyrDaemon*)OtherActor;
 		C = D->OwnedCreature;
+	}
+	else if (OtherActor->IsA<AMyrArtefact>())
+	{	WhoCame = EWhoCame::Artefact;
+		A = (AMyrArtefact*)OtherActor;
 	}
 
 	//если пересечение произошло с одним из важных для игры акторов

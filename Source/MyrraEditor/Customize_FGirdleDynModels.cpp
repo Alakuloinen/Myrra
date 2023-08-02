@@ -8,9 +8,57 @@
 #include "IDetailChildrenBuilder.h"
 #include "IPropertyUtilities.h"
 
+TSharedRef<IPropertyTypeCustomization> FGirdleFlagsCustomization::MakeInstance()
+{	return MakeShareable(new FGirdleFlagsCustomization);}
+
+#define GETP(S) StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleFlags, S))
+
+void FGirdleFlagsCustomization::CustomizeHeader(
+	TSharedRef<class IPropertyHandle> StructPropertyHandle,
+	FDetailWidgetRow& HeaderRow,
+	IPropertyTypeCustomizationUtils& StructCustomizationUtils)
+{
+	//столбец заголовка (левый)
+	HeaderRow.NameContent()	[	StructPropertyHandle->CreatePropertyNameWidget() ]
+		
+	//столбец значений (правый) - здесь ничего не будет, чтобы визуально не отвлекал от содержимого строк внутри
+	.ValueContent()
+		[
+			//в остальные 4 ячейки левой половины заголовка засунуть 4 float свойства, друг за другом
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(5)[SNew(STextBlock).Text(StructPropertyHandle->GetPropertyDisplayName())]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(FixOn)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(FixOn)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(TightenYaw)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(TightenYaw)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(TightenLean)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(TightenLean)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(LockRoll)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(LockRoll)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(LockPitch)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(LockPitch)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(LockYaw)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(LockYaw)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(Vertical)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(Vertical)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth()[GETP(LockLegsSwing)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(5)[GETP(LockLegsSwing)->CreatePropertyNameWidget()]
+		];
+
+
+}
+
+void FGirdleFlagsCustomization::CustomizeChildren(
+	TSharedRef<class IPropertyHandle> StructPropertyHandle,
+	IDetailChildrenBuilder& StructBuilder,
+	IPropertyTypeCustomizationUtils& StructCustomizationUtils)
+{
+}
+
 TSharedRef<IPropertyTypeCustomization> FMyrDynModelTypeCustomization::MakeInstance()
 {	return MakeShareable(new FMyrDynModelTypeCustomization);}
 
+#define GETP(S) StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, S))
 
 //==============================================================================================================
 // инициализировать то, что будет рисоваться в строке заголовка свойства-структуры
@@ -21,17 +69,6 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 	IPropertyTypeCustomizationUtils& StructCustomizationUtils)
 {
 	//получить рычаги влияния на те свойства, которые мы хотим видеть прямо в строке заголовка
-	TSharedPtr<IPropertyHandle> HandleAnimRate = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, AnimRate));
-	TSharedPtr<IPropertyHandle> HandleHealthAdd = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, HealthAdd));
-	TSharedPtr<IPropertyHandle> HandleStaminaAdd = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, StaminaAdd));
-	TSharedPtr<IPropertyHandle> HandleMotionGain = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, MotionGain));
-	TSharedPtr<IPropertyHandle> HandleJumpImp = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, JumpImpulse));
-	TSharedPtr<IPropertyHandle> HandleAutoMove = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, MoveWithNoExtGain));
-	TSharedPtr<IPropertyHandle> HandlePreJump = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, PreJump));
-	TSharedPtr<IPropertyHandle> HandleFlyFixed = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, FlyFixed));
-	TSharedPtr<IPropertyHandle> HandleSpineStiffness = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, SpineStiffness));
-
-	TSharedPtr<IPropertyHandle> HandleSound = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Sound));
 
 	HandleUse = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FWholeBodyDynamicsModel, Use));
 	HandleUse->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrDynModelTypeCustomization::OnUsedChanged));
@@ -62,6 +99,8 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 	auto Sep = FString::Printf(TEXT("%s"), std::wstring(150, L'█').c_str());
 	FLinearColor SepCol(0.02, 0.01, 0.02, 1);
 
+	//GETP(TimeDilation)->CreatePropertyValueWidget
+
 	//столбец заголовка (левый)
 	HeaderRow.NameContent()
 	[
@@ -85,20 +124,30 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 
 		//флаг использовать
 		+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Left)
-		[	HandleUse->CreatePropertyNameWidget()	]
+		[	SNew(SProperty, GETP(Use)).ShouldDisplayName(true) ]
 
-		+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Left)
-		[	HandleUse->CreatePropertyValueWidget()]
 
 		//разделитель для красоты
-		+ SHorizontalBox::Slot().FillWidth(10).VAlign(VAlign_Center)
+		+ SHorizontalBox::Slot().FillWidth(5).VAlign(VAlign_Center)
 		[	SNew(STextBlock).Text(FText::FromString(Sep)).ColorAndOpacity(SepCol).ShadowOffset(FVector2D(5, 0)) ]
+
+		//замедление времени
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Left)
+			[SNew(SProperty, GETP(TimeDilation)).ShouldDisplayName(true)]
+
+		//размытие в движении
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Left)
+			[SNew(SProperty, GETP(MotionBlur)).ShouldDisplayName(true)]
+
+		//максимальный урон
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Left)
+			[SNew(SProperty, GETP(DamageLim)).ShouldDisplayName(true)]
 
 		// название и виджет ассета звука без громоздкого ярлыка (надо как-то добавить фильтр)
 		+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Right)
-		[	HandleSound->CreatePropertyNameWidget()	]
+		[	GETP(Sound)->CreatePropertyNameWidget()	]
 		+ SHorizontalBox::Slot().FillWidth(10)
-		[	SNew(SObjectPropertyEntryBox).PropertyHandle(HandleSound).DisplayThumbnail(false) ]
+		[	SNew(SObjectPropertyEntryBox).PropertyHandle(GETP(Sound)).DisplayThumbnail(false) ]
 
 
 	]
@@ -114,28 +163,28 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 		[
 			SNew(SHorizontalBox)
 			+SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)	[SNew(STextBlock).Text(FText::FromString(Sep)).ColorAndOpacity(SepCol).ShadowOffset(FVector2D(5, 0))]
-			+ SHorizontalBox::Slot().AutoWidth() [HandleAnimRate->CreatePropertyNameWidget()]
-			+ SHorizontalBox::Slot().AutoWidth() [HandleAnimRate->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().AutoWidth() [GETP(AnimRate)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth() [GETP(AnimRate)->CreatePropertyValueWidget()]
 		]
 		+ SHorizontalBox::Slot().FillWidth(25)
 		[
 			SNew(SHorizontalBox)
 			+SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)	[SNew(STextBlock).Text(FText::FromString(Sep)).ColorAndOpacity(SepCol).ShadowOffset(FVector2D(5, 0))]
-			+ SHorizontalBox::Slot().AutoWidth() [HandleHealthAdd->CreatePropertyNameWidget()]
-			+ SHorizontalBox::Slot().AutoWidth() [HandleHealthAdd->CreatePropertyValueWidget()]
-			+ SHorizontalBox::Slot().AutoWidth() [HandleStaminaAdd->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().AutoWidth() [GETP(HealthAdd)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth() [GETP(HealthAdd)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().AutoWidth() [GETP(StaminaAdd)->CreatePropertyValueWidget()]
 		]
-		+ SHorizontalBox::Slot().FillWidth(13).HAlign(HAlign_Right) [	HandleMotionGain->CreatePropertyNameWidget()	]
-		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleMotionGain->CreatePropertyValueWidget()	]
-		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleJumpImp->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(10).HAlign(HAlign_Right)	[	HandleSpineStiffness->CreatePropertyNameWidget()]
-		+ SHorizontalBox::Slot().FillWidth(5)						[	HandleSpineStiffness->CreatePropertyValueWidget()]
-		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	HandleAutoMove->CreatePropertyNameWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(2)						[	HandleAutoMove->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	HandlePreJump->CreatePropertyNameWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(2)						[	HandlePreJump->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	HandleFlyFixed->CreatePropertyNameWidget()		]
-		+ SHorizontalBox::Slot().FillWidth(2)						[	HandleFlyFixed->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(13).HAlign(HAlign_Right) [	GETP(MotionGain)->CreatePropertyNameWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	GETP(MotionGain)->CreatePropertyValueWidget()	]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	GETP(JumpImpulse)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(10).HAlign(HAlign_Right)	[	GETP(SpineStiffness)->CreatePropertyNameWidget()]
+		+ SHorizontalBox::Slot().FillWidth(5)						[	GETP(SpineStiffness)->CreatePropertyValueWidget()]
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	GETP(MoveWithNoExtGain)->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(2)						[	GETP(MoveWithNoExtGain)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	GETP(PreJump)->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(2)						[	GETP(PreJump)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(5).HAlign(HAlign_Right)	[	GETP(FlyFixed)->CreatePropertyNameWidget()		]
+		+ SHorizontalBox::Slot().FillWidth(2)						[	GETP(FlyFixed)->CreatePropertyValueWidget()		]
 
 	];
 }
@@ -221,15 +270,16 @@ void FMyrGirdleModelTypeCustomization::CustomizeHeader(
 	MainHandle = StructPropertyHandle;
 
 	//найти объявленное где-то в исходном коде перечисление 
-	EnumDyMoPtr = FindObject<UEnum>(ANY_PACKAGE, TEXT("ELDY"), true);
+	EnumDyMoPtr = FindObject<UEnum>(nullptr, TEXT("/Script/Myrra.ELDY"), true);
 
 	//это свойство надо оживить подвязкой обработчика изменений
 	HandleUsed = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, Use));
 	HandleUsed->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrGirdleModelTypeCustomization::OnUsedChanged));
 
+	
 	//строка разделителя
 	auto Sep = FString::Printf(TEXT("%s"), std::wstring(150, L'▖').c_str());
-	FLinearColor SepCol(0.05, 0.05, 0.01, 1);
+	FLinearColor SepCol(0.07, 0.07, 0.01, 1);
 
 	//столбец заголовка (левый)
 	HeaderRow.NameContent()
@@ -247,6 +297,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeHeader(
 				.ColorAndOpacity(FLinearColor(255, 255, 0, 255))
 				.Font(IDetailLayoutBuilder::GetDetailFontBold())
 			]
+			//разделитель для красоты
 			+ SHorizontalBox::Slot().FillWidth(1)
 			[	SNew(STextBlock).Text(FText::FromString(Sep)).ColorAndOpacity(SepCol).ShadowOffset(FVector2D(5, 0)) ]
 				
@@ -257,10 +308,10 @@ void FMyrGirdleModelTypeCustomization::CustomizeHeader(
 			SNew(SProperty, HandleUsed).ShouldDisplayName(true)
 		]
 		+ SHorizontalBox::Slot().FillWidth(10).HAlign(HAlign_Left).VAlign(VAlign_Center)
-			[
-				//наверно, можно черту-разделитель ка-то более просто сделать, но поиск не дал результата
-				SNew(STextBlock).Text(FText::FromString(Sep)).ColorAndOpacity(SepCol).ShadowOffset(FVector2D(5, 0))
-			]
+		[
+			//наверно, можно черту-разделитель ка-то более просто сделать, но поиск не дал результата
+			SNew(STextBlock).Text(FText::FromString(Sep)).ColorAndOpacity(SepCol).ShadowOffset(FVector2D(5, 0))
+		]
 		//чекбокс свойства "Leading"
 		+ SHorizontalBox::Slot().AutoWidth()
 		[	StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, Leading))->CreatePropertyNameWidget()	]
@@ -292,14 +343,10 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 	//сохранить указатель на это нечто, чтобы с помощью него перериосвывать при изменении значений
 	PropertyUtilities = StructCustomizationUtils.GetPropertyUtilities();
 
-	FString EntNames[6];
+	FString EntNames[3];
 	if (StructPropertyHandle->GetProperty()->GetNameCPP() == TEXT("Thorax"))
 	{	EntNames[0] = TEXT("Thorax"); EntNames[1] = TEXT("Pectus"); EntNames[2] = TEXT("Head");	} else
 	{	EntNames[0] = TEXT("Pelvis"); EntNames[1] = TEXT("Lumbus"); EntNames[2] = TEXT("Tail");	} 
-	EntNames[3] = TEXT("On Floor");
-	EntNames[4] = TEXT("In Air");
-	EntNames[5] = TEXT("Other");
-
 
 
 	//подбираем те свойства, которые мы хотим видеть в теле таблицы, ПОД заголовком
@@ -307,52 +354,111 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 	HandleLimbs[1] = GETP(Spine);
 	HandleLimbs[2] = GETP(Tail);
 
-	TSharedPtr<IPropertyHandle> HandleF[5];
+	HandleFlags[0] = GETP(OnGnd);
+	HandleFlags[1] = GETP(InAir);
+
+
+	TSharedPtr<IPropertyHandle> HandleF[6];
 	HandleF[0] = GETP(Crouch);
 	HandleF[1] = GETP(ForcesMultiplier);
-	HandleF[2] = GETP(CommonDampingIfNeeded);
-	HandleF[3] = GETP(LegsSpreadMin);
-	HandleF[4] = GETP(LegsSpreadMax);
-
-	TSharedPtr<IPropertyHandle> HandleB[5];
-	HandleB[0] = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, HardVertical));
-	HandleB[1] = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, HardCourseAlign));
-	HandleB[2] = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, FixOnFloor));
-	HandleB[3] = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, LegsSwingLock));
-	HandleB[4] = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleDynModels, NormalAlign));
-
-	TSharedPtr<IPropertyHandle> HAnchMo[8][2];
-	HAnchMo[0][0] = GETP(FixOnFloor);			HAnchMo[0][1] = GETP(FixOnTraj);
-	HAnchMo[1][0] = GETP(TightenYawOnFloor);	HAnchMo[1][1] = GETP(TightenYawInAir);
-	HAnchMo[2][0] = GETP(TightenLeanOnFloor);	HAnchMo[2][1] = GETP(TightenLeanInAir);
-	HAnchMo[3][0] = GETP(LockYawOnFloor);		HAnchMo[3][1] = GETP(LockYawInAir);
-	HAnchMo[4][0] = GETP(LockPitchOnFloor);		HAnchMo[4][1] = GETP(LockPitchInAir);
-	HAnchMo[5][0] = GETP(LockRollOnFloor);		HAnchMo[5][1] = GETP(LockRollInAir);
-	HAnchMo[6][0] = GETP(VerticalOnFloor);		HAnchMo[6][1] = GETP(VerticalInAir);
-	HAnchMo[7][0] = GETP(LockLegsSwingOnFloor);	HAnchMo[7][1] = GETP(LockLegsSwingInAir);
-
-	TSharedPtr<SHorizontalBox> AnchBits[3];
-
 
 	//формируем строки и цвета по начальным значениям 
 	OnChanged();
 
-	//раскладка по строкам свойств битов для частей тела
 	for (int i = 0; i < 3; i++)
+	{
+		//вроде как подвязка обработчика события изменения значения свойства
+		HandleLimbs[i].Get()->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrGirdleModelTypeCustomization::OnChanged));
+
+		StructBuilder.AddCustomRow(FText::FromString(EntNames[0]))
+			.NameContent().HAlign(HAlign_Fill)
+			[
+				//1. название членика, 2. маленький контрол битов, 3. выписка битов длинной строкой
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().MaxWidth(80)[SNew(STextBlock).Text(FText::FromString(EntNames[i])).ColorAndOpacity(FLinearColor(0.5, 0.5, 0.5, 1))]
+				+ SHorizontalBox::Slot().MaxWidth(25)[HandleLimbs[i]->CreatePropertyValueWidget()]
+				+ SHorizontalBox::Slot().FillWidth(10)[SAssignNew(Mnemo[i], STextBlock).Text(FText::FromString(Digest[i])).ColorAndOpacity(DigestColor[i])]
+			]
+			.ValueContent().HAlign(HAlign_Fill)
+			[
+				i < 2 ?
+
+				//1. набор битов закреплений для земли и воздуха, 
+				StructBuilder.GenerateStructValueWidget(HandleFlags[i].ToSharedRef()) 
+
+				:
+
+				//1. раскоряка ног, 2. жесткость связи пояса со спиной, 3. общая вязкость
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().HAlign(HAlign_Right).FillWidth(1)[GETP(LegsSpreadMin)->CreatePropertyNameWidget()]
+				+ SHorizontalBox::Slot().MaxWidth(50)[GETP(LegsSpreadMin)->CreatePropertyValueWidget()]
+				+ SHorizontalBox::Slot().MaxWidth(50)[GETP(LegsSpreadMax)->CreatePropertyValueWidget()]
+
+				+ SHorizontalBox::Slot().HAlign(HAlign_Right)[GETP(JunctionStiffness)->CreatePropertyNameWidget()]
+				+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Right)[StructBuilder.GenerateStructValueWidget(GETP(JunctionStiffness).ToSharedRef())]
+
+				+ SHorizontalBox::Slot().HAlign(HAlign_Right).AutoWidth()[GETP(CommonDampingIfNeeded)->CreatePropertyNameWidget()]
+				+ SHorizontalBox::Slot().HAlign(HAlign_Left).MaxWidth(50)[GETP(CommonDampingIfNeeded)->CreatePropertyValueWidget()]
+
+				+ SHorizontalBox::Slot().HAlign(HAlign_Right).AutoWidth()[GETP(Crouch)->CreatePropertyNameWidget()]
+				+ SHorizontalBox::Slot().HAlign(HAlign_Left).MaxWidth(50)[GETP(Crouch)->CreatePropertyValueWidget()]
+
+				+ SHorizontalBox::Slot().HAlign(HAlign_Right).AutoWidth()[GETP(ForcesMultiplier)->CreatePropertyNameWidget()]
+				+ SHorizontalBox::Slot().HAlign(HAlign_Left).MaxWidth(50)[GETP(ForcesMultiplier)->CreatePropertyValueWidget()]
+
+				+ SHorizontalBox::Slot().HAlign(HAlign_Right).AutoWidth()[GETP(FairSteps)->CreatePropertyNameWidget()]
+				+ SHorizontalBox::Slot().HAlign(HAlign_Left).MaxWidth(20)[GETP(FairSteps)->CreatePropertyValueWidget()]
+			];
+	}
+
+/*	//вроде как подвязка обработчика события изменения значения свойства
+	HandleLimbs[2].Get()->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrGirdleModelTypeCustomization::OnChanged));
+
+	StructBuilder.AddCustomRow(FText::FromString(EntNames[2]))
+		.NameContent().HAlign(HAlign_Fill)
+		[
+			//1. название членика, 2. маленький контрол битов, 3. выписка битов длинной строкой
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().MaxWidth(80)[SNew(STextBlock).Text(FText::FromString(EntNames[2])).ColorAndOpacity(FLinearColor(0.5, 0.5, 0.5, 1))]
+			+ SHorizontalBox::Slot().MaxWidth(25)[GETP(Tail)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().FillWidth(10)[SAssignNew(Mnemo[2], STextBlock).Text(FText::FromString(Digest[2])).ColorAndOpacity(DigestColor[2])]
+		]
+		.ValueContent().HAlign(HAlign_Fill)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().HAlign(HAlign_Right).FillWidth(1)	[GETP(LegsSpreadMin)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().MaxWidth(50)						[GETP(LegsSpreadMin)->CreatePropertyValueWidget()]
+			+ SHorizontalBox::Slot().MaxWidth(50)						[GETP(LegsSpreadMax)->CreatePropertyValueWidget()]
+
+			+ SHorizontalBox::Slot().HAlign(HAlign_Right)[GETP(JunctionStiffness)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Right)[StructBuilder.GenerateStructValueWidget(GETP(JunctionStiffness).ToSharedRef())]
+
+			+ SHorizontalBox::Slot().HAlign(HAlign_Right).FillWidth(1)	[GETP(CommonDampingIfNeeded)->CreatePropertyNameWidget()]
+			+ SHorizontalBox::Slot().HAlign(HAlign_Right).MaxWidth(50)	[GETP(CommonDampingIfNeeded)->CreatePropertyValueWidget()]
+		];
+
+	//формируем строки и цвета по начальным значениям 
+	OnChanged();*/
+
+	//раскладка по строкам свойств битов для частей тела
+/*	for (int i = 0; i < 3; i++)
 	{
 		//вроде как подвязка обработчика события изменения значения свойства
 		HandleLimbs[i].Get()->SetOnPropertyValueChanged(FSimpleDelegate::CreateSP(SharedThis(this), &FMyrGirdleModelTypeCustomization::OnChanged));
 
 		RowWidgets[i] = StructBuilder.AddCustomRow(FText::FromString(EntNames[i]))
 
+			
 			//левая часть - типа имя свойства
 			.NameContent().HAlign(HAlign_Fill)
 			[
+				
 				//биты физических состояний члеников спины, пояса и головы/хвоста
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().MaxWidth(80)  [ SNew(STextBlock).Text(FText::FromString(EntNames[i])).ColorAndOpacity(FLinearColor(0.5, 0.5, 0.5, 1))]
 				+ SHorizontalBox::Slot().MaxWidth(25)  [ HandleLimbs[i]->CreatePropertyValueWidget() ]
 				+ SHorizontalBox::Slot().FillWidth(10)  [ SAssignNew(Mnemo[i], STextBlock).Text(FText::FromString(Digest[i])).ColorAndOpacity(DigestColor[i])]
+				//+ SHorizontalBox::Slot().FillWidth(10)	[SNew(SSpinBox<float>).MaxFractionalDigits(3)]
 			]
 			//правая часть 
 			.ValueContent().HAlign(HAlign_Fill)
@@ -360,10 +466,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 				//в одной ячейке стандартный виджет свойства, комбобокс с битами, поуже, во второй - строка расшифровки
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().MaxWidth(80) [ SNew(STextBlock).Text(FText::FromString(EntNames[i+3])).ColorAndOpacity(FLinearColor(0.5, 0.5, 0.5, 1))]
-				+ SHorizontalBox::Slot().FillWidth(12)
-				[
-					SAssignNew(AnchBits[i], SHorizontalBox)
-				]
+				+ SHorizontalBox::Slot().FillWidth(12)[	SAssignNew(AnchBits[i], SHorizontalBox)	]
 
 				//мелкий столбик - втиснуть свойство не относящееся к битам части тела, но удобно занимающее лишнее место
 				+ SHorizontalBox::Slot().HAlign(HAlign_Right).FillWidth(1)
@@ -388,9 +491,15 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 			AnchBits[j]->GetSlot(2 * i + 1).SetHorizontalAlignment(HAlign_Left);
 		}
 	}
-	AnchBits[2]->AddSlot().AutoWidth()[HandleF[3]->CreatePropertyNameWidget()];
-	AnchBits[2]->AddSlot().AutoWidth()[HandleF[3]->CreatePropertyValueWidget()];
-	AnchBits[2]->AddSlot().AutoWidth()[HandleF[4]->CreatePropertyValueWidget()];
+	//третья строка
+	AnchBits[2]->AddSlot().AutoWidth()[GETP(LegsSpreadMin)->CreatePropertyNameWidget()];
+	AnchBits[2]->AddSlot().AutoWidth()[GETP(LegsSpreadMin)->CreatePropertyValueWidget()];
+	AnchBits[2]->AddSlot().AutoWidth()[GETP(LegsSpreadMax)->CreatePropertyValueWidget()];
+
+	AnchBits[2]->AddSlot().AutoWidth().HAlign(HAlign_Right)[GETP(JunctionStiffness)->CreatePropertyNameWidget()];
+	AnchBits[2]->AddSlot().AutoWidth().HAlign(HAlign_Right)[StructBuilder.GenerateStructValueWidget(GETP(JunctionStiffness).ToSharedRef())];
+	
+	*/
 }
 
 //==============================================================================================================

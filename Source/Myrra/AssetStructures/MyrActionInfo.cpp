@@ -1,6 +1,6 @@
-#include "MyrCreatureAttackInfo.h"
+#include "MyrActionInfo.h"
 #include "..\Creature\MyrPhyCreature.h"
-#include "..\Control\MyrAI.h"
+#include "..\Control\MyrAIController.h"
 #include "..\Control\MyrDaemon.h"
 #include "..\Myrra.h"
 #include "Animation/AnimSequenceBase.h"			//для расчёта длины и закладок анимации
@@ -11,148 +11,128 @@
 // параметр говорит о намеренности игрока совершить команду - в этом случае многие условия не действуют
 // наоборот, дла ИИ вводятся дополнительные условия
 //==============================================================================================================
-EAttackAttemptResult FActionCondition::IsFitting (class AMyrPhyCreature* Owner, bool CheckByChance)
+EResult FActionCondition::IsFitting (AActor* AnyOwner, bool CheckByChance)
 {
+	auto Owner = Cast<AMyrPhyCreature>(AnyOwner);
+
+	//если действие вызывается не над существом, проверка применимости идет по упрощенному стценрию
+	if (!Owner)
+	{
+		if (Actors.Contains(AnyOwner->StaticClass()))
+			if (StatesForbidden) return EResult::WRONG_ACTOR;//◘◘>
+		if (!Velocities.Contains(AnyOwner->GetVelocity().Size()))
+			return EResult::OUT_OF_VELOCITY;//◘◘>
+		return EResult::OKAY_FOR_NOW;//◘◘>
+	}
+
 	// проверка по вероятности - в начале, так как быстро освобождает от более сложных условий
 	// отключается для команд демона и особых событий в ИИ, включается для Idle-перебора-чо-бы-устроить
 	if (CheckByChance)
 	{
 		uint8 WhatToTakeAsChance = 255;
 		if (Owner->IsUnderDaemon())
-			WhatToTakeAsChance = FMath::Lerp(ChanceForPlayer, Chance, Owner->MyrAI()->AIRuleWeight);
+			WhatToTakeAsChance = FMath::Lerp(ChanceForPlayer, Chance, Owner->MyrAIController()->AIRuleWeight);
 		else WhatToTakeAsChance = Chance;
-		if (!Owner->MyrAI()->ChanceRandom(WhatToTakeAsChance))
+		if (!Owner->MyrAIController()->ChanceRandom(WhatToTakeAsChance))
 		{
 			//UE_LOG(LogTemp, Warning, TEXT("%s chance %d > %d"), *Owner->GetName(), Owner->MyrAI()->RandVar&255, WhatToTakeAsChance);
-			return EAttackAttemptResult::OUT_OF_CHANCE;//◘◘>
+			return EResult::OUT_OF_CHANCE;//◘◘>
 		}
 
 		//если общее, интегральное эмоциональное настроение не вписывается в заданный круг
 		//эмоции - та же вероятность не хотеть, если приказывают строго выполнить, то они не рассматриваются
-		if (!FeelToCause.Within(Owner->MyrAI()->GetIntegralEmotion()))
-			return EAttackAttemptResult::OUT_OF_SENTIMENT;//◘◘>
+		if(Owner->MyrAIController()->IntegralEmotion.Within(EmotionLim1, EmotionLim2))
+			return EResult::OUT_OF_SENTIMENT;//◘◘>
 	}
 
 	// попадает в диапазоны 
 	if(Owner->Daemon)
 		if (!Sleepinesses.Contains(Owner->Daemon->Sleepiness))
-			return EAttackAttemptResult::OUT_OF_SLEEPINESS;//◘◘>
+			return EResult::OUT_OF_SLEEPINESS;//◘◘>
 
 
 	// если нельзя при произнесении звуков ртом
 	if (SkipDuringSpeaking && Owner->CurrentSpelledSound != (EPhoneme)0)			
-		return EAttackAttemptResult::OUT_OF_STAYING_MUTE;//◘◘>
+		return EResult::OUT_OF_STAYING_MUTE;//◘◘>
 
 	// если нельзя во время релакс-действия
 	if (SkipDuringRelax && Owner->CurrentRelaxAction != 255)
-		return EAttackAttemptResult::FORBIDDEN_IN_RELAX;//◘◘>
+		return EResult::FORBIDDEN_IN_RELAX;//◘◘>
 
 	// если выполняется атака, а при атаке нельзя - не делать 
 	if (SkipDuringAttack && !Owner->NoAttack())	
-		return EAttackAttemptResult::WRONG_PHASE;//◘◘>
+		return EResult::WRONG_PHASE;//◘◘>
 
 	//это действие с низким приоритетом хочет вытолкнуть более приоритетоное
 	if(Owner->DoesSelfAction())
 		if(Priority <= Owner->GetSelfAction()->Condition.Priority)
-			return EAttackAttemptResult::LOW_PRIORITY;//◘◘>
+			return EResult::LOW_PRIORITY;//◘◘>
 
 	///////////////////////////////////////////////////
 
 	// попадает в диапазоны  усталости
 	if (!Staminas.Contains(Owner->Stamina))
-		return EAttackAttemptResult::OUT_OF_STAMINA;//◘◘>
+		return EResult::OUT_OF_STAMINA;//◘◘>
 
 	// попадает в диапазоны здоровья
 	if (!Healthes.Contains(Owner->Health))
-		return EAttackAttemptResult::OUT_OF_HEALTH;//◘◘>
+		return EResult::OUT_OF_HEALTH;//◘◘>
 
 	// попадает в диапазоны длительностей текущего состояния (хз зачем)
 	if (!StateAges.Contains(Owner->StateTime))
-		return EAttackAttemptResult::OUT_OF_HEALTH;//◘◘>
+		return EResult::OUT_OF_HEALTH;//◘◘>
 
 	// попадает в диапазоны скорости 
 	// ура, теперь можно различать ход вперед и задний ход! 
 	if (!Velocities.Contains(Owner->GetPelvis()->SpeedAlongFront()))
-		return EAttackAttemptResult::OUT_OF_VELOCITY;//◘◘>
+		return EResult::OUT_OF_VELOCITY;//◘◘>
 
 	//отсечение по дозволенным/запрещенным состояниям поведения существа
 	if(States.Contains(Owner->GetBehaveCurrentState()) == StatesForbidden)
-		return EAttackAttemptResult::OUT_OF_BEHAVE_STATE;//◘◘>;
+		return EResult::OUT_OF_BEHAVE_STATE;//◘◘>;
 
 	///////////////////////////////////////////////////////////////
 
 	//если не убились об предыдущие условия, значит всё нормально
-	return EAttackAttemptResult::OKAY_FOR_NOW;
+	return EResult::OKAY_FOR_NOW;
 }
 
-//==============================================================================================================
-//подходит ли данное данное существо на роль жертвы данной атаки
-//==============================================================================================================
-EAttackAttemptResult FVictimType::IsVictimFitting(AMyrPhyCreature* Owner, UPrimitiveComponent* VictimBody, bool CheckByChance, FGoal* Goal, bool ByAI)
-{
-	//наслучай если будет вызвана в отсутствие целей
-	if (!VictimBody) return EAttackAttemptResult::WRONG_ACTOR;//◘◘>
 
-	//если эта функция вызывается из ИИ - думать за ИИ о применимости в пространстве
-	//для игрока вызывать атаку в любом случае, даже если это тупо об воздух
-	if (ByAI)
-	{	if (Goal)
-		{	if (!CheckByRadius(Goal->LookAtDist))
-				return EAttackAttemptResult::OUT_OF_RADIUS;//◘◘>
-			if (!CheckByAngle(Goal->LookAlign))
-				return EAttackAttemptResult::OUT_OF_ANGLE;//◘◘>
-		}
-		//тут ничего не делается, так как ИИ не атакует не-цели
-		else { }
-	}
-
-	//если актор, на коего возложили сие действие, в списке особых 
-	//это нужно только для жертвы
-	if (Condition.Actors.Contains(Owner->StaticClass()) == Condition.ActorsForbidden)
-		return EAttackAttemptResult::WRONG_ACTOR;//◘◘>
-
-
-	//если в остальном проходим - придётся запустить проверку жертвы как отдельной сущности
-	if (auto VictimAlive = Cast<AMyrPhyCreature>(VictimBody->GetOwner()))
-		return Condition.IsFitting(VictimAlive, CheckByChance);
-	else return Condition.IsFittingSimple(VictimBody->GetOwner());
-}
 
 //==============================================================================================================
 //форма проверки для ИИ, стоит ли совершать данную атаку по отношению к данной цели
 //==============================================================================================================
-EAttackAttemptResult UMyrActionInfo::IsActionFitting(
+EResult UMyrActionInfo::IsActionFitting(
 	AMyrPhyCreature* Owner,
-	UPrimitiveComponent* ExactVictim,
-	FGoal* Goal, uint8& VictimType, bool ByAI, bool CheckByChance)
+	USceneComponent* ExactVictim,
+	float LookAtDist, float LookAlign, bool ByAI, bool CheckByChance)
 {
 	//проверять ли себя = не нужно, если уже начал, и нужно решить о продолжении
 	bool CheckMyself = true;
-	EAttackAttemptResult R = EAttackAttemptResult::INCOMPLETE_DATA;
+	EResult R = EResult::INCOMPLETE_DATA;
+
+	if(Owner->MyrAIController()->AIRuleWeight > MinAIWeight)
+		return EResult::TOO_WEAK_AI;//◘◘>
 
 	//если имеются сборки атак
 	if (VictimTypes.Num() > 0)
 	{
 		//если какая-то атака уже выполняется - заартачиться, даже если это мы выполняемся
 		//ибо данную функцию следует запускать только при тестировании еще не начавшегося действия
-		if (Owner->DoesAttackAction()) return EAttackAttemptResult::WRONG_PHASE;//◘◘>
+		if (Owner->DoesAttackAction()) return EResult::WRONG_PHASE;//◘◘>
 
-		//по всем, хотя здесь скорее всего будет один элемент
-		for (int i=0;i<VictimTypes.Num();i++)
+		//проверить применимость этой сборки к этой жертве (шанс не проверяем, потому что только для субъекта)
+		//внимание, CheckByChance для жертвы не осуществляется, потому что если жертва = игрок, то функция будет думать, что 
+		//совершает проверку для игрока, а для игрока почти все самопроизвольные действия запрещены
+		//и вообще второй раз зачем вероятность считать
+		R = VictimTypes[0].IsVictimFitting (Owner, ExactVictim, LookAtDist, LookAlign, false, ByAI);
+		if (ActOk(R))
 		{
-			//проверить применимость этой сборки к этой жертве (шанс не проверяем, потому что только для субъекта)
-			//внимание, CheckByChance для жертвы не осуществляется, потому что если жертва = игрок, то функция будет думать, что 
-			//совершает проверку для игрока, а для игрока почти все самопроизвольные действия запрещены
-			//и вообще второй раз зачем вероятность считать
-			R = VictimTypes[i].IsVictimFitting (Owner, ExactVictim, false, Goal, ByAI);
-			if (ActOk(R))
-			{
-				//если жертва подходит - проверить себя и сразу выдать вердикт
-				if (CheckMyself) R = Condition.IsFitting(Owner, CheckByChance);
-				VictimType = i;
-				return R; //◘◘>
-			}
+			//если жертва подходит - проверить себя и сразу выдать вердикт
+			if (CheckMyself) R = Condition.IsFitting(Owner, CheckByChance);
+			return R; //◘◘>
 		}
+
 		//не нашли подходящую сборку - выдать последнюю причину неподходящести
 		return R;//◘◘>
 	}
@@ -164,10 +144,10 @@ EAttackAttemptResult UMyrActionInfo::IsActionFitting(
 //==============================================================================================================
 //упрощенный вариант перетестирования для ИИ перед страйком
 //==============================================================================================================
-EAttackAttemptResult UMyrActionInfo::RetestForStrikeForAI(class AMyrPhyCreature* Owner, UPrimitiveComponent* ExactVictim, FGoal* Goal)
+EResult UMyrActionInfo::RetestForStrikeForAI(class AMyrPhyCreature* Owner, UPrimitiveComponent* ExactVictim, float Dist, float Ang)
 {
 	//проверяем применимость к той жертве, которая была изначально вбита при начале атаки
-	auto R = VictimTypes[Owner->CurrentAttackVictimType].IsVictimFitting (Owner, ExactVictim, true, Goal, true);
+	auto R = VictimTypes[0].IsVictimFitting (Owner, ExactVictim, Dist, Ang, true, true);
 
 	//здесь шанс нехрена проверять, если начали, так уж и заканчивать
 	if (ActOk(R)) R = Condition.IsFitting(Owner, false);
@@ -231,22 +211,22 @@ void UMyrActionInfo::RecalcOverallStaminaFactor()
 	}
 }
 
+
 //==============================================================================================================
 //проверка возможности попадения в цель, для автонацеливания
 //==============================================================================================================
-bool UMyrActionInfo::QuickAimResult(AMyrPhyCreature* Owner, FGoal* Goal, float Accuracy)
+bool UMyrActionInfo::QuickAimResult(AMyrPhyCreature* Owner, FGestalt Gestalt, float Accuracy)
 {
-	if(Owner->CurrentAttackVictimType >= VictimTypes.Num()) return false;//◘◘>
-	auto VicTy = VictimTypes[Owner->CurrentAttackVictimType];
+	auto VicTy = VictimTypes[0];
 
 	//если жертва вне радиуса доставания атаки, не надо ее начинать
-	if(	!VicTy.CheckByRadius (Goal->LookAtDist)) return false;//◘◘>
+	if(	!VicTy.CheckByRadius (Gestalt.Location.DecodeDist())) return false;//◘◘>
 
 	//если жертва вне угла поражения
-	if(	!VicTy.CheckByAngle (Goal->LookAlign)) return false;//◘◘>
+	if(	!VicTy.CheckByAngle (Gestalt.VisCoaxis)) return false;//◘◘>
 
 	//если мы попадаем, но нацелены неточно (и помогать нам при такой точности - читерство)
-	if(Goal->LookAlign < Accuracy)  return false;//◘◘>
+	if(Gestalt.VisCoaxis < Accuracy)  return false;//◘◘>
 	return true;//◘◘>
 }
 
@@ -260,7 +240,6 @@ void UMyrActionInfo::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 	FName PropertyName = (PropertyChangedEvent.MemberProperty != nullptr) ? PropertyChangedEvent.MemberProperty->GetFName() : NAME_None;
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UMyrActionInfo, VictimTypes))
 	{
-
 		//если пользователь добавил сборку для жертвы из нуля хотя бы одну
 		if (VictimTypes.Num() > 0 && DynModelsPerPhase.Num() < (int)EActionPhase::NUM)
 		{
@@ -282,7 +261,11 @@ void UMyrActionInfo::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 		}
 	}
 
+	//пересчитать энергетическую стоимость действия
 	RecalcOverallStaminaFactor();
+
+	//пересчитать обороноспособность действия
+	RecalcMaxDamage();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif

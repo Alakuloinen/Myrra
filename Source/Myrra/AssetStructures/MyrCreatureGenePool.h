@@ -26,11 +26,11 @@ class MYRRA_API UMyrCreatureGenePool : public UObject
 public: // диапазоны умений
 //------------------------------------------------
 	
-	//комплексная реакция на разные элементарные действия - теперь отдельным дата-ассетом
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") class UMyrLogicEmotionReactions* MyrLogicReactions;
 
-	//новое воплощение эмоциональной идентичности - список эмоциональных реакций
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") class UMyrEmoReactionList* EmoReactions;
+
+	//новая попытка в ИИ, "безусловные рефлексы", эмоциональные реакции на отдельные элементарные стимулы
+	UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true"), Category = "Role")	FPathia	ElementaryEmotionsYe[(int)EYeAt::MAX];
+	UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true"), Category = "Role")	FPathia	ElementaryEmotionsMe[(int)EMeAt::MAX];
 
 	//базис для рассчёта терминальной скорости, с которой соударяясь, не получаешь травм
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") float MaxSafeShock = 600;
@@ -105,14 +105,12 @@ public: // взаимодействие
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Behave")
 		TMap<EBehaveState, class UMyrCreatureBehaveStateInfo*> BehaveStates;
 
-	//карта начальных отношений с представителями других чувствуемых видов (живых и мертвых)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Interaction", config)
-		TMap < TSubclassOf<AActor>, FAttitudeTo > AttitudeToOthers;
-
 	//*********************************новый вариант***************в этом массиве и атаки и всё прочее
 	//все характеристики атак, индекс имеет значение, указывается в CurrentAtack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Actions") TArray <UMyrActionInfo*> Actions;
-	TMultiMap<ECreatureAction,uint8> ActionMap;
+	TMultiMap<EAction,uint8> ActionMap;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Actions") bool UpdateActions = false;
 
 
 
@@ -135,7 +133,6 @@ public: // искусственный интеллект
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI", config) float DistanceUnSeeing = 3500;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI", config) float DistanceHearing = 2000;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI", config) float DistanceOlfaction = 2000;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI", config) float AngleOfVision = 180;
 
 	//коэфициенты скоростей для пограничных эмоций
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI") class UCurveLinearColor* MotionGainForEmotions;
@@ -145,7 +142,7 @@ public: // искусственный интеллект
 	//распределение эмоций по времени суток - базис, к которому стремится настроение при отсутствии раздражителей
 	//для NPC, возможно, брать с коэффициентом ослабления, чтобы стремилось к нулю и не вносило искажения в реакцию на протагониста
 	//если протагонист, влияет на играемую музыку (вместе с погодой и местом под ногами)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI") class UCurveLinearColor* IdleEmotionsThroughDayTime;
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "AI") class UCurveLinearColor* IdleEmotionsThroughDayTime;
 
 //------------------------------------------------
 public: // аудио 
@@ -176,7 +173,9 @@ public:	// стандартные переобпределяемые метод�
 public:	// свои методы
 //--------------------------------------------------------------------------------------
 
-	UMyrCreatureGenePool() {}
+	UMyrCreatureGenePool() { ActionMap.Empty(); PrepareEmotions(); }
+
+	void PrepareEmotions();
 
 	//разобрать добавленные действия и построить карту для быстрого поиска
 	void AnalyzeActions();

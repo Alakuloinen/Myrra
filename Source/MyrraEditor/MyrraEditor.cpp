@@ -28,11 +28,13 @@ void FMyrraEditorModule::StartupModule()
 	//PropertyModule.RegisterCustomClassLayout("MyrActionInfo", FOnGetDetailCustomizationInstance::CreateStatic(&FMyrDynModelCustomization::MakeInstance));
 	
 	//зарегистрировать расцветитель для структуры WholeBodyDynamicsModel
+	PropertyModule.RegisterCustomPropertyTypeLayout("GirdleFlags",				FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FGirdleFlagsCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("WholeBodyDynamicsModel",	FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMyrDynModelTypeCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("GirdleDynModels",			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMyrGirdleModelTypeCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("MyrLogicEventData",		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMyrLogicEventDataTypeCustomization::MakeInstance));
-	PropertyModule.RegisterCustomPropertyTypeLayout("Emotio",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FEmotionTypeCustomization::MakeInstance));
-	PropertyModule.RegisterCustomPropertyTypeLayout("EmoStimulus",				FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FEmoStimulusTypeCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout("Pathia",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FEmotionTypeCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout("Ratio",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FRatioTypeCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout("Bipolar",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FRatioTypeCustomization::MakeInstance));
 
 	//это вообще непонятно зачем
 	PropertyModule.NotifyCustomizationModuleChanged();
@@ -59,8 +61,8 @@ void FMyrraEditorModule::ShutdownModule()
 	PropertyModule.UnregisterCustomClassLayout("WholeBodyDynamicsModel");
 	PropertyModule.UnregisterCustomClassLayout("GirdleDynModels");
 	PropertyModule.UnregisterCustomClassLayout("MyrLogicEventData");
-	PropertyModule.UnregisterCustomClassLayout("Emotio");
-	PropertyModule.UnregisterCustomClassLayout("EmoStimulus");
+	PropertyModule.UnregisterCustomClassLayout("Pathia");
+	PropertyModule.UnregisterCustomClassLayout("Ratio");
 }
 
 //самая важная макрооболочка... кажется, должна быть в самом конце

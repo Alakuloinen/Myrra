@@ -25,7 +25,7 @@ public:	// общие характеристики / кэши вычисляем
 
 	//единый указатель на объект источник данных - остальное по идее берется в обработчиках
 	//хотя переменные для здоровья, усталости и эмоций (будут в релизе) пусть таки останутся
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class AMyrAI* MyrAI;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class AMyrAIController* MyrAIC;
 
 	//если это существо управляется игроком, а виджет - худ , важно сразу же подцепить нужный контроллер в нужном типе
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class AMyrPlayerController* MyrPlayerController;
@@ -39,13 +39,10 @@ public:	// функции
 	UFUNCTION(BlueprintCallable) bool KeyToEscape(FKey KeyHappened, FName ActionMap, bool EscapeToo = true);
 
 	//вывести для худа называние клавиш, которыми делается следующее действие (или перенести в виджет)
-	UFUNCTION(BlueprintCallable) bool GetKeysForCreatureAction(ECreatureAction Action, FString& OutString) const;
+	UFUNCTION(BlueprintCallable) bool GetKeysForCreatureAction(EAction Action, FString& OutString) const;
 
 	//для блюпринта меню, сделанного на этом классе, хз
 	UFUNCTION(BlueprintCallable) void SetProgressBarFillType(class UProgressBar* PB, TEnumAsByte<EProgressBarFillType::Type> Newft);
-
-	//окрасить кнопку нужными цветами
-	UFUNCTION(BlueprintCallable) void PaintButton(class UButton *Butt, bool Selected = true);
 
 	//вызов божественных сущностей
 	UFUNCTION(BlueprintCallable) class UMyrraGameInstance* GetMyrraGameInstance() const { return (UMyrraGameInstance*)GetGameInstance(); }
@@ -78,6 +75,8 @@ public:	// функции
 
 	// события старта действий, чтоб отображать названия и не делать это в тике
 	UFUNCTION(BlueprintImplementableEvent)	void OnAction(int WhatKind, bool Start);
+
+	UFUNCTION(BlueprintCallable) FLinearColor EmoToColor(FPathia E) const { return (FLinearColor)E; }
 
 
 

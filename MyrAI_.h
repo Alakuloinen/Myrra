@@ -53,6 +53,9 @@ public:
 	//см. MyrraSaveGame
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TMap<UPrimitiveComponent*, FGestaltRelation> Memory;
 
+	//новая попытка
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TMap<UPrimitiveComponent*, FGestalt> Known;
+
 	//память о предыдуще сделанных действиях - точно прошедшее только последнее, остальные перемешаны, но позволяют оценить частотность разных акций
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FEmotionMemory EventMemory;
 
@@ -212,6 +215,9 @@ public:
 //возвращалки
 public:
 
+	//новый способ представлять расстояние до цели
+	uint8 PackDist(FVector YourLoc);
+
 	//раздобыть данные по конкретному эмоуиональному событию
 	FMyrLogicEventData* MyrLogicGetData(EMyrLogicEvent What);
 
@@ -260,7 +266,7 @@ public:
 	//в основном для диагностики через худ
 	UFUNCTION(BlueprintCallable) const FGoal&		GetGoalSlot(int i) const { return Goals[i]; }
 	UFUNCTION(BlueprintCallable) FGestaltRelation	GetGoalSlotGestalt(int i) const { if (Goals[i].Object) if (auto g = Memory.Find(Goals[i].Object)) return *g; return FGestaltRelation(); }
-	UFUNCTION(BlueprintCallable) UPrimitiveComponent*			GetGoalSlotGestaltObject(int i) const { return Goals[i].Object; }
+	UFUNCTION(BlueprintCallable) UPrimitiveComponent*GetGoalSlotGestaltObject(int i) const { return Goals[i].Object; }
 	UFUNCTION(BlueprintCallable) float				GetGoalVisibility(int i) const { return Goals[i].Visibility; }
 	UFUNCTION(BlueprintCallable) float				GetGoalAudibility(int i) const { return Goals[i].Audibility; }
 	UFUNCTION(BlueprintCallable) float				GetGoalWeight(int i) const { return Goals[i].Weight; }

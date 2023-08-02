@@ -36,11 +36,24 @@
 #include "AudioDeviceManager.h"							// для манипуляции громкостями звуков из кода
 #include "AudioDevice.h"								// для манипуляции громкостями звуков из кода
 
+#define ADDREA(Cause, Name, Desc, Emo) EmoReactionWhatToDisplay.Add(Cause, FEmoReactionsUI(TEXT(Name), TEXT(Desc), Emo))
 //====================================================================================================
 //====================================================================================================
 UMyrraGameInstance::UMyrraGameInstance(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	for (int i = 0; i < (int)EYeAt::MAX; i++)
+	{
+		SimpleEmoStimuliNamesMe[i] = UEnum::GetDisplayValueAsText((EMeAt)i);
+		SimpleEmoStimuliNamesYe[i] = UEnum::GetDisplayValueAsText((EYeAt)i);
+	}
+
+	//начальные шаблоны некоторых эмоциональных рефлексов и их названия для интерфейса
+	ADDREA(ME2_(Shine,Night),					"Me and the Moon",		"My feeling At Shine + At Night",					FPathia(Hope,		+2));
+	ADDREA(YE4_(NotMe, Big, New, Seen),			"See a sudden giant",	"Subject is new, seen and relatively big",			FPathia(Anxiety,	+3));
+	ADDREA(YE3_(NotMe, New, Seen),				"See a novice",			"Subject is recently noticed and seen now",			FPathia(Hope,		+5));
+	ADDREA(YE3_(NotMe, Big, Seen),				"See a giant",			"Subject is big and seen",							FPathia(Worry,		+3));
+	ADDREA(YE4_(NotMe, Big, ComingCloser, Seen),"See a giant approaching","Subject is big, seen and is coming closer",		FPathia(Fear,		+3));
 
 }
 
@@ -85,103 +98,6 @@ void UMyrraGameInstance::Init()
 
 void UMyrraGameInstance::PostLoad()
 {
-	EmoReactionWhatToDisplay.Add(EEmoCause::Pain,
-		FEmoReactionsUI(TEXT("Pain"), TEXT("Emotional reaction to acute pain from damage"), EEmotio::Insanity, 10, 200));
-	EmoReactionWhatToDisplay.Add(EEmoCause::MeJumped,
-		FEmoReactionsUI(TEXT("Me Jumped"), TEXT("Feeling after a successful jump, scaled by jump accumulated force"), EEmotio::Pride, 1, 10));
-	EmoReactionWhatToDisplay.Add(EEmoCause::VoiceOfRatio,
-		FEmoReactionsUI(TEXT("Ratio"), TEXT("Tendency to balance emotions to rational sober state"), EEmotio::Peace, 2, 150));
-	EmoReactionWhatToDisplay.Add(EEmoCause::Burnout,
-		FEmoReactionsUI(TEXT("Burnout"), TEXT("Lightening all emotions to the void due to emotional overload"), EEmotio::Void, 3, 100));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::TimeDay,
-		FEmoReactionsUI(TEXT("Time: Day"), TEXT("Daytime induced vibe, no scale, can be rejected at overload"), FEmoStimulus(90, 120, 60, 1, 100)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::TimeEvening,
-		FEmoReactionsUI(TEXT("Time: Evening"), TEXT("Evening induced vibe, no scale, can be rejected at overload"), FEmoStimulus(70, 100, 100, 1, 100)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::TimeMorning,
-		FEmoReactionsUI(TEXT("Time: Morning"), TEXT("Morning induced vibe, no scale, can be rejected at overload"), FEmoStimulus(50, 120, 40, 1, 100)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::TimeNight,
-		FEmoReactionsUI(TEXT("Time: Night"), TEXT("Nighttime induced vibe, no scale, can be rejected at overload"), FEmoStimulus(70, 120, 120, 1, 100)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::Moon,
-		FEmoReactionsUI(TEXT("Moon"), TEXT("Emotion towards the visible moon, the brighter and upper the stronger"), FEmoStimulus(100, 90, 130, 2, 100)));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherSunny,
-		FEmoReactionsUI(TEXT("Sunny weather"), TEXT("Attitude towards sunshine, the stronger the less clouds and the higher the sun"), FEmoStimulus(90, 130, 20, 3, 100)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherCloudy,
-		FEmoReactionsUI(TEXT("Cloudy weather"), TEXT("Attitude towards daily clouds and overcast, scaled by blue sky shortage"), EEmotio::Peace, 1, 30));
-	EmoReactionWhatToDisplay.Add(EEmoCause::WeatherFoggy,
-		FEmoReactionsUI(TEXT("Foggy weather"), TEXT("Attitude towards considerable amount of fog, scaled by fog density"), FEmoStimulus(130, 90, 150, 3, 100)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::TooCold,
-		FEmoReactionsUI(TEXT("Too Cold"), TEXT("Emotion raised at low temperatures"), EEmotio::Insanity, 1, 70));
-	EmoReactionWhatToDisplay.Add(EEmoCause::TooHot,
-		FEmoReactionsUI(TEXT("Too Hot"), TEXT("Emotion raised at high temperatures"), FEmoStimulus(80, 20, 20, 1, 60)));
-
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::LowHealth,
-		FEmoReactionsUI(TEXT("Low Health"), TEXT("Emotional reaction to severe heath lowering, scaled by zero proximity"), EEmotio::Horror, 50, 100));
-	EmoReactionWhatToDisplay.Add(EEmoCause::LowStamina,
-		FEmoReactionsUI(TEXT("Low Stamina"), TEXT("Feeling physically exhausted, scaled by zero proximity"), EEmotio::Void, 1, 20));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedArm,
-		FEmoReactionsUI(TEXT("Damaged Arm"), TEXT("Emotion scaled by arm / hinder paw damage"), FEmoStimulus(150, 0, 150, 4, 30)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedLeg,
-		FEmoReactionsUI(TEXT("Damaged Leg"), TEXT("Emotion scaled by leg / yonder paw damage"), FEmoStimulus(120, 0, 180, 3, 50)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedTail,
-		FEmoReactionsUI(TEXT("Damaged Tail"), TEXT("Emotion scaled by tail physical damage"), FEmoStimulus(180, 0, 50, 1, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedHead,
-		FEmoReactionsUI(TEXT("Damaged Head"), TEXT("Emotion scaled by head physical damage"), EEmotio::Insanity, 4, 70));
-	EmoReactionWhatToDisplay.Add(EEmoCause::DamagedCorpus,
-		FEmoReactionsUI(TEXT("Damaged Body"), TEXT("Emotion scaled by chest, spine, belly physical damage"), FEmoStimulus(180, 20, 150, 1, 60)));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownNear,
-		FEmoReactionsUI(TEXT("Object Known Near"), TEXT("Passive emotional influence of a known creature or item at moderate proximity as it has kept in memory, scaled by distance"), EEmotio::Void, 1, 20));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownClose,
-		FEmoReactionsUI(TEXT("Object Known Close"), TEXT("Emotional influence of a known creature or item taken from memory on a very small distance or touching us, scaled by distance"), EEmotio::Void, 3, 20));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownComeClose,
-		FEmoReactionsUI(TEXT("Object Known Coming Close"), TEXT("Emotional influence of a known creature or item taken from memory, when it is coming closer or we are approaching to, scaled by velocity"), EEmotio::Void, 2, 20));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjKnownFlyClose,
-		FEmoReactionsUI(TEXT("Object Known Flying Close"), TEXT("Emotional influence of a known flying creature taken from memory at a period of it is coming closer through air, scaled by velocity"), EEmotio::Void, 4, 20));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageNear,
-		FEmoReactionsUI(TEXT("Object Big In Rage Near"), TEXT("A creature bigger than us, apparently being in wrath to anything, is at a moderate distance to us, scaled by distance, size ratio, and being sure we perceive it"), FEmoStimulus(120, 50, 255, 4, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageClose,
-		FEmoReactionsUI(TEXT("Object Big In Rage Close"), TEXT("A creature bigger than us, apparently being in wrath to anything, is at a tiny distance or touching us, scaled by distance, size ratio, and being sure we perceive it"), FEmoStimulus(255, 60, 200, 10, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageComeClose,
-		FEmoReactionsUI(TEXT("Object Big In Rage Come Close"), TEXT("What we feel as a very angry creature bigger than us, is approaching to us, scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(255, 100, 255, 20, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInRageComeAway,
-		FEmoReactionsUI(TEXT("Object Big In Rage Come Away"), TEXT("What we feel about a very angry creature bigger than us, going away from us; scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(128, 150, 100, 5, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigComeClose,
-		FEmoReactionsUI(TEXT("Object Big Come Close"), TEXT("What we feel as a creature apparently bigger than us is approaching to us, scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(128, 40, 170, 5, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigComeAway,
-		FEmoReactionsUI(TEXT("Object Big Come Away"), TEXT("What we feel when a creature apparently bigger than us leaving us, scaled by velocity, size ratio, and being sure we perceive it"), FEmoStimulus(70, 100, 50, 3, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjSmallNear,
-		FEmoReactionsUI(TEXT("Object Small Near"), TEXT("What we feel as a tiny creature is at a moderate distance to us, scaled by size ratio, and distance"), FEmoStimulus(128, 128, 0, 3, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjSmallClose,
-		FEmoReactionsUI(TEXT("Object Small Close"), TEXT("What we feel as a tiny creature is close to us or touching us, scaled by size ratio, and distance"), FEmoStimulus(128, 128, 128, 3, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjSmallInRageClose,
-		FEmoReactionsUI(TEXT("Object Small In Rage Close"), TEXT("A very angry creature rather smaller than us is at a tiny distance or touching us; scaled by distance, size ratio, and being sure we perceive it"), FEmoStimulus(255, 0, 0, 2, 60)));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveComeClose,
-		FEmoReactionsUI(TEXT("Object In Love Come Close"), TEXT("Feeling when a being expressing love or friendliness approaching us, scaled by amount of friendliness and velocity"), FEmoStimulus(0, 250, 128, 2, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveComeClose,
-		FEmoReactionsUI(TEXT("Object In Love Come Away"), TEXT("What we feel when a being expressing love or friendliness running out of our area, scaled by amount of friendliness and velocity"), FEmoStimulus(70, 120, 200, 1, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveClose,
-		FEmoReactionsUI(TEXT("Object In Love Close"), TEXT("What we feel when a creature showing love or friendliness is very close to us or touching us, scaled by amount of friendliness and distance"), FEmoStimulus(50, 255, 100, 2, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInLoveNear,
-		FEmoReactionsUI(TEXT("Object In Love Near"), TEXT("What we feel when a creature showing love or friendliness is at a moderate distance to us, scaled by amount of friendliness and distance"), FEmoStimulus(0, 255, 0, 1, 60)));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjInFearComeAway,
-		FEmoReactionsUI(TEXT("Object In Fear Come Away"), TEXT("A scared creature running away, scaled by velocity, and amount of fear"), FEmoStimulus(100, 100, 0, 1, 60)));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjBigInFearComeClose,
-		FEmoReactionsUI(TEXT("Object In Fear Come Close"), TEXT("What we feel when a big scared creature is running onto us, scaled by velocity, size, and amount of fear"), FEmoStimulus(120, 50, 255, 1, 60)));
-
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjUnknownHeard,
-		FEmoReactionsUI(TEXT("Object Unknown Heard"), TEXT("Emotion of hearing a creature that was never met (perveived, attacked) before. Scaled by loudness, defined by a general attitude to that creature's species, if present"), EEmotio::Worry, 1, 100));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjUnknownSeen,
-		FEmoReactionsUI(TEXT("Object Unknown Seen"), TEXT("Emotion of visually perceiving a creature that was never met (perveived, attacked) before. Scaled by visibility, defined by a general attitude to that creature's species, if present"), EEmotio::Anxiety, 2, 10));
-	EmoReactionWhatToDisplay.Add(EEmoCause::ObjUnknownFlyClose,
-		FEmoReactionsUI(TEXT("Object Unknown Fly Close"), TEXT("Perceiving an unidentifiend flying creature approaching to us, scaled by velocity"), EEmotio::Anxiety, 3, 10));
-
 	Super::PostLoad();
 }
 
@@ -671,6 +587,25 @@ UMaterialParameterCollectionInstance* UMyrraGameInstance::MakeMPCInst()
 {
 	return GetWorld()->GetParameterCollectionInstance(GetMatParams());
 }
+
+void UMyrraGameInstance::EmoStimulusToMnemo (const FReflex& In, FText& Out) const
+{	
+	TArray<FText> Infli;
+	bool Me = ((In.Condition & (1 << (int)EYeAt::NotMe)) == 0);
+	for(int i=1;i<32;i++)
+	{	if(In.Condition & (1<<i))
+		{
+			FText CuName = Me ? SimpleEmoStimuliNamesMe[i] : SimpleEmoStimuliNamesYe[i];
+			if (CuName.IsEmpty())
+				Infli.Add(FText::FromString(TXTENUM(EYeAt, (EYeAt)i)));
+			else
+				Infli.Add(CuName);
+		}
+	}
+	Out = FText::Join(FText::FromString(TEXT(", ")), Infli);
+}
+
+
 
 
 

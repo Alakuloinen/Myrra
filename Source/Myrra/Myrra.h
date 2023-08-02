@@ -20,8 +20,7 @@
 #include "BaseDefinitions/myrra_lipsync.h"
 
 //эмоции/цвета + отношения к объектам
-#include "BaseDefinitions/myrra_emotions.h"
-#include "BaseDefinitions/myrra_emotio.h"
+#include "BaseDefinitions/myrra_psyche.h"
 
 //анатомия - членики и сегменты тела
 #include "BaseDefinitions/myrra_anatomy.h"
@@ -43,49 +42,14 @@
 
 #include "Myrra.generated.h"
 
-#if WITH_EDITOR
-#define DEBUG_LINE_TRACES 0
-#define DEBUG_LINE_ATTACKS 0
-#define DEBUG_LINE_AXES 0
-#define DEBUG_LINE_CONTACTS 0
-#define DEBUG_LINE_STEPS 0
-#define DEBUG_LINE_MOVES 1
-#define DEBUG_LINE_CONSTRAINTS 0
-#define DEBUG_LINE_AI 1
-#define DEBUG_LINE_ANIMATION 0
-#define DEBUG_LOG_SKY 0
-#else
-#define DEBUG_LINE_TRACES 0
-#define DEBUG_LINE_AXES 0
-#define DEBUG_LINE_ATTACKS 0
-#define DEBUG_LINE_CONTACTS 0
-#define DEBUG_LINE_STEPS 0
-#define DEBUG_LINE_MOVES 0
-#define DEBUG_LINE_CONSTRAINTS 0
-#define DEBUG_LINE_AI 0
-#define DEBUG_LINE_ANIMATION 0
-#define DEBUG_LOG_SKY 0
-#endif
-
 //сокращалка для вывода в лог имён перечислителей как строк
-#define TXTENUM(type,var) FindObject<UEnum>(ANY_PACKAGE, TEXT(# type))->GetNameStringByValue((int)var)
+#define TXTENUM(type,var) StaticEnum<type>()->GetNameByValue((int64)(var)).ToString()
 
 //ось, которой надо ориентироваться по нужному направлению для совершения некоего действия
 UENUM(BlueprintType) enum class EMasterAxis : uint8 { FRONT, BACK, LEFT, RIGHT, SIDE, TIP, OMNI, NONE };
 
 //делегат для вкл выкл показа запаха
 DECLARE_MULTICAST_DELEGATE_OneParam(FSwitchToSmellChannel, int)
-
-
-
-//режим положение камеры, определяет также эффекты движения, постэффекты и т.п.
-UENUM(BlueprintType) enum class EMyrCameraMode : uint8
-{
-	ThirdPerson,
-	Transition13,
-	Transition31,
-	FirstPerson
-};
 
 //новая струкрура для непрерывного управления существом из демона или ИИ
 //здесь самодостаточная сборка с указанием куда двигаться, куда смотреть, с какой силой, какое желательно состояние
@@ -95,15 +59,33 @@ USTRUCT(BlueprintType) struct FCreatureDrive
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f MoveDir;			// курс движения
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f ActDir;				// курс взгляда и/или удара в атаке
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Gain = 0.0f;			// сила тяги к движению
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ECreatureAction DoThis;		// команда (простая или сборочная) которую вот прям щас выполнить
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction DoThis;		// команда (простая или сборочная) которую вот прям щас выполнить
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool Release = false;		// тру = отжатие кнопки, для атак переход к удару, для переключателей режимов - выключение, возврат
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool NeedCheck = false;		// нужно ли дополнительно проверять применимость действия-ассета, или контроллер уже сам его проверил
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool NeedCheck = false;		// нужно ли дополнительно проверять применимость действия-DoThis, или контроллер уже сам его проверил
 
 	FCreatureDrive()
 	{	MoveDir = FVector3f(0, 0, 0);
 		ActDir = FVector3f(1, 0, 0);
 		Gain = 0; 
-		DoThis = ECreatureAction::NONE;
+		DoThis = EAction::NONE;
+	}
+	FCreatureDrive(FVector3f M, FVector3f A) :MoveDir(M), ActDir(A)
+	{	Gain = 0;
+		DoThis = EAction::NONE;
+	}
+	FCreatureDrive(FCreatureDrive& A, FCreatureDrive& B, float W)
+	{	MoveDir = FMath::Lerp(A.MoveDir, B.MoveDir, W);
+		ActDir = FMath::Lerp(A.ActDir, B.ActDir, W);
+		Gain = 0;
+		DoThis = EAction::NONE;
+	}
+
+	void Set(EAction nAct, float nGain, bool Condition, bool nRelease = false)
+	{	if(Condition) 
+		{	Gain = nGain; 
+			DoThis = nAct;
+			Release = nRelease;
+		}
 	}
 };
 
@@ -151,16 +133,18 @@ FText GetHumanReadableName(AActor* Whatever);
 USTRUCT(BlueprintType) struct FSocialMemory 
 {
 	GENERATED_USTRUCT_BODY()
-	FName Key; FGestaltRelation Value;
+	FName Key;
+	FGestalt Value;
 };
 USTRUCT(BlueprintType) struct FCreatureSaveData
 {
 	GENERATED_USTRUCT_BODY()
 
 	//скаляры состояния - 
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	uint8 Health;			
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	uint8 Stamina;			
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	uint8 Energy;			
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FRatio Health;			
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FRatio Stamina;			
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FRatio Energy;			
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FRatio EmoResource;			
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FName Name;				
 
 	//номер текстуры шкуры/расцветки
@@ -182,7 +166,8 @@ USTRUCT(BlueprintType) struct FCreatureSaveData
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)	FPhenotype Phenotype;
 
 	//компактное представление памяти ИИ о встреченных существах
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) TArray<FSocialMemory> AIMemory;
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) TArray<FSocialMemory> Memory;
+	FUrGestalt Mich;
 
 
 
@@ -331,6 +316,9 @@ USTRUCT(BlueprintType) struct FUIEntryData
 
 	// текстовое называние меню, которое открывает виджет
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FText HumanReadableName;
+
+	// название команды, к которой привязана клавиша, чтобы обрабатывать те же кнопки внутри меню
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	FName ActionMapName;
 
 	// можно ли закрыть и продолжить игру или тупиковый
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	UMaterialInterface* BackgroundMaterial;

@@ -99,7 +99,7 @@ public:	//обработчики некоторых системных кома�
 	//новая фигня - закрыть универсальный агрегатор меню вплоть до игрового худа
 	UFUNCTION(BlueprintCallable) void ChangeWidgets(EUIEntry NewEntry = EUIEntry::NONE);
 
-	//команды интерфейса
+	//команды интерфейса, вызываемые нажатиями кнопок прямо по игре
 	UFUNCTION(BlueprintCallable) void CmdPause()		{ ChangeWidgets(EUIEntry::Pause); };
 	UFUNCTION(BlueprintCallable) void CmdGameOver()		{ ChangeWidgets(EUIEntry::GameOver); };
 	UFUNCTION(BlueprintCallable) void CmdQuests()		{ ChangeWidgets(EUIEntry::Quests); };

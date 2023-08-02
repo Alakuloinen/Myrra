@@ -9,7 +9,6 @@
 #include "Sky/MyrKingdomOfHeaven.h"					// небо
 #include "Materials/MaterialParameterCollectionInstance.h"	// для подводки материала неба
 #include "Kismet/GameplayStatics.h"						// для вызова GetAllActorsOfClass
-#include "AssetStructures/MyrLogicEmotionReactions.h"					// для выкоревывания эмоциональных стимулов
 
 //вызывается, когда очередной трек музыки подходит к концу
 void AMyrraGameModeBase::OnAudioFinished()
@@ -110,8 +109,10 @@ void AMyrraGameModeBase::BeginPlay()
 
 void AMyrraGameModeBase::PostLoad()
 {
+	//если список менюшек для этого уровня пуст, насильно инициализировать полный набор
 	if (MenuSets.Num() == 0)
 	{
+		//множество строк меню, которые показываются слева вместе с текущим виджетом
 		int32 PauseMenu = E(Pause)|E(Pause)|E(LoadLast)|E(QuickSave)|E(Saves)|E(Options)|E(Quit);
 		MenuSets.Add(EUIEntry::Pause,		FUIEntryData(TEXT("Pause"),			PauseMenu));
 		MenuSets.Add(EUIEntry::Continue,	FUIEntryData(TEXT("Continue"),		PauseMenu));
@@ -121,12 +122,12 @@ void AMyrraGameModeBase::PostLoad()
 		MenuSets.Add(EUIEntry::Options,		FUIEntryData(TEXT("Options"),		PauseMenu));
 		MenuSets.Add(EUIEntry::Quit,		FUIEntryData(TEXT("Quit"),			PauseMenu));
 
-		int32 GamePauseMenu = E(Quests)|E(Stats)|E(Known)|E(EmoStimuli)|E(Phenes);
-		MenuSets.Add(EUIEntry::Quests,		FUIEntryData(TEXT("Quests"),		GamePauseMenu));
-		MenuSets.Add(EUIEntry::Stats,		FUIEntryData(TEXT("Stats"),			GamePauseMenu));
-		MenuSets.Add(EUIEntry::Known,		FUIEntryData(TEXT("Acquaintances"),	GamePauseMenu));
-		MenuSets.Add(EUIEntry::EmoStimuli,	FUIEntryData(TEXT("Emotion Stimuli"),GamePauseMenu));
-		MenuSets.Add(EUIEntry::Phenes,		FUIEntryData(TEXT("Phenes"),		GamePauseMenu));
+		int32 GameMenu = E(Quests)|E(Stats)|E(Known)|E(EmoStimuli)|E(Phenes);
+		MenuSets.Add(EUIEntry::Quests,		FUIEntryData(TEXT("Quests"),		GameMenu));
+		MenuSets.Add(EUIEntry::Stats,		FUIEntryData(TEXT("Stats"),			GameMenu));
+		MenuSets.Add(EUIEntry::Known,		FUIEntryData(TEXT("Acquaintances"), GameMenu));
+		MenuSets.Add(EUIEntry::EmoStimuli,	FUIEntryData(TEXT("Emotion Stimuli"), GameMenu));
+		MenuSets.Add(EUIEntry::Phenes,		FUIEntryData(TEXT("Phenes"),		GameMenu));
 
 		MenuSets.Add(EUIEntry::Start,		FUIEntryData(TEXT("Start"),			E(Start)|E(NewGame)|E(LoadLast)|E(Saves)|E(Options)|E(Authors)|E(Quit)));
 		MenuSets.Add(EUIEntry::GameOver,	FUIEntryData(TEXT("Game Over"),		E(GameOver)|E(NewGame)|E(LoadLast)|E(Saves)|E(Options)|E(Authors)|E(Quit)));
@@ -207,32 +208,33 @@ int AMyrraGameModeBase::ProtagonistSenseMode() const
 //==============================================================================================================
 bool AMyrraGameModeBase::ProtagonistFirstPerson() const
 {
-	return (Protagonist->MyrCameraMode == EMyrCameraMode::FirstPerson);
+	return (Protagonist->IsFirstPerson());
 }
 
-//====================================================================================================
-//для списка воздействий в интерфейсе выдать вот это вот воздействие для главного героя
-//====================================================================================================
-FEmoStimulus AMyrraGameModeBase::GetMyStimulus(EEmoCause Cause) const
-{
-	if (Protagonist)
-		if (Protagonist->OwnedCreature)
-		{
-			if (Protagonist->OwnedCreature->EmoReactions.Map.Num() > 0)
-			{
-				if (auto R = Protagonist->OwnedCreature->EmoReactions.Map.Find(Cause))
-					return *R;
-			}
-			else
-			{
-				if (Protagonist->OwnedCreature->GetGenePool())
-					if (Protagonist->OwnedCreature->GetGenePool()->EmoReactions)
-						if (auto R = Protagonist->OwnedCreature->GetGenePool()->EmoReactions->List.Map.Find(Cause))
-							return *R;
-			}
-		}
-	return FEmoStimulus();
-}
+
+
+//степени выраженности времен дня, чтоб вовне не тащить класс небесной механики
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::MorningAmount() const 
+{	return Sky->MorningAmount();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::DayAmount() const 
+{	return Sky->NoonAmount(); }
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::EveningAmount() const 
+{	return Sky->EveningAmount();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::NightAmount() const 
+{	return Sky->NightAmount();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::MoonIntensity() const 
+{	return Sky->MoonIntensity();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::SunIntensity() const 
+{	return Sky->SunIntensity();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::Cloudiness() const 
+{	return Sky->SunIntensity();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::RainAmount() const 
+{	return Sky->WeatherBase.RainAmount();	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::FogAmount() const 
+{	return Sky->WeatherDerived.FogDensity;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::Temperature() const 
+{	return Sky->WeatherDerived.Temperature;	}
+
 //направление ветра (теперь лежит в другом классе, посему доступ через функцию)
 FVector2D* AMyrraGameModeBase::WindDir()
 {	return Sky ? &Sky->WindDir : nullptr; }

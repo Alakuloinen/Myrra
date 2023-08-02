@@ -21,6 +21,8 @@ FVector3f MyrAxes[8] =
 	FVector3f(0,0,-1),
 };
 
+int32 FUrGestalt::RandVar = 0;
+
 //здесь, видимо, происходит что-то важное, сакральное и судьбоносное
 IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, Myrra, "Myrra" );
 

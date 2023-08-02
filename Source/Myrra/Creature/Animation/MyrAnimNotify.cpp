@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "MyrAnimNotify.h"
-#include "../../Control/MyrAI.h"
+#include "../../Control/MyrAIController.h"
 
 #include "../MyrPhyCreature.h"
 #include "../MyrPhyCreatureMesh.h"
@@ -194,7 +194,7 @@ void UMyrAnimNotify::Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Ani
 
 FString UMyrAnimNotify::GetNotifyName_Implementation() const
 {
-	return FindObject<UEnum>(ANY_PACKAGE, TEXT("EMyrNotifyCause"))->GetNameStringByValue((int)Cause);
+	return FindObject<UEnum>(nullptr, TEXT("/Script/Myrra.EMyrNotifyCause"))->GetNameStringByValue((int)Cause);
 }
 
 
