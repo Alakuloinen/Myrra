@@ -23,13 +23,17 @@ USTRUCT(BlueprintType) struct FRatio
 	operator float() const { return (float)M / 255; }
 
 	FRatio() :M(0) {}
-	FRatio(float In):M(0) { fAdd(In); }
-	FRatio(int In) :M(0) { iAdd(In); }
+	FRatio(float In) { M = 0; M = fAdd(In); }
+	FRatio(int In) { M = 0; M = iAdd(In); }
 
 	FRatio operator+(const int &O) { return FRatio(iAdd(O)); }
 	FRatio operator-(const int &O) { return FRatio(iAdd(-O)); }
-	FRatio operator++(int nahui) { return FRatio(iAdd(1)); }
-	FRatio operator--(int nahui) { return FRatio(iAdd(-1)); }
+	FRatio operator++(int nahui) { return M = iAdd(1); }
+	FRatio operator--(int nahui) { return M = iAdd(-1); }
+	FRatio operator+=(const int& O) { return M = iAdd(O); }
+	FRatio operator-=(const int& O) { return M = iAdd(-O); }
+	FRatio operator+=(const float& O) { return M = fAdd(O); }
+	FRatio operator-=(const float& O) { return M = fAdd(-O); }
 	FRatio operator+(const float& O) { return FRatio(fAdd(O)); }
 	FRatio operator-(const float& O) { return FRatio(fAdd(-O)); }
 
@@ -71,12 +75,14 @@ inline FVector3f operator-(FVector A, FVector3f B) { return (FVector3f)(A - (FVe
 inline FVector3f operator-(FVector3f A, FVector B) { return (FVector3f)((FVector)A - B); }
 inline FVector   operator+(FVector A, FVector3f B) { return (FVector)(A + (FVector)B); }
 
+//среднее по интервалу, странно, что такой встроенной функции нет
+inline float Lerp(FFloatRange FR, float A) { return FMath::Lerp(FR.GetLowerBoundValue(), FR.GetUpperBoundValue(), A); }
+
 
 //ограничить нулем и единицей с насыщением (чтоб не писать длинные FMath::Clamp(...) )
 float FORCEINLINE SAT01(float v) { return v>1.0f ? 1.0f : (v<0.0f ? 0.0f : v); }
 
 #define VMID (FVector3f(0.5f, 0.5f, 0.5f))
-
 
 //==============================================================================================================
 //линейная интерполяция в прямом смысле, с константным шагом, никаких кривых
@@ -129,7 +135,6 @@ float FORCEINLINE Bell(float X)
 	auto xx = x * x;
 	return 1 + 2 * FMath::Abs(x * xx) - 3 * xx;
 }
-
 float FORCEINLINE HardBell(float X)
 {
 	if (X > 1 || X < 0) return 0;
@@ -142,28 +147,22 @@ float FORCEINLINE HardBell(float X)
 uint32 FORCEINLINE GetHexDigit32 (uint32 Shifted)
 {
 	if(Shifted & 0xffff0000)
-	{
-		if(Shifted & 0xff000000)
-		{
-			if(Shifted & 0xf0000000)	return 7;
+	{	if(Shifted & 0xff000000)
+		{	if(Shifted & 0xf0000000)	return 7;
 			else						return 6;
 		}
 		else
-		{
-			if(Shifted & 0x00f00000)	return 5;
+		{	if(Shifted & 0x00f00000)	return 5;
 			else						return 4;
 		}
 	}
 	else
-	{
-		if(Shifted & 0x0000ff00)
-		{
-			if(Shifted & 0x0000f000)	return 3;
+	{	if(Shifted & 0x0000ff00)
+		{	if(Shifted & 0x0000f000)	return 3;
 			else						return 2;
 		}
 		else
-		{
-			if(Shifted & 0x000000f0)	return 1;
+		{	if(Shifted & 0x000000f0)	return 1;
 			else						return 0;
 		}
 	}

@@ -24,10 +24,10 @@ USTRUCT(BlueprintType) struct FPsyLoc
 	void EncodeDir(FVector Dir)		{ EncodeDir((FVector3f)Dir); }
 
 	float Encode(FVector3f Radius)	{ float iD = FMath::InvSqrt(Radius.SizeSquared()); Radius *= iD; EncodeDir(Radius); iD = FMath::InvSqrtEst(iD); D = (int)iD; return iD*iD; }
-	float EncodePrecise(FVector3f R){ float iD = FMath::InvSqrt(R.SizeSquared()); R *= iD; EncodeDir(R); D = FMath::InvSqrt(iD); return 1/iD; }
+	float EncodePrecise(FVector3f R){ float iD = FMath::InvSqrt(R.SizeSquared()); R *= iD; EncodeDir(R); D = (int)FMath::InvSqrt(iD); return 1/iD; }
 	float Encode(FVector Radius)	{ return Encode((FVector3f)Radius); }
 
-	float DecodeDist() const		{ return D*(float)D; }
+	float DecodeDist() const		{ return (int)D.M * (int)D.M; }
 	FVector3f DecodeDir() const		{ return FVector3f(X, Y, Z); }
 	FVector2f DecodeDir2d() const	{ return FVector2f(X, Y); }
 };
@@ -141,7 +141,6 @@ USTRUCT(BlueprintType) struct FPathia
 	FPathia(FLinearColor O)						: Rage(O.R*255),Love(O.G*255),Fear(O.B*255),Work(O.A*255) {}		//
 	FPathia(PATHIA A)							: Rage(GETRAGE(A)),Love(GETLOVE(A)),Fear(GETFEAR(A)),Work(_II){}	// из константы опорного значения
 	FPathia(EPathia A)							: FPathia((PATHIA)A) {}												// из константы опорного значения
-	FPathia(char l)								: Rage(255),Love(255),Fear(255),Work(0) {}							// латентная, Work - счётчик до рождения
 	FPathia(PATHIA A, int8 R, int8 L, int8 F, int8 W)
 		: Rage(GETRAGE(A)+R), Love(GETLOVE(A)+L), Fear(GETFEAR(A)+F), Work(_II+W) {}	// из константы опорного значения со сдвигом
 	FPathia(PATHIA A, int8 W)
@@ -250,9 +249,6 @@ USTRUCT(BlueprintType) struct FPathia
 	//"больше" - это не больше, сильное неравенство на уровне мнемонических констант, то есть практическая отдаленность эмоций
 	bool operator>(const FPathia O) const { return (EPathia)EMPATH(Rage, Love, Fear) != (EPathia)EMPATH(O.Rage, O.Love, O.Fear); }
 
-	//латентная форма для рефлекса, не участвует в чувствах, используется для учёта частоты использования
-	bool IsLatent() const { return (Love==255 && Rage==255 && Fear==255); }
-
 	//проверка вхождения в множество, заданное кубом из двух опорных эмоций 
 	bool Within(FPathia L1, FPathia L2) const { return Within(Love, L1.Love, L2.Love) && Within(Rage, L1.Rage, L2.Rage) && Within(Fear, L1.Fear, L2.Fear); }
 
@@ -275,99 +271,173 @@ USTRUCT(BlueprintType) struct FPathia
 	}
 };
 
-//номера битов элементарных компонентов отношения к объекту
-UENUM(BlueprintType, meta = (Bitflags)) enum class EYeAt : uint8
+
+
+UENUM(BlueprintType) enum class EInfluWhat : uint8
+{	__ = 0,
+	You = 1,				
+	MeHurtTorso = 2,				YouImportant	= MeHurtTorso | You,
+	MeHurtHead = 4,					YouBig			= MeHurtHead | You,
+	MeHurtLeg = 8,					YouUnreachable	= MeHurtLeg | You,
+	MeLooking = 16,					YouSeen			= MeLooking | You,
+	MeExposed = 32,					YouNoticeMe		= MeExposed | You,
+	MeMovingSlow = 64,				YouComingCloser = MeMovingSlow | You,
+	MeMovingFast = 128,				YouComingAway	= MeMovingFast | You,
+	MeMovingBack = 64|128,			YouComingAround = MeMovingBack | You,
+
+	YouSeenBig = YouBig | YouSeen,
+	All = 255
+};
+
+UENUM(BlueprintType) enum class EInfluWhere : uint8
+{	
+	__ = 0,
+	Indoor = 1,		
+	Shine = 1,		Lit = Indoor|Shine,	
+	Rain = 2,		Moisty = Indoor|Rain,
+	Cold = 4,		Unheated = Indoor|Cold,
+	Night = 8,		Dark = Indoor|Night,
+	Fog = 16,		Dusty = Indoor|Fog,
+	High = 64,		Elevated = Indoor|High,
+
+	Moon = Shine|Night, Sunshower = Rain|Shine, Moonshower = Rain|Moon,
+	All = 255
+};
+
+UENUM(BlueprintType) enum class EInfluHow : uint8
+{	__ = 0,
+
+	Tired = 16,				
+	TiredMore = 32,			
+	TiredMost = Tired | TiredMore,
+
+	Injured = 64,
+	InjuredMore = 128,
+	InjuredMost = Injured | InjuredMore,
+
+	Pain = 16,
+	PainMore = 32,
+	PainMost = Pain | PainMore,
+
+	Grace = 64,
+	GraceMore = 128,
+	GraceMost = Grace | GraceMore,
+
+	All = 255
+};
+
+UENUM(BlueprintType) enum class EInfluWhy : uint8
+{	__ = 0,
+
+	Dead = 1,
+	Aim = 2,
+	Attack = 4,
+	HurtFriend = 8,
+	New = 16,
+	Falling = 32,
+	Latent = 128,
+
+	All = 255
+};
+
+#define DECLADDDELHAS(Type, Name)	void Add(Type CauseMask)            { Name = (Type) ((uint8)Name | (uint8)CauseMask); } \
+									void Del(Type CauseMask)            { Name = (Type) ((uint8)Name & (~(uint8)CauseMask)); } \
+									void Set(Type CauseMask, int N)     { if(N) Add(CauseMask); else Del(CauseMask); } \
+									FInflu With(Type CauseMask)			{ auto A = *this; A.Add(CauseMask); return A; } \
+									void Grade(Type CauseMask, float N) { Grade((uint8*)&Name, (uint8)CauseMask, N); } \
+									void Grade(Type CauseMask, uint8 N) { Grade((uint8*)&Name, (uint8)CauseMask, N); } \
+									bool Has(Type CauseMask) const      { return ((uint8)Name & ((uint8)CauseMask)) == (uint8)CauseMask; } \
+									FString ToStr(Type CauseMask) const	{ FString S = UEnum::GetValueAsString(CauseMask); S.Split(TEXT("::"),nullptr,&S); return S; }
+USTRUCT(BlueprintType) struct FInflu
 {
-	NotMe, Big, New, Important, Unreachable, Seen,				
-	Shine, Rain, Cold, Night, Fog, Indoor,				
+	GENERATED_USTRUCT_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EInfluWhat	What;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EInfluWhere	Where;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EInfluHow	How;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EInfluWhy	Why;
 
-	Injured,			//0 - здоровый или не имеющий здоровья, 1 - явно раненный
-	Dying,				//0 - здоровый или не имеющий здоровья, 1 - умирающий, с низким уровнем здоровья
+	//добавление влияний, капает в ИИ в ответ на изменения в окружающем мире
+	void Grade(uint8 * Dst, uint8 Mask, float Ratio)
+	{	*Dst &= ~Mask;												// 00[00]10 !
+		if (Ratio < 0.33)	*Dst |= ((Mask >> 1) | Mask); else		// 00[01]10
+		if (Ratio < 0.66)	*Dst |= ((Mask << 1) | Mask); else		// 01[10]00
+							*Dst |= (Mask);	}						// 00[11]00
+	void Grade(uint8 * Dst, uint8 Mask, uint8 Ratio)
+	{	*Dst &= ~Mask;												// 00[00]10 !
+		if (Ratio == 1)	*Dst |= ((Mask >> 1) | Mask); else			// 00[01]10
+		if (Ratio == 2)	*Dst |= ((Mask << 1) | Mask); else			// 01[10]00
+						*Dst |= (Mask);		}						// 00[11]00
+	
+	//стандартные функции манимпулирования битами воздействий по отдельности
+	DECLADDDELHAS(EInfluWhat, What)
+	DECLADDDELHAS(EInfluWhere, Where)
+	DECLADDDELHAS(EInfluHow, How)
+	DECLADDDELHAS(EInfluWhy, Why)
 
-	Tired,				//0 - полный сил или не имеющий сил, 1 - явно уставший
-	Relaxing,			//0 - полный сил или не имеющий сил, 1 - явно уставший
+	//степень отличия двух наборов стимулов
+	uint32 Dist(FInflu Oth) { return FMath::CountBits(AsNumber() ^ Oth.AsNumber()); }
 
-	Jumping,		//
-	Flying,			//
+	//данный набор содержит полностью набор Intra, то есть этот Intra - часть, подмножество данного
+	bool Contains(FInflu Intra) { return (AsNumber() & Intra.AsNumber()) == Intra.AsNumber();	}
 
-	NoticingMe,		//◘
+	//просто все байты единым числом
+ 	uint32 AsNumber() const { return *((int*)this); }
+	operator int() const { return *((int*)this); }
 
-	AimingMe,		//◘
+	//конструктора
+	FInflu() {}
+	FInflu(int nu) { *((int32*)this) = nu; }
+	FInflu(EInfluWhat W) :What(W) { }
+	FInflu(EInfluHow W) :How(W) { }
+	FInflu(EInfluWhy W) :Why(W) { }
+	FInflu(EInfluWhere W) :Where(W) { }
+	FInflu(EInfluWhat W1, EInfluWhere W2, EInfluHow W3 = EInfluHow::__, EInfluWhy W4 = EInfluWhy::__) :What(W1),Where(W2),How(W3),Why(W4) { }
+	FInflu(EInfluWhere W2, EInfluHow W3, EInfluWhy W4 = EInfluWhy::__) : Where(W2), How(W3), Why(W4) { }
 
-	Attacking,		//
+};
 
-	HurtMe,			//◘
-	HurtMeMore,		//◘
+uint32 FORCEINLINE GetTypeHash(FInflu O) { return GetTypeHash(O.AsNumber()); }
 
-	HurtFriend,		//◘
-	HurtEnemy,		//◘
+#define INFL(What,Where,How,Why) ((((uint32)EInfluWhat::##What)<<24) + (((uint32)EInfluWhere::##Where)<<16) + (((uint32)EInfluHow::##How)<<8) + (((uint32)EInfluWhy::##Why)<<0))
 
-	PleasedMe,		//◘
+//наиболее адекватные частые очетания стимулов
+enum INFLU
+{
+	Moon			= INFL(__, Moon, __, __),
+	SunShower		= INFL(__, Sunshower, __, __),
+	MoonShower		= INFL(__, Moonshower, __, __),
 
-	PleasedFriend,	//◘
+	YouReSeen		= INFL(YouSeen, __, __, __),
+	YouReBig		= INFL(YouBig, __, __, __),
+	YouReNew		= INFL(You, __, __, New),
+	YouReUnreachable= INFL(YouUnreachable, __, __, __),
+	YouReImportant  = INFL(YouImportant, __, __, __),
+	YouComeCloser	= INFL(YouComingCloser, __, __, __),
+	YouComeAway		= INFL(YouComingAway, __, __, __),
+	YouComeAround	= INFL(YouComingAround, __, __, __),
+	YouReDead		= INFL(You, __, __, Dead),
 
-	ComingCloser,	//◘
-	ComingAway,		//◘
+	YouReSeenBig	= INFL(YouSeenBig, __, __, __),
+	YouReBigAndNew	= INFL(YouBig, __, __, New),
 
-	a29,
-	a30,
-	MAX
+	YouInjuredOnce	= INFL(You, __, Injured, __),
+	YouInjuredMore	= INFL(You, __, InjuredMore, __),
+	YouInjuredMost	= INFL(You, __, InjuredMost, __),
+	YouTiredOnce	= INFL(You, __, Tired, __),
+	YouTiredMore	= INFL(You, __, TiredMore, __),
+	YouTiredMost	= INFL(You, __, TiredMost, __),
+	YouNoticeMe		= INFL(YouNoticeMe, __, __, __),
+
+	YouHurtMeOnce	= INFL(You, __, Pain, __),
+	YouHurtMeMore	= INFL(You, __, PainMore, __),
+	YouHurtMeMost	= INFL(You, __, PainMost, __),
+
+	YouPleasedMeOnce= INFL(You, __, Grace, __),
+	YouPleasedMeMore= INFL(You, __, GraceMore, __),
+	YouPleasedMeMost= INFL(You, __, GraceMost, __)
 };
 
 
-UENUM(BlueprintType, meta = (Bitflags)) enum class EMeAt : uint8
-{
-	NotMe, HurtHead, New, HurtTorso, HurtLeg, Moving,					
-	Shine, Rain, Cold, Night, Fog, Indoor,
-
-	Injured =			(uint8)EYeAt::Injured,
-	InjuredMore =		(uint8)EYeAt::Dying,
-
-	Tired =				(uint8)EYeAt::Tired,
-	TiredMore =			(uint8)EYeAt::Relaxing,
-
-	YoureJumping,			//
-	YoureFlying,			//
-
-	YoureNoticingMe,		//◘
-
-	Falling =			(uint8)EYeAt::AimingMe,
-
-	YoureAttacking,			//
-
-	Pain =				(uint8)EYeAt::HurtMe,
-	PainMore =			(uint8)EYeAt::HurtMeMore,
-
-	YouDidHarmToFriend,		//◘
-	YouDidHarmToEnemy,		//◘
-
-	YouDidGraceToMe,		//◘
-
-	YouDidGraceToFriend,	//◘
-
-	YoureComingCloser,		//◘
-	YoureComingAway,		//◘
-
-	a29,
-	a30,
-
-	MAX
-
-};
-
-
-inline int32 MeBe(EMeAt O1) { return 1 << (int)O1; }
-inline int32 YeBe(EYeAt O1) { return 1 << (int)O1; }
-
-#define ME_(A) MeBe(EMeAt::##A)
-#define ME2_(A, B) (MeBe(EMeAt::##A)|MeBe(EMeAt::##B))
-#define ME3_(A, B, C) (MeBe(EMeAt::##A)|MeBe(EMeAt::##B)|MeBe(EMeAt::##C))
-#define ME2B_(A) (MeBe(EMeAt::##A) | MeBe((EMeAt)((int)(EMeAt::##A)+1)))
-
-#define YE_(A) YeBe(EYeAt::##A)
-#define YE2_(A, B) YeBe(EYeAt::##A)|YeBe(EYeAt::##B)
-#define YE3_(A, B, C) (YeBe(EYeAt::##A)|YeBe(EYeAt::##B)|YeBe(EYeAt::##C))
-#define YE4_(A, B, C, D) (YeBe(EYeAt::##A)|YeBe(EYeAt::##B)|YeBe(EYeAt::##C)|YeBe(EYeAt::##D))
 
 //###################################################################################################################
 //эмоциональный стмул, направление изменения эмоции
@@ -377,19 +447,22 @@ inline int32 YeBe(EYeAt O1) { return 1 << (int)O1; }
 USTRUCT(BlueprintType) struct FReflex
 {
 	GENERATED_USTRUCT_BODY()
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = EYeAt))	int32 Condition;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (Bitmask, BitmaskEnum = EYeAt))	FInflu Condition;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)											FPathia Emotion;
 
 	FReflex() : Condition(0), Emotion(Peace) {}
-	FReflex(int32 C) : Condition(C), Emotion(Peace) {}
-	FReflex(int32 C, FPathia E) : Condition(C), Emotion(E) {}
+	FReflex(int64 C) : Condition(C), Emotion(Peace) {}
+	FReflex(FInflu C) : Condition(C), Emotion(Peace) {}
+	FReflex(FInflu C, FPathia E) : Condition(C), Emotion(E) {}
+	FReflex(int64 C, FPathia E) : Condition(C), Emotion(E) {}
 	bool operator==(const FReflex& O) const { return (this->Condition == O.Condition); }
+	bool IsLatent() const { return Condition.Has(EInfluWhy::Latent); }
 };
 
 uint32 FORCEINLINE GetTypeHash(FReflex O) { return GetTypeHash(O.Condition); }
 
 //###################################################################################################################
-// психологический образ кого бы то ни было
+// психологический образ кого бы то ни было - ВНИМАНИЕ! это только контейнер, эмоции рулятся по условиям где-то вне
 //###################################################################################################################
 USTRUCT(BlueprintType) struct FUrGestalt
 {
@@ -397,31 +470,27 @@ USTRUCT(BlueprintType) struct FUrGestalt
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FRatio TimeStable = 0;		// время стабильности характеристик
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) EPathia PrevEmotion;		// прошлая эмоция, в компактной форме
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FPathia Emotion;			// текущая эмоция, отношение сугубо к этому объекту
-	UPROPERTY(EditAnywhere, BlueprintReadWrite,
-		meta = (Bitmask, BitmaskEnum = EYeAt)) int32 Influences = 0;		// биты эмоциональных стимулов
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FInflu Influences = 0;		// биты эмоциональных стимулов
 
 	static int32 RandVar;													// Myrra.cpp
 
 	//добавление влияний, капает в ИИ в ответ на изменения в окружающем мире
-	void AddCause(uint32 S) { Influences |= S; }
-	void DelCause(uint32 S) { Influences &= ~S; }
-	void SetCause(uint32 S, bool V) { if (V) AddCause(S); else DelCause(S); }
-	void SetCauseChance(uint32 S, float P) { if (RandVar < P * RAND_MAX) AddCause(S); else DelCause(S); }
-	bool HasCause(uint32 S) const { return (Influences & S) == S; }
-	void SetCause2bit(uint32 Mask, float Ratio)
-	{	Influences &= ~Mask;
-		if (Ratio < 0.33) Influences |= ((Mask >> 1) | Mask); else		// 00[01]10
-		if (Ratio < 0.66) Influences |= ((Mask << 1) | Mask); else		// 01[10]00
-			Influences |= (Mask);										// 00[11]00
+	void Influence2bit(uint8* Dst, uint8 Mask, float Ratio, float Chance = 1.0f)
+	{	*Dst &= ~Mask;												// 00[00]10 !
+		Ratio = FMath::Lerp(RandVar/(float)RAND_MAX, Ratio, Chance);
+		if (Ratio < 0.33)	*Dst |= ((Mask >> 1) | Mask); else		// 00[01]10
+		if (Ratio < 0.66)	*Dst |= ((Mask << 1) | Mask); else		// 01[10]00
+							*Dst |= (Mask);							// 00[11]00
 	}
+	
+	//для внешних применений, рандомайзер значения
+	float Chance(float Acc, float P) { return FMath::Lerp(RandVar/(float)RAND_MAX, Acc, P); }
 
+	//конструктор по умолчанию
 	FUrGestalt() : Emotion(Peace) {}
 
-	void UrTick(int Change = 0)
-	{
-		//применение коэффициента скукоты
-		TimeStable = TimeStable + (1 - FastLog2((uint32)Change));
-	}
+	//применение коэффициента скукоты
+	void UrTick(int Change = 0)	{ TimeStable = TimeStable + (1 - FastLog2((uint32)Change));	}
 };
 
 USTRUCT(BlueprintType) struct FGestalt : public FUrGestalt
@@ -444,20 +513,9 @@ USTRUCT(BlueprintType) struct FGestalt : public FUrGestalt
 	//сравнение только по объектам, нужно для упаковки гештальтов во множество
 	bool operator==(const FGestalt& O) const { return (this->Obj == O.Obj); }
 
-	//добавление влияний, капает в ИИ в ответ на изменения в окружающем мире
-	void AddInfluence(EYeAt S) { Influences |= 1 << (int)S; }
-	void DelInfluence(EYeAt S) { Influences &= ~(1 << (int)S); }
-	void SetInfluence(EYeAt S, bool V) { if (V) AddInfluence(S); else DelInfluence(S); }
-	void SetInfluenceProbability(EYeAt S, int32 Random,  float V) { if (Random < V * RAND_MAX) AddInfluence(S); else DelInfluence(S); }
-	bool HasInfluence(EYeAt S) const { return (Influences & (1 << (int)S)) > 0;	}
-
-	//двухбитная степень обида на существо за побои
-	uint8 GetBeaten() { return HasInfluence(EYeAt::HurtMe) + 2 * HasInfluence(EYeAt::HurtMeMore); }
-	void SetBeaten(uint8 O) { SetInfluence(EYeAt::HurtMe, O&1); SetInfluence(EYeAt::HurtMeMore, (O>>1)&1); }
-
 	//дабы не плодить биты, состояние "мертв" кодируется парадоксальной комбинацией НЕ НЕ Я и НЕДОСТУПЕН
-	void MarkDead() { DelCause(YE_(Injured)|YE_(Dying)); 	}
-	bool IsMarkedDead() { return HasCause(YE_(Injured)|YE_(Dying)); }
+	void MarkDead() { Influences.Add(EInfluWhy::Dead); 	}
+	bool IsMarkedDead() { return Influences.Has(EInfluWhy::Dead); }
 
 	//степень дружественности учитывает историю отношений
 	bool IsFriend() const { return (GETLOVE(PrevEmotion) == III && GETLOVE(Emotion.GetArchetype()) >= _II); }
@@ -471,7 +529,7 @@ USTRUCT(BlueprintType) struct FGestalt : public FUrGestalt
 
 	//близость, с разной степенью абстарктности, в оснвном в диапазоне 0-1
 	float Proximity() const { return 1.0f/Location.DecodeDist(); }
-	float HowClose() const { return 1.0f - Location.D; }
+	float HowClose() const { return 1.0f - (float)Location.D; }
 
 	//быстро проверить на живость... пока непонятно как быстрее, не таща лишние заголовки
 	bool IsCreature() const { return Obj.IsValid() && Obj->GetFName() == TEXT("Mesh"); }
@@ -490,39 +548,47 @@ USTRUCT(BlueprintType) struct FGestalt : public FUrGestalt
 	//==============================================================================================================
 	void InitRival(float MySize, float YourSize)
 	{
-		AddCause(YE_(New));
-		if(MySize*2 > YourSize) AddCause(YE_(Big));
+		Influences.Add(EInfluWhy::New);
+		if(MySize*2 > YourSize) Influences.Add(EInfluWhat::YouBig);
 	}
 
 	//элементарный асинхронный акт замечания, также выдаёт свежепосчитанное расстояние до цели
 	//==============================================================================================================
-	float Hear(FVector3f YouMinusMe, FVector3f View)
+	float Hear(FVector3f YouMinusMe, const FVector3f& View)
 	{	float Dist = Location.EncodePrecise(YouMinusMe);
-		VisCoaxis = (FVector2f(Location.DecodeDir()) | FVector2f(View));
-		if(VisCoaxis > 0.8) VisCoaxis = (Location.DecodeDir() | View);
-		Audibility = Audibility + 100 * HowClose();
+		FVector3f MeToYouDir = Location.DecodeDir();
+		float DotMeUrVue = (FVector2f(MeToYouDir) | FVector2f(View)) + 0.2;
+		if(DotMeUrVue > 1)
+			DotMeUrVue = (MeToYouDir | View);
+		VisCoaxis = DotMeUrVue;
+		Audibility = (float)Audibility + 0.1f * HowClose();
 		return Dist;
 	}
 
-	//сила желания приближаться или удаляться
+	//сила желания приближаться или удаляться (или стоит вернуться к кривым)
 	//==============================================================================================================
 	float GetAnalogGain() const
-	{	return	Emotion.rLove() * ( 0.5f + 0.4f * Visibility + 0.1 * HowClose()) +
-				Emotion.fFear() * (-0.5f - 0.4f * Visibility - 0.1 * HowClose() + 2.0f * int(HowClose() > 0.9)) +
+	{
+		return	Emotion.rLove() * ( 0.5f + 0.4f * Visibility + 0.1 * HowClose()) +
+				Emotion.fFear() * (-0.5f - 0.4f * Visibility - 0.1 * HowClose() - 2.0f * int(HowClose() > 0.9)) +
 				Emotion.rRage() * ( 0.2f + 0.4f * HowClose() + 0.4 * VisCoaxis);
 	}
 	//вес объекта, кандидатство в цели
 	float GetWeight() const	{ return FMath::Abs(GetAnalogGain()); }
 
-	//принципиальная реакция на побои
+	//принципиальная реакция на побои извне, применяется как боль для себя и как HurtMe для цели
 	//==============================================================================================================
-	void ReactToDamage(float Strength, float Rand01)
+	void ReactToDamage(float Strength)
 	{
-		uint8 Beaten = GetBeaten();
-		float Attitude = (1.0f + Enmity()) * Strength * Rand01 * (4 - Beaten)/2;
-		if(Attitude > 0.5f) Beaten++;
-		if(Beaten > 3) Beaten = 3;
-		SetBeaten(Beaten);
+		//предыдущее значение побитости в диапазоне 0 - 3
+		uint8 Beaten = Influences.Has(EInfluHow::Pain) + 2 * Influences.Has(EInfluHow::PainMore);
+		switch (Beaten)
+		{	case 0: if(Strength > 1.5 - Enmity()) Beaten++; break;
+			case 1: if(Strength > 0.9 - Enmity()) Beaten++; break;
+			case 2:	if(Strength > 0.5 - Enmity()) Beaten++; break;
+			case 3:	if(Strength > 0.3 - Enmity()) Beaten++; break;
+		}
+		Influences.Grade(EInfluHow::PainMost, Beaten);
 	}
 
 	//такт образа, для перебора в цикле, извне дается сигнал, что прошло много времени и изменение эмоции за этот такт
@@ -533,7 +599,7 @@ USTRUCT(BlueprintType) struct FGestalt : public FUrGestalt
 		Audibility--;
 
 		//падение чувства видимости
-		if(HasInfluence(EYeAt::Seen))
+		if(Influences.Has(EInfluWhat::YouSeen))
 			Visibility = Visibility + 50 * Proximity();
 		else Visibility = Visibility - 20 * Proximity();
 
@@ -544,7 +610,7 @@ USTRUCT(BlueprintType) struct FGestalt : public FUrGestalt
 		}
 
 		//распрощаться со статусом "новый" если эмоция впервые значительно изменилась
-		if(PrevEmotion != Emotion.GetArchetype()) DelInfluence(EYeAt::New);
+		if(PrevEmotion != Emotion.GetArchetype()) Influences.Del(EInfluWhy::New);
 
 		//из родителя
 		UrTick(Tock);

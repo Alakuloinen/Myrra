@@ -87,6 +87,7 @@ AMyrPhyCreature::AMyrPhyCreature()
 	LocalStatsWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("Local Stats Widget"));
 	LocalStatsWidget->SetupAttachment(Mesh, TEXT("HeadLook"));
 	LocalStatsWidget->SetGenerateOverlapEvents(false);
+	LocalStatsWidget->SetVisibility(false);
 
 	//источник звука для голоса
 	Voice = CreateDefaultSubobject<UAudioComponent>(TEXT("Voice Audio Component"));
@@ -201,6 +202,7 @@ void AMyrPhyCreature::BeginPlay()
 	//звякнуть геймплейным событием - в основном для высираемых мобов
 	CatchMyrLogicEvent(EMyrLogicEvent::SelfSpawnedAtLevel, Daemon ? 1 : 0, nullptr);
 	SetTickableWhenPaused(false);
+	LocalStatsWidget->SetVisibility(true);
 }
 
 void AMyrPhyCreature::EndPlay(EEndPlayReason::Type R)
@@ -251,7 +253,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		//влияние скорости соударения, берется часть общей скорости пояса в срезе нормали
 		auto& L = Mesh->Bumper1();
 		float Frontality = Mesh->Bumper1().GetColinea();
-		float SpeedFactor = (GetGirdle(L.WhatAmI)->VelocityAgainstFloor / (BehaveCurrentData->MaxVelocity + 1)) | (-L.Floor.Normal);
+		float SpeedFactor = (GetGirdle(L.WhatAmI)->VelocityAtFloor() / (BehaveCurrentData->MaxVelocity + 1)) | (-L.Floor.Normal);
 		BestBumpFactor = FMath::Max(Frontality * FMath::Max(SpeedFactor, 0.0f), BestBumpFactor);
 
 		//при довольно сильном затыке в режиме детерминированного полёта
@@ -302,11 +304,23 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 		}
 	}
 
-	int expo = 0;
-	auto De = FVector::Dist(GetActorLocation(), FVector(-23973.0, -25606.0, 677.0));
-	frexp((float)(FMath::Sqrt(De)), &expo);
-	DrawDebugString(GetWorld(), Thorax->GetComponentLocation() + FVector(0, 0, 20),
-	FString::SanitizeFloat((float)FMath::Sqrt(De)), nullptr, FColor(255, 0, 255 * BestBumpFactor), 0.02, 1.0f);
+	//только для игрока
+	if (Daemon)
+	{
+		//действия с объектом в прицеле
+		if (Daemon->ObjectAtFocus)
+		{
+			//написать имя противника на экране и стереть когда нужно
+			if (Daemon->HUDOfThisPlayer())
+				Daemon->HUDOfThisPlayer()->SetGoalActor(Daemon->ObjectAtFocus->Obj->GetOwner());
+
+			//при автоприцеле насильно изменить направление атаки в пользу реального направления на цель
+			if (Daemon->AutoAim) AttackDirection = Daemon->ObjectAtFocus->Location.DecodeDir();
+		}
+		//немедленно удалять в отсутствие
+		else if (Daemon->HUDOfThisPlayer())
+			Daemon->HUDOfThisPlayer()->SetGoalActor(nullptr);
+	}
 
 	//восстановление запаса сил (используется та же функция, что и при трате)
 	StaminaChange (Mesh->DynModel->StaminaAdd * DeltaTime );										
@@ -314,8 +328,7 @@ void AMyrPhyCreature::Tick(float DeltaTime)
 	//обнаруживание проваливания под землю и вырыв оттуда немедленно
 	auto eL = Mesh->DetectPasThrough();
 	if (eL != ELimb::NOLIMB)
-	{
-		FTransform T = GetActorTransform();
+	{	FTransform T = GetActorTransform();
 		T.SetLocation(T.GetLocation() + FVector(0, 0, SpineLength));
 		TeleportToPlace(T);
 		UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s DetectPasThrough %s"),
@@ -557,7 +570,7 @@ void AMyrPhyCreature::ConsumeDrive(FCreatureDrive *D)
 			if (Raznice < -0.1f)
 			{
 				//кинетическая энергия
-				float E = FMath::Clamp(Pelvis->VelocityAgainstFloor.SizeSquared() * 0.0001 - 1, 0.1f, 0.9f);
+				float E = FMath::Clamp(Pelvis->Speed * 0.01 - 1, 0.1f, 0.9f);
 				ExternalGain -= 0.05f*(1-E);
 			}
 			//при малой разнице вне зависимости от скорости (для простоты и сходимости) сразу присваивается новый
@@ -622,9 +635,6 @@ void AMyrPhyCreature::ConsumeInputFromControllers(float DeltaTime)
 			FCreatureDrive D(MyrAIController()->Drive, Daemon->Drive, MyrAIController()->AIRuleWeight);
 			ConsumeDrive ( &D );
 		}
-
-		//направление атаки может быть отдано ИИ для лучшего прицеливания
-		if(MyrAIController()->AtFocus) AttackDirection = MyrAIController()->AtFocus->Location.DecodeDir();
 	}
 	//непись, только ИИ, стандартно просчитать новые устремления все
 	else ConsumeDrive(&MyrAIController()->Drive);
@@ -652,7 +662,7 @@ EResult AMyrPhyCreature::TestBumpReaction(FBumpReaction* BR, ELimb BumpLimb)
 		}
 	}else											return EResult::INCOMPLETE_DATA;
 
-	FVector3f BoSp = 0.5*(Mesh->BodySpeed(L) + Thorax->VelocityAgainstFloor);
+	FVector3f BoSp = 0.5*(Mesh->BodySpeed(L) + Thorax->VelocityAtFloor());
 	if((BoSp|(-L.Floor.Normal)) < BR->MinVelocity)
 													return EResult::OUT_OF_VELOCITY;
 	
@@ -835,6 +845,9 @@ void AMyrPhyCreature::ClimbTryActions()
 	}
 }
 
+//установить образ объекта в фокусе - нужно чтоб для демона вызвался через ИИ,
+void AMyrPhyCreature::SetObjectAtFocus(FGestalt* GO){	if (Daemon)	Daemon->ObjectAtFocus = GO; }
+
 
 //==============================================================================================================
 //разовый отъём запаса сил - вызывается при силоёмких действиях / или восполнение запаса сил - в редком тике
@@ -966,62 +979,40 @@ void AMyrPhyCreature::RareTick(float DeltaTime)
 
 }
 
-//==============================================================================================================
-//найти объект в фокусе - для духа игрока, просто ретранслятор из ИИ, чтобы дух не видел ИИ
-//==============================================================================================================
-int AMyrPhyCreature::FindObjectInFocus(const float Devia2D, const float Devia3D, AActor*& Result, FText& ResultName)
-{
-	//на уровне ИИ для простоты цель ищется по отдельности для каждой ячаейки
-	/*if (!MyrAI()) return 0;
-	auto R = MyrAI()->FindGoalInView (AttackDirection, Devia2D, Devia3D, false, Result);
-	if(!R) R = MyrAI()->FindGoalInView (AttackDirection, Devia2D, Devia3D, true, Result);
-	if (R == 1) ResultName = ((AMyrPhyCreature*)(Result))->HumanReadableName; else
-	if (R == 2) ResultName = ((AMyrArtefact*)(Result))->HumanReadableName; 
-	else ResultName = FText();
-	return R;*/
-	return 0;
-}
-
 
 //==============================================================================================================
 //полный спектр действий от (достаточно сильного) удара между этим существом и некой поверхностью
 //==============================================================================================================
-void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface)
+void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface, AMyrPhyCreature* Hitter)
 {
-	if (!Mesh->InjureAtHit)
-	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s not applied: Mesh.InjureAtHit disabled"),
-			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));		return;	}
-	if (Limb.LastlyHurt)
-	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s not applied: this limb already hit in this frame"),
-			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));		return;	}
-	if(Amount <= 0.01) 
-	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s not applied: too little damage"),
-			*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));		return;	}
-
-	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s Hurt %g at %s"), *GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
+	if(!Mesh->InjureAtHit)	{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s No Hurt %g at %s: Mesh.InjureAtHit disabled"),		*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));	return;	}
+	if(Limb.LastlyHurt)		{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s No Hurt %g at %s: limb already hit this frame"),	*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));	return;	}
+	if(Amount <= 0.01)		{	UE_LOG(LogMyrPhyCreature, Log, TEXT("%s No Hurt %g at %s: too little damage applied"),		*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));	return;	}
+	else						UE_LOG(LogMyrPhyCreature, Log, TEXT("%s DO Hurt %g at %s"),									*GetName(), Amount, *TXTENUM(ELimb, Limb.WhatAmI));
 
 	//для простоты вводится нормаль, а уже тут переводится в кватернион, для позиционирования источника частиц
 	FQuat4f ExactHitRot = FRotationMatrix44f::MakeFromX(Normal).ToQuat();
 
-	//при достаточно сильном ударе членик выключается из прочих ударов на целый кадр, чтобы физдвижок не набрасивал множество касаний за кадр
+	//при сильном ударе членик выключается из прочих ударов на целый кадр, чтобы физдвижок не набрасивал касаний за кадр
 	if (Amount > 0.3)
-	{
-		//вскрикнуть (добавить парметры голоса)
-		MakeVoice(GenePool->SoundAtPain, FMath::Min(Amount, 1.0f) * 4, true);
-		Limb.LastlyHurt = true;	//возможно, сразу отключать генерацию хита, а не этот жалкий флаг
+	{	MakeVoice(GenePool->SoundAtPain, FMath::Min(Amount, 1.0f) * 4, true);	// вскрикнуть (добавить парметры голоса)
+		Limb.LastlyHurt = true;													// возможно, сразу отключать генерацию хита, а не этот жалкий флаг
 	}
+	
+	//общее
+	Limb.Damage += Amount;									// увеличить урон сразу здесь, ибо в иных случаях эта переменная не увеличивается
+	Pain += Amount;											// привнести толику в общую боль
+	CeaseActionsOnHit(Amount);								// возможно, некоторые действия следует прервать при данном уровне увечья
 
-	//увеличить урон сразу здесь, ибо в иных случаях эта переменная не увеличивается
-	Limb.Damage += Amount;
+	//действия на уровне ИИ
+	MyrAIController()->NotifyNoise(ExactHitLoc, Amount);							// прозвучать для всех просто как звуковой удар
+	if (Hitter)																		// если удар нанесен кем-то
+	{	Hitter->MyrAIController()->ExactVictim = Mesh;								// в поле жертвы явно задать, чтобы в ИИ по эвенту жертва поняла, что это она
+		Hitter->MyrAIController()->LetOthersNotice(EHowSensed::PERCUTER, Amount);	// сгенерировать сообщение агенса атаки
+		this -> MyrAIController()->LetOthersNotice(EHowSensed::PERCUTED, Amount);	// сгенерировать сообщение пациенса атаки
+	}
+	else MyrAIController()->LetOthersNotice(EHowSensed::HURT, Amount);				// сгенерировать сообщение объекта не атаки, но увечья
 
-	//привнести толику в общую боль
-	Pain += Amount;
-
-	//возможно, некоторые действия следует прервать при данном уровне увечья
-	CeaseActionsOnHit(Amount); 
-
-	//◘ прозвучать в ИИ, чтобы другие существа могли слышать
-	MyrAIController()->NotifyNoise(ExactHitLoc, Amount);
 
 	//сборка данных по поверхности, которая осприкоснулась с этим существом
 	FSurfaceInfluence* ExactSurfInfo = GetMyrGameInst()->Surfaces.Find(Limb.Floor.Surface);
@@ -1032,46 +1023,10 @@ void AMyrPhyCreature::Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVect
 	DustAt = ExactSurfInfo->ImpactBurstRaise; 	 if (DustAt) SurfaceBurst (DustAt, ExactHitLoc, ExactHitRot, GetBodyLength(), Amount);
 }
 
-//==============================================================================================================
-//ментально осознать, что пострадали от действий другого существа
-//==============================================================================================================
-void AMyrPhyCreature::SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker)
-{
-	//если выполняется самодействие или действие-период, но указано его отменять при ударе
-	CeaseActionsOnHit(Amount);
-
-	if(	MyrAIController())
-		MyrAIController()->LetOthersNotice(EHowSensed::HITTER, Amount);
-
-
-	//для осознания нашей связи с противником прогнать его через наш ИИ и уже оттуда вызвать факт геймплейного события
-	//if(MyrAI())
-	//	MyrAI()->DesideHowToReactOnAggression(Amount, Motherfucker);
-	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s SufferFromEnemy by %s for %g"), *GetName(), *Motherfucker->GetName(), Amount);
-}
 void AMyrPhyCreature::EnjoyAGrace(float Amount, AMyrPhyCreature* Sweetheart)
 {	//MyrAI()->DesideHowToReactOnGrace(Amount, Sweetheart);
 	UE_LOG(LogMyrPhyCreature, Warning, TEXT("%s EnjoyAGrace from %s for %g"), *GetName(), *Sweetheart->GetName(), Amount);
 }
-
-//==============================================================================================================
-// огласить на все ИИ, что именно мы ударили какое-то существо, жертва прочтет это через эвент ИИ
-//==============================================================================================================
-void AMyrPhyCreature::MeHavingHit(float Amount, AMyrPhyCreature* Victim)
-{
-	//если ударяли намеренно
-	if(MyrAIController()->ExactVictim)
-		if(MyrAIController()->ExactVictim->GetOwner() == Victim)
-		{
-			MyrAIController()->LetOthersNotice(EHowSensed::HITTER, Amount);
-			return;
-		}
-
-	//если ударили случайно
-	MyrAIController()->LetOthersNotice(EHowSensed::PERCUTED, Amount);
-
-}
-
 
 //==============================================================================================================
 //прервать или запустить прерывание деймтвий, для которых сказано прерывать при сильном касании
@@ -1100,7 +1055,7 @@ void AMyrPhyCreature::CeaseActionsOnHit(float Damage)
 void AMyrPhyCreature::MakeStep(ELimb eLimb, bool Raise)
 {
 	FLimb* Limb = &Mesh->GetLimb(eLimb);
-	if(!Limb->Stepped) return;
+	if(!Limb->Floor) return;
 	auto Girdle = GetGirdle(eLimb);
 
 	//тип поверхности - это не точно, так как не нога а колесо - пока неясно, делать трассировку в пол или нет
@@ -1726,9 +1681,8 @@ void AMyrPhyCreature::AttackEnd()
 
 	//для игрока, несущего интерфейс
 	if (Daemon)
-	{
-		//удалить в худе имя начатой атаки
-		Daemon->HUDOfThisPlayer()->OnAction(0, false);
+	{	Daemon->HUDOfThisPlayer()->OnAction(0, false);	// удалить в худе имя начатой атаки
+		Daemon->AutoAim = false;						// если было автонацеливание, сбросить, иначе вектор атаки не будет следовать за камерой
 	}
 
 	//финально сбросить все переменные режима
@@ -2192,6 +2146,20 @@ EResult AMyrPhyCreature::ActionFindRelease(EAction Type, UPrimitiveComponent* Ex
 	if (DoesAttackAction() && GetAttackAction()->UsedAs.Contains(Type))
 	{
 		//не проверяем, муторно - этот тракт не вызывается из ИИ - сразу вдаряем
+		//однако...
+		//направление атаки может быть отдано ИИ для лучшего прицеливания
+		if (Daemon && Daemon->ObjectAtFocus)
+		{
+			//мало быть в фокусе, нужно быть еще физически доставаемым атакой
+			if (GetAttackAction()->QuickAimResult(this, *Daemon->ObjectAtFocus, 0.7f))
+			{
+				//если угол и радиус подходят, то можно помочь в нациливании
+				AttackDirection = Daemon->ObjectAtFocus->Location.DecodeDir();
+				Daemon->AutoAim = true;
+			}
+		}
+
+		//само действие, тут уже вряд ли что-то пойдет не так
 		R = AttackActionStrike();
 		UE_LOG(LogMyrPhyCreature, Log, TEXT("ACTOR %s ActionFindRelease %s %s"), *GetName(),
 			*GetAttackAction()->GetName(), *TXTENUM(EResult, R));

@@ -36,24 +36,39 @@
 #include "AudioDeviceManager.h"							// для манипуляции громкостями звуков из кода
 #include "AudioDevice.h"								// для манипуляции громкостями звуков из кода
 
-#define ADDREA(Cause, Name, Desc, Emo) EmoReactionWhatToDisplay.Add(Cause, FEmoReactionsUI(TEXT(Name), TEXT(Desc), Emo))
+#define ADDREA(Cause, Emo, Name, Desc) EmoReactionWhatToDisplay.Add(Cause, FEmoReactionsUI(TEXT(Name), TEXT(Desc), Emo))
+#define ADDREAC(What,Where,How,Why, Emo, Name, Desc) EmoReactionWhatToDisplay.Add(FInflu(EInfluWhat::##What, EInfluWhere::##Where, EInfluHow::##How, EInfluWhy::##Why), FEmoReactionsUI(TEXT(Name), TEXT(Desc), Emo))
 //====================================================================================================
 //====================================================================================================
 UMyrraGameInstance::UMyrraGameInstance(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	for (int i = 0; i < (int)EYeAt::MAX; i++)
+	/*for (int i = 0; i < (int)EWeAt::Latent; i++)
 	{
-		SimpleEmoStimuliNamesMe[i] = UEnum::GetDisplayValueAsText((EMeAt)i);
-		SimpleEmoStimuliNamesYe[i] = UEnum::GetDisplayValueAsText((EYeAt)i);
-	}
+		SimpleEmoStimuliNamesMe[i] = UEnum::GetDisplayValueAsText((EWeAt)i);
+		SimpleEmoStimuliNamesYe[i] = UEnum::GetDisplayValueAsText((EWeAt)i);
+	}*/
 
 	//начальные шаблоны некоторых эмоциональных рефлексов и их названия для интерфейса
-	ADDREA(ME2_(Shine,Night),					"Me and the Moon",		"My feeling At Shine + At Night",					FPathia(Hope,		+2));
-	ADDREA(YE4_(NotMe, Big, New, Seen),			"See a sudden giant",	"Subject is new, seen and relatively big",			FPathia(Anxiety,	+3));
-	ADDREA(YE3_(NotMe, New, Seen),				"See a novice",			"Subject is recently noticed and seen now",			FPathia(Hope,		+5));
-	ADDREA(YE3_(NotMe, Big, Seen),				"See a giant",			"Subject is big and seen",							FPathia(Worry,		+3));
-	ADDREA(YE4_(NotMe, Big, ComingCloser, Seen),"See a giant approaching","Subject is big, seen and is coming closer",		FPathia(Fear,		+3));
+	//тут смешение с тем, что в ИИ отдельно написано, надо слить
+	//ADDREA(FInflu(EInfluWhere::Moon), FPathia(Hope, +2)		"Me and the Moon", "My feeling At Shine + At Night");
+	//ADDREA(YE4_(NotMe, Big, New, Seen),			"A sudden giant seen",		"Subject is new, seen and relatively big",			FPathia(Anxiety,	+3));
+	//ADDREA(YE3_(NotMe, New, Seen),				"See a novice",				"Subject is recently noticed and seen now",			FPathia(Hope,		+5));
+	//ADDREA(YE3_(NotMe, Big, Seen),				"See a giant",				"Subject is big and seen",							FPathia(Worry,		+3));
+	//ADDREA(YE4_(NotMe, Big, ComingCloser, Seen),"See a giant approaching",	"Subject is big, seen and is coming closer",		FPathia(Fear,		+3));
+
+	ADDREA(Moon,				FPathia(Hope, +2), "At Moonlight", "The Moon is seen on the sky");
+
+	ADDREA(YouReBig,			FPathia( Fear,		+2), "You're Big",			"The size of this entity is 2 or more times greater than the mine");
+	ADDREA(YouReNew,			FPathia( Care,		+5), "You're New Here",		"This has never been before, so it's astonishing");
+	ADDREA(YouReSeenBig,		FPathia( Anxiety,	+3), "You're seen big",		"This never-been-before entity is 2 or more times bigger than me");
+	ADDREA(YouReUnreachable,	FPathia( Pessimism,	+2), "You're unreachable",	"This goal cannot be reached by walking or climbing");
+	ADDREA(YouReImportant,		FPathia( Mania,		+2), "You're important",	"This entity makes very special feelings apriori or by the plot");
+	ADDREA(YouComeAround,		FPathia( Anxiety,	-2), "You're coming around","This creature is moving in direction perpendicular to our sight");
+	ADDREA(YouComeCloser,		FPathia( Anxiety,	+3), "You're coming closer","This being is approaching");
+	ADDREA(YouComeAway,			FPathia( Cheer,		+3), "You're coming away",	"This creature is moving out of our location");
+
+	//ADDREA(YouPleasedMe,		FPathia( Care,				+5), "You pleased me",		"This creature has made good feelings to us");
 
 }
 
@@ -526,8 +541,15 @@ void UMyrraGameInstance::InitializeQuests()
 {	
 	for (auto& Q : AllQuests)
 	{
-		for (auto& QS : Q->QuestStates)
-			QS.Value.PutToWaitingList(MyrQuestWaitingList, Q, QS.Key);
+		if (Q == nullptr)
+		{
+			UE_LOG(LogTemp, Error, TEXT("InitializeQuests - WTF null quest container"));
+		}
+		else
+		{
+			for (auto& QS : Q->QuestStates)
+				QS.Value.PutToWaitingList(MyrQuestWaitingList, Q, QS.Key);
+		}
 	}
 }
 
@@ -588,12 +610,12 @@ UMaterialParameterCollectionInstance* UMyrraGameInstance::MakeMPCInst()
 	return GetWorld()->GetParameterCollectionInstance(GetMatParams());
 }
 
-void UMyrraGameInstance::EmoStimulusToMnemo (const FReflex& In, FText& Out) const
+/*void UMyrraGameInstance::EmoStimulusToMnemo(const FReflex& In, FText& Out) const
 {	
 	TArray<FText> Infli;
-	bool Me = ((In.Condition & (1 << (int)EYeAt::NotMe)) == 0);
-	for(int i=1;i<32;i++)
-	{	if(In.Condition & (1<<i))
+	bool Me = ((In.Condition & (1ull << (int)EYeAt::NotMe)) == 0);
+	for(int i=1;i<(int)EYeAt::Latent;i++)
+	{	if(In.Condition & (1ull<<i))
 		{
 			FText CuName = Me ? SimpleEmoStimuliNamesMe[i] : SimpleEmoStimuliNamesYe[i];
 			if (CuName.IsEmpty())
@@ -603,7 +625,7 @@ void UMyrraGameInstance::EmoStimulusToMnemo (const FReflex& In, FText& Out) cons
 		}
 	}
 	Out = FText::Join(FText::FromString(TEXT(", ")), Infli);
-}
+}*/
 
 
 

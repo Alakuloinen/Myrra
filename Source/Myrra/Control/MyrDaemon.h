@@ -141,8 +141,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float DistWalkedAccum = 0;
 
 	//объект к которому прикреплена функция видения, который видит подобпечное существо, и который в фокусе камеры
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	AActor* ObjectAtFocus = nullptr;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)	FText ObjectNameAtFocus;
+	FGestalt* ObjectAtFocus = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) bool AutoAim = false;
 
 //куча всякой херни связанной с позиционированием камеры
 public:

@@ -7,8 +7,9 @@ public class MyrraTarget : TargetRules
 {
 	public MyrraTarget(TargetInfo Target) : base(Target)
 	{
-		DefaultBuildSettings = BuildSettingsVersion.V2;
 		Type = TargetType.Game;
-        ExtraModuleNames.AddRange( new string[] { "Myrra" } );
+		DefaultBuildSettings = BuildSettingsVersion.V2;
+        IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_1;
+        ExtraModuleNames.Add("Myrra");
 	}
 }

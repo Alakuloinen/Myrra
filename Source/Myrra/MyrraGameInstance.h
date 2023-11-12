@@ -106,11 +106,9 @@ public: // супер глобальные свойства
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	class UMyrraGameUserSettings* Options;
 
 	//настройки отображения эмоциональных реакций в меню самой игры
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ForceInlineRow), Category = "Emotion")  TMap<FReflex, FEmoReactionsUI> EmoReactionWhatToDisplay;
-	UPROPERTY(EditAnywhere, Category = "Emotion")  FText SimpleEmoStimuliNamesMe[EYeAt::MAX];
-	UPROPERTY(EditAnywhere, Category = "Emotion")  FText SimpleEmoStimuliNamesYe[EYeAt::MAX];
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ForceInlineRow), Category = "Emotion")  TMap<FInflu, FEmoReactionsUI> EmoReactionWhatToDisplay;
 
-	//общие цвета интерфейса
+	//общие цвета интерфейса - от этого надо избавляться, сделав единый виджет
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundSelected;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundUnSelected;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FLinearColor ButtonBackgroundSelectedHovered;
@@ -120,6 +118,9 @@ public: // супер глобальные свойства
 
 	//статистика текущей ветки игры
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)  FGameStats Statistics;
+
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)  TMap<FInflu, FPathia> expt;
 
 
 //--------------------------------------------------------------------------------
@@ -232,19 +233,5 @@ public: //возвращуны
 
 	//создать для текущей функции локальную инстанцию коллекции параметров материала
 	class UMaterialParameterCollectionInstance* MakeMPCInst();
-
-	//выдать ближайшую эмоцию словесную для интерфейса
-	UFUNCTION(BlueprintCallable) float EmotionToMnemo(const FPathia In, EPathia& Out1, EPathia& Out2) const { return In.GetFullArchetype(Out1, Out2); }
-	UFUNCTION(BlueprintCallable) float EmotionToMnemoText(const FPathia In, FText& Out1, FText& Out2) const
-	{ 
-		EPathia O1; EPathia O2;
-		float Wei = In.GetFullArchetype(O1, O2);
-		Out1 = UEnum::GetDisplayValueAsText(O1);
-		Out2 = UEnum::GetDisplayValueAsText(O2);
-		return Wei;
-	}
-	UFUNCTION(BlueprintCallable) FLinearColor EmoReflexToColor(const FReflex& In) const { return (FLinearColor)In.Emotion; }
-	UFUNCTION(BlueprintCallable) void EmoStimulusToMnemo  (const FReflex& In, FText &Out) const;
-	UFUNCTION(BlueprintCallable) bool IsLatent(FReflex R) const { return R.Emotion.IsLatent(); }
 
 };

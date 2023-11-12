@@ -52,10 +52,11 @@ void UMyrCreatureGenePool::PostEditChangeProperty (FPropertyChangedEvent & Prope
 #endif
 
 //==============================================================================================================
+// элементарные эмоции - реакции на одно единственное воздействие, базис, но таких случаев редко бывает
 //==============================================================================================================
 void UMyrCreatureGenePool::PrepareEmotions()
 {
-	ElementaryEmotionsYe[(int)EYeAt::NotMe]			= FPathia (Peace,		+10, +10, +50, 0);
+/*	ElementaryEmotionsYe[(int)EYeAt::NotMe] = FPathia(Peace, +10, +10, +50, 0);
 	ElementaryEmotionsYe[(int)EYeAt::Big]			= FPathia (Peace,		-10, -10, +90, 0);
 	ElementaryEmotionsYe[(int)EYeAt::New]			= FPathia (Peace,		-10, +30, +30, +10);
 
@@ -72,7 +73,18 @@ void UMyrCreatureGenePool::PrepareEmotions()
 	ElementaryEmotionsYe[(int)EYeAt::Jumping]		= FPathia (Pride,		+10, -20, 0, +10);
 	ElementaryEmotionsYe[(int)EYeAt::Flying]		= FPathia (Mania,		-10, -20, 0, +5);
 
+	//внутренние условия
 	ElementaryEmotionsMe[(int)EMeAt::Falling]		= FPathia (Horror,		+0, +0, +50, +1);
+	ElementaryEmotionsMe[(int)EMeAt::HurtHead]		= FPathia (Insanity,	+0, +0, -1, -10);
+	ElementaryEmotionsMe[(int)EMeAt::HurtTorso]		= FPathia (Anger,		+10, +10, -10, -8);
+	ElementaryEmotionsMe[(int)EMeAt::HurtLeg]		= FPathia (Disgust,		-10, -10, -10, -5);
+
+	ElementaryEmotionsMe[(int)EMeAt::Injured]		= FPathia (Anger,		+30, +10, -10, -3);
+	ElementaryEmotionsMe[(int)EMeAt::InjuredMore]	= FPathia (Insanity,	+30, +1, -1, -6);
+
+	ElementaryEmotionsMe[(int)EMeAt::Tired]			= FPathia (Wane,		+1, +10, +10, -3);
+	ElementaryEmotionsMe[(int)EMeAt::TiredMore]		= FPathia (Wane,		+3, +1, -1, -6);
+*/
 }
 
 

@@ -11,6 +11,27 @@
 //свои дебаг записи
 DECLARE_LOG_CATEGORY_EXTERN(LogMyrAIC, Log, All);
 
+//рисовалки отладжочных линий
+#if WITH_EDITOR
+#define LINE(C, A, AB) me()->Line(ELimbDebug::##C, A, AB)
+#define LINEWT(C, A, AB,W,T) me()->Line(ELimbDebug::##C, A, AB,W,T)
+#define LINEWTC(C, A, AB,W,T, tint) me()->Linet(ELimbDebug::##C, A, AB,tint, W,T)
+#define LINEW(C, A, AB, W) me()->Line(ELimbDebug::##C, A, AB, W)
+#define LINELIMB(C, L, AB) me()->Line(ELimbDebug::##C, me()->GetMachineBody(L)->GetCOMPosition(), AB)
+#define LINELIMBW(C, L, AB, W) me()->Line(ELimbDebug::##C, me()->GetMachineBody(L)->GetCOMPosition(), AB, W)
+#define LINELIMBWT(C, L, AB, W, T) me()->Line(ELimbDebug::##C, me()->GetMachineBody(L)->GetCOMPosition(), AB, W, T)
+#define LINELIMBWTC(C, L, AB, W, T, t) me()->Linet(ELimbDebug::##C, me()->GetMachineBody(L)->GetCOMPosition(), AB, t, W, T)
+#define LDBG(C) me()->IsDebugged(C)
+#else
+#define LDBG(C) false
+#define LINE(C, A, AB)
+#define LINELIMB(C, L, AB)
+#define LINELIMBW(C, L, AB, W)
+#define LINELIMBWT(C, L, AB, W, T) 
+#define LINELIMBWTC(C, L, AB, W, T, t)
+#define LINEW(C, A, AB, W)
+#endif
+
 //###################################################################################################################
 // ◘ динамическая цель, надстройка над самыми весомыми из гештальтов для трассировки пути к/от
 //###################################################################################################################
@@ -20,9 +41,9 @@ USTRUCT(BlueprintType) struct MYRRA_API FAIGoal
 	FGestalt* pGestalt = nullptr;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float AnalogGain = 0;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float AnalogStealth = 0;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f MoveToDir;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f MoveToDir = FVector3f::ForwardVector;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float FirstDist = 0;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) ERouteResult WhatToDo;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) ERouteResult WhatToDo = ERouteResult::NoGoal;
 
 	//перезагрузить перед внесением нового гештальта, нужно при постоянных переменных
 	void SetAsVoid()
@@ -81,7 +102,6 @@ public:
 	//сохраняется и загружается в виде FName, должны быть загружены на карту(уровень) до загрузки сохранения, чтобы подцепить имена
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TSet<FGestalt> Memory;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FUrGestalt Mich;
-	FGestalt* AtFocus = nullptr;
 
 	//душа конкректного существа набор сложных рефлексов на комбинации раздражителей, может прокачиваться, сохраняется в сохранении
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	TSet<FReflex> ComplexEmotions;
@@ -110,6 +130,7 @@ public:
 
 	//новая сборка со всеми параметрами для движения подопечного существа
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FCreatureDrive Drive;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) ERouteResult LastRouteResult;
 
 //стандартные функции, переопределение
 public:
@@ -139,10 +160,10 @@ public:
 	void UpdateSenses();
 
 	//рутинная обработка в тике одного конкретного гештальта
-	void UpdateEmotions(FUrGestalt& Gestalt, float Weight);
+	void UpdateEmotions(FUrGestalt& Gestalt, float Weight, int32 OldInfluences);
 
 	//посмотреть на объект, определить его видимость
-	FHitResult See(FVector ExplicitPos, USceneComponent* NeededObj = nullptr);
+	bool See(FHitResult& Hit, FVector ExplicitPos, USceneComponent* NeededObj = nullptr);
 
 	//просто обойти препятствие, вычислив его размеры
 	ERouteResult SimpleWalkAroundObstacle(FVector3f TempLookDir, FHitResult* Hit, FAIGoal& G);
@@ -160,7 +181,7 @@ public:
 	void NotifyYouAreAim(class AMyrPhyCreature* Myr, bool Set)
 	{	if (auto R = MeInYourMemory(Myr))
 			if (R->PerceptAmount() > 5)
-				R->SetInfluence(EYeAt::AimingMe, Set);
+				R->Influences.Set(EInfluWhy::Aim, Set);
 	}
 
 	//уведомить о нашей атаке ИИ-систему, чтобы другие участники среагирвали (вызывается, например, при нажатии)

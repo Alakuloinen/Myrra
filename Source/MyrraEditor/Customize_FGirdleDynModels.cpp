@@ -90,7 +90,7 @@ void FMyrDynModelTypeCustomization::CustomizeHeader(
 		case 3:
 			if (RealNum == 0) FullHead = TEXT("Transit To");
 			if (RealNum == 1) FullHead = TEXT("Persist In");
-			if (RealNum == 1) FullHead = TEXT("Exit");
+			if (RealNum == 2) FullHead = TEXT("Exit");
 			break;
 		}
 	}
@@ -349,6 +349,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 	{	EntNames[0] = TEXT("Pelvis"); EntNames[1] = TEXT("Lumbus"); EntNames[2] = TEXT("Tail");	} 
 
 
+
 	//подбираем те свойства, которые мы хотим видеть в теле таблицы, ПОД заголовком
 	HandleLimbs[0] = GETP(Center);
 	HandleLimbs[1] = GETP(Spine);
@@ -357,6 +358,7 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 	HandleFlags[0] = GETP(OnGnd);
 	HandleFlags[1] = GETP(InAir);
 
+	auto otd = GETP(OnGnd)->GetChildHandle(GET_MEMBER_NAME_CHECKED(FGirdleFlags, TightenYaw));
 
 	TSharedPtr<IPropertyHandle> HandleF[6];
 	HandleF[0] = GETP(Crouch);
@@ -393,6 +395,8 @@ void FMyrGirdleModelTypeCustomization::CustomizeChildren(
 				+ SHorizontalBox::Slot().HAlign(HAlign_Right).FillWidth(1)[GETP(LegsSpreadMin)->CreatePropertyNameWidget()]
 				+ SHorizontalBox::Slot().MaxWidth(50)[GETP(LegsSpreadMin)->CreatePropertyValueWidget()]
 				+ SHorizontalBox::Slot().MaxWidth(50)[GETP(LegsSpreadMax)->CreatePropertyValueWidget()]
+
+				//+ SHorizontalBox::Slot().MaxWidth(50)[otd->CreatePropertyValueWidget()]
 
 				+ SHorizontalBox::Slot().HAlign(HAlign_Right)[GETP(JunctionStiffness)->CreatePropertyNameWidget()]
 				+ SHorizontalBox::Slot().AutoWidth().HAlign(HAlign_Right)[StructBuilder.GenerateStructValueWidget(GETP(JunctionStiffness).ToSharedRef())]

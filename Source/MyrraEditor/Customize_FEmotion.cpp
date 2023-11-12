@@ -58,21 +58,20 @@ void FEmotionTypeCustomization::CustomizeHeader(TSharedRef<class IPropertyHandle
 
 		//выбор из списка архетипов
 		+ SHorizontalBox::Slot().FillWidth(2).MaxWidth(100)
-		[	
-			SNew(SEnumComboBox, Typicals)
+		[	SNew(SEnumComboBox, Typicals)
 			.CurrentValue(this, &FEmotionTypeCustomization::GetEnumVal)
 			.OnEnumSelectionChanged(SEnumComboBox::FOnEnumSelectionChanged::CreateSP(this, &FEmotionTypeCustomization::ChangeEnumVal))
 		]
 
 		//в строчку разместить численные поля всех компонентов
-		+ SHorizontalBox::Slot().AutoWidth()	[ SNew(STextBlock).Text(FText::FromString("R")).ColorAndOpacity(FLinearColor(1,0,0,1))]
-		+ SHorizontalBox::Slot().MaxWidth(50)	[ GETP(Rage)->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().AutoWidth()	[ SNew(STextBlock).Text(FText::FromString("L")).ColorAndOpacity(FLinearColor(0,1,0,1))]
-		+ SHorizontalBox::Slot().MaxWidth(50)	[ GETP(Love)->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().AutoWidth()	[ SNew(STextBlock).Text(FText::FromString("F")).ColorAndOpacity(FLinearColor(0,0,1,1))]
-		+ SHorizontalBox::Slot().MaxWidth(50)	[ GETP(Fear)->CreatePropertyValueWidget()		]
-		+ SHorizontalBox::Slot().AutoWidth()	[ GETP(Work)->CreatePropertyNameWidget()		]
-		+ SHorizontalBox::Slot().MaxWidth(50)	[ GETP(Work)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)	[ SNew(STextBlock).Text(FText::FromString("|")).ColorAndOpacity(FLinearColor(1,0,0,1))]
+		+ SHorizontalBox::Slot().MaxWidth(50).VAlign(VAlign_Center) [ GETP(Rage)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)  [ SNew(STextBlock).Text(FText::FromString("|")).ColorAndOpacity(FLinearColor(0,1,0,1))]
+		+ SHorizontalBox::Slot().MaxWidth(50).VAlign(VAlign_Center) [ GETP(Love)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)  [ SNew(STextBlock).Text(FText::FromString("|")).ColorAndOpacity(FLinearColor(0,0,1,1))]
+		+ SHorizontalBox::Slot().MaxWidth(50).VAlign(VAlign_Center) [ GETP(Fear)->CreatePropertyValueWidget()		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)  [ SNew(STextBlock).Text(FText::FromString("|")).ColorAndOpacity(FLinearColor(1,1,1,1))]
+		+ SHorizontalBox::Slot().MaxWidth(50).VAlign(VAlign_Center) [ GETP(Work)->CreatePropertyValueWidget()		]
 
 	];
 

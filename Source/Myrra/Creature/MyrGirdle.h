@@ -7,13 +7,18 @@
 #include "Components/CapsuleComponent.h"
 #include "MyrGirdle.generated.h"
 
+//###################################################################################################################
+// механизм шага
+//###################################################################################################################
 USTRUCT(BlueprintType) struct FStep
 {
 	GENERATED_BODY()
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Phase = 0;		// фаза (-1..0..1)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f BackToOldPos;	// отсчёт направления от предрасчитанного нового до свершенного старого
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float StepLength = 0;	// кэш длины шага по вектору на предыдущий ступ
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector NewFootPos;		// положение следующего следа
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FPsyLoc Normal;			// нормаль в точке следующего следа
+
 
 	float StepCurve() const { return Bell(FMath::Abs(Phase)); }
 
@@ -32,8 +37,9 @@ USTRUCT(BlueprintType) struct FStep
 	void ShiftPhaseInAir(float Delta) { Phase = FMath::Min(Phase + Delta, 1.0f); }
 	void ShiftPhaseOnGnd(float Delta) { Phase = FMath::Max(Phase - Delta, -1.0f); }
 };
+
 //###################################################################################################################
-//новый пояс конечностей, и одновременно кинематический якорь и рыскалка
+// пояс конечностей, и одновременно кинематический якорь и рыскалка
 //###################################################################################################################
 UCLASS() class MYRRA_API UMyrGirdle : public UCapsuleComponent
 {
@@ -62,8 +68,9 @@ public:
 	static ELimb GirdleRays[2][(int)EGirdleRay::MAXRAYS];
 
 	//кэш скорости ОТНОСИТЕЛЬНО опоры ног, принадлежащих этому поясу
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f VelocityAgainstFloor;
+	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f VelocityAgainstFloor;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) float Speed;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f VelDir; //новое, единичная
 
 	//вектор предпочтительного направления движения с учётом ограничений типа хождения по веткам
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) FVector3f GuidedMoveDir;
@@ -86,6 +93,7 @@ public:
 //механизм шагов
 public:
 
+	//механизмы шагов
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FStep RStep;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FStep LStep;
 
@@ -150,12 +158,10 @@ public:
 	bool Lies(int Mn = 1, int Mx = 199) { return (StandHardness >= Mn && StandHardness <= Mx); }
 	bool Projected() const { return IsInAir() && Flags.FixOn; }
 
-	//режим попячки назад
-	bool IsMovingBack() const;
-
 	//скаляр скорости в направлении движения
-	float SpeedAlongFront() { return (VelocityAgainstFloor | GuidedMoveDir); }
-	FVector3f SpeedDir() const { return VelocityAgainstFloor/Speed; }
+	//FVector3f SpeedDir() const { return VelocityAgainstFloor / Speed; }
+	FVector3f VelocityAtFloor() const { return VelDir * Speed; }
+	float SpeedAlongFront() { return (VelocityAtFloor() | GuidedMoveDir); }
 
 	//множитель для различения левого и правого
 	float mRight(FLimb& Foot) const { return Foot.IsLeft() ? -1 : 1; }
@@ -165,6 +171,7 @@ public:
 
 	//вычислить ориентировочное абсолютное положение конца ноги по геометрии скелета
 	FVector GetFootTipLoc(ELimb eL);
+	FVector GetFootTipLoc(FLimb& L) { return GetFootTipLoc(L.WhatAmI); }
 
 	//локальный вектор линии ноги, как есть
 	constexpr FLegPos& GetLegLine(FLimb& L) { return L.IsLeft() ? RelFootRayLeft : RelFootRayRiht; }
@@ -181,10 +188,6 @@ public:
 	void PackLegLine(FLimb& L, FVector3f AbsRay, float Lng = 0) {	GetLegLine(L) = PackLegLine(AbsRay, Lng); }
 	void PackLegLine(FLimb& L, FVector AbsRay) { GetLegLine(L) = PackLegLine((FVector3f)AbsRay, 0); }
 
-	//когда уже неудобно держать ногу на земле (тело сместилось) и надо отнять ногу от земли
-	bool FootDetachCriteria(FLimb& L);
-
-
 	//идеальное расположение ноги для текущей позы тела, для данного пояса
 	FLegPos idealLegLine(FLimb& L);
 
@@ -200,16 +203,16 @@ public:
 	//идеальная длина ног с учетом подгиба
 	float GetTargetLegLength() const { return TargetFeetLength * (1.0f - 0.5 * Crouch);  }
 
-	//максимальная длина шага исходя из длины ноги и высоты
-	float MaxStepLength() const { return FMath::Sqrt(FMath::Square(TargetFeetLength*1.1) - FMath::Square(GetTargetLegLength()/*GetLegLine(Foot).DownUp*/)); }
-	/*TargetFeetLength * (0.35 + FMath::Min(0.3, V*0.1) + 0.3*0.01*V + 0.2*DynModel()->Crouch);*/
+	//максимальная длина шага исходя из длины ноги и высоты (пифагор, но возможно, проще без корнеё а так)
+	float MaxStepLength() const { return TargetFeetLength * FMath::Sqrt(1.4 - FMath::Square(1.0f - 0.5 * Crouch)); }
+
+	//float MaxStepAmplitude(FFloatRange& FR, float V, float MinSpeed) { return FMath::Max(V, 1) * Lerp(FR, Speed); }
 
 	//идеальный размер шага вперед (зависит от скорости и приседания, пока сложно сказать, как лучше)
-	float IdealStepSizeX(float V) const { return MaxStepLength()*(0.3 + FMath::Min(0.7, V * 0.01)); }
+	float IdealStepSizeX(float V) const { return MaxStepLength()*(FMath::Min(0.4, V/50) + FMath::Min(0.1, V/1000)); }
 
 	//позиция точки проекции ноги на твердь
 	FVector GetFootVirtualLoc(FLimb& L);
-
 
 	//в незадействованное для кинематических компонентов поле ComponentVelocity перед прыжком вкладывается позиция якоря до прыжка
 	FVector& CachedPreJumpPos() { return ComponentVelocity; }
@@ -226,14 +229,24 @@ public:
 	//-------------------------------------------------------------------------------------
 
 	//шаги, пока не работает, строится
-	void ProcessSteps(FLimb& Foot, float DeltaTime, int ProperTurn);
+	void ProcessSteps(FLimb& Foot, float DeltaTime, float StrideNow, float StrideToBe, float Elevation, int ProperTurn);
 
-	//получить точную позицию шага или текущего, или следующего
-	bool TraceStep(FLimb &Foot, char LandNotSoar, FVector3f Dir);
-	bool TraceStep(FLimb& Foot, char LandNotSoar, float StepLength) { return TraceStep(Foot, LandNotSoar, VecToWannabeStep(Foot, StepLength)); }
+	//трассировка для контроля шагов, болванка, на которую надо дополнять логику
+	FHitResult TraceStep(FLimb& Foot, FVector Start, FVector3f DirThruStep)
+	{	FHitResult Hit(ForceInit);
+		if (!Trace(Start, DirThruStep, Hit))
+		{	GetStep(Foot).DisableSteps();
+			Foot.EraseFloor();
+			Hit.bBlockingHit = false;
+		}
+		return Hit;
+	}
 
-	//начать двигаться из бесшагового состояния или из неподвижности 
-	bool StartFoot(FLimb& Foot);
+
+	bool TraceStepToLandAt(FLimb& Foot, FVector3f DirThruStep);
+	bool TraceStepToSoarTo(FLimb& Foot, float StepLenFromCenter);
+	bool TraceStepToTurnTo(FLimb& Foot, FVector3f DirThruStep);
+	bool TraceStepToStopAt(FLimb& Foot, float StepLenFromCenter);
 
 //методы, формальное
 public:

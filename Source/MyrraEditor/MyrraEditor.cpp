@@ -35,6 +35,7 @@ void FMyrraEditorModule::StartupModule()
 	PropertyModule.RegisterCustomPropertyTypeLayout("Pathia",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FEmotionTypeCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("Ratio",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FRatioTypeCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout("Bipolar",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FRatioTypeCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout("Influ",					FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FInfluCustomization::MakeInstance));
 
 	//это вообще непонятно зачем
 	PropertyModule.NotifyCustomizationModuleChanged();
@@ -63,6 +64,7 @@ void FMyrraEditorModule::ShutdownModule()
 	PropertyModule.UnregisterCustomClassLayout("MyrLogicEventData");
 	PropertyModule.UnregisterCustomClassLayout("Pathia");
 	PropertyModule.UnregisterCustomClassLayout("Ratio");
+	PropertyModule.UnregisterCustomClassLayout("Influ");
 }
 
 //самая важная макрооболочка... кажется, должна быть в самом конце

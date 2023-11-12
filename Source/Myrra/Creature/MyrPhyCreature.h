@@ -212,8 +212,8 @@ public:
 	//включить или выключить желание при подходящей поверхности зацепиться за нее
 	void ClimbTryActions();
 
-	//найти объект в фокусе - для демона, просто ретранслятор из ИИ, чтобы демон не видел ИИ
-	int FindObjectInFocus(const float Devia2D, const float Devia3D, AActor*& Result, FText& ResultName);
+	//установить образ объекта в фокусе - нужно чтоб для демона вызвался через ИИ,
+	void SetObjectAtFocus(FGestalt* GO);
 
 	//прирастить запас сил (отдохнуть) если аргумент>0, или отнять (устать) - вызывается из редкого тика
 	void StaminaChange(float Dp);
@@ -229,14 +229,11 @@ public:
 	void MakeStep(ELimb WhatFoot, bool Raise);
 
 	//пострадать от физических повреждений (всплывает из меша)
-	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface);
-	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc)
+	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, FVector3f Normal, EMyrSurface ExactSurface, AMyrPhyCreature* ExactHitter = nullptr);
+	void Hurt(FLimb& Limb, float Amount, FVector ExactHitLoc, AMyrPhyCreature* ExactHitter = nullptr)
 	{	Hurt(Limb, Amount, ExactHitLoc, Limb.Floor.Normal, Limb.Floor.Surface);	}
 
-	//ментально осознать, что пострадали от действий другого существа или наоборот были им обласканы
-	void SufferFromEnemy(float Amount, AMyrPhyCreature* Motherfucker);
 	void EnjoyAGrace(float Amount, AMyrPhyCreature* Sweetheart);
-	void MeHavingHit(float Amount, AMyrPhyCreature* Victim);
 
 	//запустить брызг частиц пыли и т.п. из чего состоит заданная поверхность
 	void SurfaceBurst(UParticleSystem* Dust, FVector ExactHitLoc, FQuat ExactHitRot, float BodySize, float Scale);
@@ -262,7 +259,7 @@ public:
 	bool GotStandBoth(int Thr = 300)	{ return (Thorax->StandHardness + Pelvis->StandHardness > Thr); }
 	bool GotLandedAny(uint8 Thr = 100)  { return (Thorax->Stands(Thr) || Pelvis->Stands(Thr)); }
 	bool GotLandedBoth(uint8 Thr = 100) { return (Thorax->Stands(Thr) && Pelvis->Stands(Thr)); }
-	bool GotSlow(float T = 1)			{ return (Pelvis->VelocityAgainstFloor.SizeSquared() < T && Thorax->VelocityAgainstFloor.SizeSquared() < T); }
+	bool GotSlow(float T = 1)			{ return (Pelvis->Speed < T && Thorax->Speed < T); }
 	bool GotSoaringDown(float T = -50)	{ return (Mesh->GetPhysicsLinearVelocity().Z < T); }
 	bool GotLying()						{ return (Thorax->Lies() && Pelvis->Lies() && SpineVector.Z < 0.5f); }
 	bool GotReachTarget()				{ return JumpTarget && FVector::Distance(Mesh->GetComponentLocation(), JumpTarget->GetComponentLocation()) < 10; }
@@ -535,6 +532,8 @@ public:
 	bool DoesAnyAction() const { return (CurrentAttack < 255) || (CurrentSelfAction<255) || (CurrentRelaxAction<255); }
 
 	float GetDamage(ELimb L) const { return Mesh->GetLimb(L).Damage; }
+	float GetDamageLegs() const { return Mesh->LLeg.Damage + Mesh->RLeg.Damage + Mesh->RArm.Damage + Mesh->LArm.Damage; }
+	float GetDamageTorso() const { return Mesh->Pectus.Damage + Mesh->Lumbus.Damage + Mesh->Thorax.Damage + Mesh->Pelvis.Damage; }
 
 	//потрачен
 	bool Dead() { return (CurrentState == EBehaveState::dead);  }
@@ -575,6 +574,7 @@ public:
 
 	//целевая скорость, с которой мы хотим двигаться
 	UFUNCTION(BlueprintCallable) float GetDesiredVelocity() const { return BehaveCurrentData->MaxVelocity * MoveGain; }
+	UFUNCTION(BlueprintCallable) float GetCurBaseVel() const { return BehaveCurrentData->MaxVelocity; }
 
 	//длина спины 
 	UFUNCTION(BlueprintCallable) float GetBodyLength() const { return Mesh->Bounds.BoxExtent.X*2; }

@@ -21,7 +21,6 @@
 
 //свой лог
 DEFINE_LOG_CATEGORY(LogMyrAIC);
-
 //==============================================================================================================
 // конструктор
 //==============================================================================================================
@@ -33,26 +32,29 @@ AMyrAIController::AMyrAIController(const FObjectInitializer & ObjInit)
 
 	//модуль перцепции
 	AIPerception = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("Perception Component"));
-	SetPerceptionComponent(*AIPerception);
 	AIPerception->bEditableWhenInherited = true;
 
 	//настройки слуха, предварительные - они должны меняться при подключении к цели
 	ConfigHearing = CreateDefaultSubobject<UAISenseConfig_Hearing>(TEXT("Myrra Hearing"));
 	if (ConfigHearing)
-	{	ConfigHearing->HearingRange = 1000.f;
+	{	ConfigHearing->HearingRange = 10000.f;
+		auto& DbA = ConfigHearing->DetectionByAffiliation;
+		DbA.bDetectEnemies = DbA.bDetectNeutrals = DbA.bDetectFriendlies = true;
 		AIPerception->ConfigureSense(*ConfigHearing);
 	}
+	SetPerceptionComponent(*AIPerception);
+
 	//исключить болванки, не являющиеся реальными объектами
 	if (HasAnyFlags(RF_ClassDefaultObject)) return;
 
-	ComplexEmotions.Add(FReflex(YE_(Shine)|YE_(Night),			FPathia( Hope,				+2)));
-	ComplexEmotions.Add(FReflex(YE_(NotMe)|YE_(Big),			FPathia( Fear,				+2)));
-	ComplexEmotions.Add(FReflex(YE_(NotMe)|YE_(New),			FPathia( Care,				+5)));
-	ComplexEmotions.Add(FReflex(YE_(NotMe)|YE_(New)|YE_(Big),	FPathia( Anxiety,			+3)));
-	ComplexEmotions.Add(FReflex(YE_(NotMe)|YE_(Unreachable),	FPathia( Pessimism,			+2)));
-	ComplexEmotions.Add(FReflex(YE_(NotMe)|YE_(Important),		FPathia( Mania,				+2)));
-	ComplexEmotions.Add(FReflex(YE_(NotMe)|YE_(PleasedMe),		FPathia( Care,				+5)));
-
+	//базовые комплексные эмоции, состоящие из несколькоих элементарных стимулов, которые должны быть у всех
+	/*ComplexEmotions.Add(FReflex(Moon, FPathia(Hope, +2)));
+	ComplexEmotions.Add(FReflex(YouReBig,			FPathia( Fear,				+2) ));
+	ComplexEmotions.Add(FReflex(YouReNewHere,		FPathia( Care,				+5) ));
+	ComplexEmotions.Add(FReflex(YouReBigAndNew,		FPathia( Anxiety,			+3) ));
+	ComplexEmotions.Add(FReflex(YouReUnreachable,	FPathia( Pessimism,			+2) ));
+	ComplexEmotions.Add(FReflex(YouReImportant,		FPathia( Mania,				+2) ));
+	ComplexEmotions.Add(FReflex(YouPleasedMe,		FPathia( Care,				+5) ));*/
 
 	//привзять обработчик событий прилёта слуха и навешанных на него событий
 	AIPerception->OnTargetPerceptionUpdated.AddDynamic(this, &AMyrAIController::OnTargetPerceptionUpdated);
@@ -65,9 +67,15 @@ AMyrAIController::AMyrAIController(const FObjectInitializer & ObjInit)
 void AMyrAIController::OnPossess(APawn * InPawn)
 {
 	//переименовать, чтобы в отладке в редакторе отображалось имя, ассоциированное с подопечным существом
-	Super::OnPossess(InPawn);
 	FString NewName = InPawn->GetName() + TEXT("-") + GetName();
 	Rename(*NewName);
+	Super::OnPossess(InPawn);
+	UE_LOG(LogMyrAIC, Warning, TEXT("%s possessed"), *GetName());
+
+	//загрузить предопределенные комплексные рефлексы (надо будет ввести в ГеймИнст профили для разных характеров животных и загружать не все
+	if (auto GI = GetMyrGameInst())
+		for (auto& A : GI->EmoReactionWhatToDisplay)
+			ComplexEmotions.Add(FReflex(A.Key, A.Value.DefaultReaction));
 
 	//добавить самый главный гештальт - самого себя
 	Mich = FGestalt(meC());
@@ -104,11 +112,13 @@ void AMyrAIController::BeginPlay()
 {
 	//интервал тика можно динамически менять - например при неходьбе нах каждый кадр?
 	PrimaryActorTick.TickInterval = 0.5f;
-	Super::BeginPlay();
 	if (me())
-	{	if (me()->IsUnderDaemon()) AIRuleWeight = 0.0f;
+	{	AIRuleWeight = me()->IsUnderDaemon() ? 0.0f : 1.0f;
+
+		//включить это существо в атмосферу слуха
 		UAIPerceptionSystem::RegisterPerceptionStimuliSource(ME(), UAISense_Hearing::StaticClass(), ME());
 	}
+	Super::BeginPlay();
 }
 
 
@@ -117,6 +127,7 @@ void AMyrAIController::BeginPlay()
 //==============================================================================================================
 void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
+	if (!Actor) return;							// на всякий
 	if (Actor == me()) return;					// это вообще бред, почему себя нельзя исключить
 	if (Actor == me()->Daemon) return;			// это вообще бред, почему себя нельзя исключить
 	auto MyrYou = Cast<AMyrPhyCreature>(Actor);
@@ -125,12 +136,14 @@ void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 	if (auto L = Cast<AMyrLocation>(Actor))		// если это локация, то там может быть много манящих объектов
 		ExactObj = (USceneComponent*)L->GetCurrentBeacon();		// выдать текущий
 
-	// радиус-вектор от нас до объекта, по умолчанию до точки начала координат компонента-цели
-	auto YouMinusMe = GetMeToYouVector(ExactObj);
 
 	//корректность, если не WasSuccessfullySensed, это, возможно, утеря
 	if (Stimulus.WasSuccessfullySensed())
 	{
+		// радиус-вектор от нас до объекта, по умолчанию до точки начала координат компонента-цели
+		auto YouMinusMe = GetMeToYouVector(ExactObj);
+		UE_LOG(LogMyrAIC, Log, TEXT("%s AI notices %s"), *me()->GetName(), *Actor->GetName());
+
 		//слух и другие мгнровенные воздействия без пространства
 		EHowSensed HowSensed = EHowSensed::HEARD;
 		float Strength = Stimulus.Strength;
@@ -143,6 +156,7 @@ void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 			MeinGestalt = &Memory[Memory.Add(NeuGestalt)];
 			MeinGestalt->InitRival(me()->SpineLength, MyrYou ? MyrYou->SpineLength : 0);	
 		}
+		auto OldInfluences = MeinGestalt->Influences;
 
 		//сразу асинхронно определить положение и воспринять акт услышания, и получить расстояние до объекта
 		float DistTo = MeinGestalt->Hear(YouMinusMe, me()->AttackDirection);
@@ -157,9 +171,11 @@ void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 			switch(HowSensed)
 			{
 				//начало или свершение атаки
-				case EHowSensed::ATTACKSTRIKE:
-					Strike = true;
+				case EHowSensed::ATTACKSTRIKE:	Strike = true;
 				case EHowSensed::ATTACKSTART:
+
+					//хз почему, но иногда срабатывает когда атаки нет
+					if(MyrYou->CurrentAttack != 255)
 					{
 						//вывалить все основные переменные
 						auto YouAI = MyrYou->MyrAIController();	
@@ -210,15 +226,14 @@ void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 								else Drive.DoThis = EAction::Run;
 							}
 						}
-
 						//если мы видим и слышим атакующего
 						if(MeinGestalt->PerceptAmount() > 0.2 )
-							MeinGestalt->AddInfluence(EYeAt::Attacking);
+							MeinGestalt->Influences.Add(EInfluWhy::Attack);
 					}
 					break;
 
 				case EHowSensed::ATTACKEND:
-					MeinGestalt->DelInfluence(EYeAt::Attacking);
+					MeinGestalt->Influences.Del(EInfluWhy::Attack);
 					break;
 
 				case EHowSensed::DIED:
@@ -229,41 +244,48 @@ void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 					Memory.Remove(*MeinGestalt);
 					break;
 
-				//эпизод удара атакой этого существа по другому существу, возможно, по нам
-				case EHowSensed::HITTER:
+				//сигнал подает агрессор, ударивший какое-то существо, возможно нас или нашего друга
+				case EHowSensed::PERCUTER:
 					{
 						//участники событий
 						auto YouAI = MyrYou->MyrAIController();	
 						auto Victim = Cast<AMyrPhyCreature>(YouAI->ExactVictim->GetOwner());
 
-						//если жертва формально мы
-						if(Victim == me())
-						{
-							//повысить нашу мнемоническую враждебность
-							MeinGestalt->ReactToDamage(Strength, fRand());
-						}
+						//если жертва мы, изменить отношение к агрессору ("Pain" для само-гештальта обрабатывается в тике, а для цели дефакто "сколько раз ты бил меня")
+						if(Victim == me())	MeinGestalt->ReactToDamage(MeinGestalt->Chance(Strength, 0.8));
 
 						//если жертва не мы, но мы знаем это существо
 						else if(auto pGestalt = MeInYourMemory(Victim))
 						{
-							//если существо наш давний друг, зафиксировать воздействие
+							//если существо наш давний друг (iFriendliness = 0..1024), зафиксировать воздействие
 							if(pGestalt->iFriendliness() + 200 + Strength > (FUrGestalt::RandVar & 1023))
-								MeinGestalt->AddInfluence(EYeAt::HurtFriend);
+								MeinGestalt->Influences.Add(EInfluWhy::HurtFriend);
 						}
 					}
 					break;
 
-
-				case EHowSensed::EXPRESSED:
+				//когда сигнал подает жертва, имеет смысл когда мы агрессор
+				case EHowSensed::PERCUTED:
+					break;
+				
+				//кто-то ударился по собственной тупости
+				case EHowSensed::HURT:
+					break;
+				
+				//кто-то выразил конкретную эмоцию
+ 				case EHowSensed::EXPRESSED:
 					break;
 
 				case EHowSensed::CALL_OF_HOME:
 					break;
 			}
 		}
-		//проталкиваем стимул глубже - на уровень замечания и рассовывания по ячейкам целей
-		//UE_LOG(LogTemp, Error, TEXT("%s AI Notices %s result %s"), *me()->GetName(), *Actor->GetName(), *TXTENUM(EGoalAcceptResult, NotRes));
-	}
+		//обновить эмоции и их энергоценность в отношении объекта-сигнализатора - только если за эту функцию что-то изменилось
+		if(OldInfluences.AsNumber() != MeinGestalt->Influences.AsNumber())
+			UpdateEmotions(*MeinGestalt, MeinGestalt->GetWeight(), OldInfluences);
+
+	} //else UE_LOG(LogMyrAIC, Log, TEXT("%s AI ignores %s"), *me()->GetName(), *Actor->GetName());
+	
 }
 
 //==============================================================================================================
@@ -271,13 +293,15 @@ void AMyrAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stim
 //==============================================================================================================
 void AMyrAIController::Tick(float DeltaTime)
 {
-	
 	Super::Tick(DeltaTime);			// внутря
 	Counter++;						// счетчик для периодических поведений
 
 	//возможно, рандом тяжёл, пусть он случается реже основных расчётов
 	FUrGestalt::RandVar = FMath::Rand();		
 	if (FUrGestalt::RandVar == 0) FUrGestalt::RandVar = 1;
+
+	//сбросить старую цель в фокусе, чтоб она не висла в случае неполадок
+	ME()->SetObjectAtFocus(nullptr);
 
 	//часть медленных не нужных часто процедур самого тела, дабы не плодить тиков и делителей, вынесена сюда
 	ME()->RareTick(DeltaTime);
@@ -295,33 +319,35 @@ void AMyrAIController::Tick(float DeltaTime)
 	//возможно, стоит разбить этот цикл по тактам
 	for(auto& Gestalt : Memory)
 	{
-		//выставить влияния, характерные исключительно для внешнего объекта
-		Gestalt.SetCauseChance(YE_(Injured),	0.9 * FMath::Square(0.5f - me()->Health));
-		Gestalt.SetCauseChance(YE_(Dying),		0.9 * FMath::Square(0.5f - me()->Health));
-		Gestalt.SetCauseChance(YE_(Tired),		0.9 * FMath::Square(0.5f - me()->Stamina));
-		Gestalt.SetCauseChance(YE_(NoticingMe), Gestalt.PerceptAmount());
-
-		//перевалить отношение к образу за очередной такт
-		UpdateEmotions(Gestalt, Gestalt.GetWeight());
-		Extraversy += Gestalt.Emotion.UniPower() * Gestalt.GetWeight();
+		//сохранить пребыбущий комплекс воздействий с прошлого такта, перед тем как будут зафиксированы новые, нужно для детекции изменений
+		auto OldInfluences = Gestalt.Influences;
 
 		//приближение и удаление живого противника
 		if (Gestalt.IsCreature())
-			if (Gestalt.Creature()->GetThorax()->Speed > 50)
+		{	auto MyrU = Gestalt.Creature();
+
+			//влияние здоровья и усталости этой цели внимания
+			Gestalt.Influences.Grade(EInfluHow::InjuredMost,	Gestalt.Chance(0.9 * FMath::Square(0.5f - MyrU->Health), 0.8));
+			Gestalt.Influences.Grade(EInfluHow::TiredMost,		Gestalt.Chance(0.9 * FMath::Square(0.5f - MyrU->Stamina), 0.8));
+
+			//насколько мы видны для существа-цели
+			auto MeAsYourGestalt = MeInYourMemory(MyrU);
+			if(MeAsYourGestalt) Gestalt.Influences.Set(EInfluWhat::YouNoticeMe, MeAsYourGestalt->PerceptAmount());
+
+			//если существо явно двигается
+			if (Gestalt.Creature()->GetThorax()->Speed > 10 )
 			{
-				//вектор скорости в проекции на вектор направления, вблизи одна сотая (меньше порог срабатывания) вдали одна двухсотая (нужно сильно разогнаться)
-				float Coaxis = -Gestalt.Creature()->GetThorax()->VelocityAgainstFloor | Gestalt.LookDir() * (0.005 + 0.005 * Gestalt.HowClose());
-
-				//рассыпание признаков "приближается" или удаляется
-				if (Coaxis > 0.5)				Gestalt.SetCauseChance(YE_(ComingCloser),	Coaxis - 0.5);
-				else if (Coaxis < -0.5)			Gestalt.SetCauseChance(YE_(ComingAway),		0.5 - Coaxis);
+				//определение движения цели относительно нас
+				float Coax = -MyrU->GetThorax()->VelDir | Gestalt.LookDir();	// вектор скорости в проекции на вектор нашего взгляда,
+					  Coax *= (0.001 + Gestalt.HowClose());						// учет дальности, когда цель далеко, непонятно, бежит она к нам или от нас
+					  Coax *= MyrU->GetThorax()->Speed * 0.01;					// учет скорости цели, более быстрая цель даже издалеко понятна в своем направлении
+				Gestalt.Influences.Set(EInfluWhat::YouComingCloser, Coax * 3);	// Coax больше  0.333 округляется до единицы, тру, ставится флаг
+				Gestalt.Influences.Set(EInfluWhat::YouComingAway, - Coax * 3);	// Coax меньше -0.333 округляется до единицы, тру, ставится флаг
 			}
+		}
 
-		//осознанная близость
-		Gestalt.SetCauseChance(YE_(ComingCloser) | YE_(ComingAway), FMath::Square(Gestalt.HowClose()));
-
-		//рассчет объекта в фокусе для помощи в нацеливании
-		if(Gestalt.VisCoaxis > MaxCoax) { AtFocus = &Gestalt; MaxCoax = Gestalt.VisCoaxis; }
+		//рассчет объекта в фокусе для помощи в нацеливании (нахождение максимального соноправления)
+		if(Gestalt.VisCoaxis > MaxCoax) { ME()->SetObjectAtFocus(&Gestalt); MaxCoax = Gestalt.VisCoaxis; }
 
 		//если запись памяти указывает на реальный объект
 		if(Gestalt.Obj.IsValid())
@@ -332,21 +358,39 @@ void AMyrAIController::Tick(float DeltaTime)
 			GoalMaxLure.SeizeIf(Gestalt, Gain, true);
 			GoalMinLure.SeizeIf(Gestalt, Gain, false);
 		}
+
+		//перевалить отношение к образу за очередной такт
+		UpdateEmotions(Gestalt, Gestalt.GetWeight(), OldInfluences);
+		Extraversy += Gestalt.Emotion.UniPower() * Gestalt.GetWeight();
 	}
 
-	//поводы для внутренних эмоций
-	Mich.SetCause2bit(ME2B_(Pain),			FMath::Min(1.0f, me()->Pain * 0.5));
-	Mich.SetCause2bit(ME2B_(Injured),		1 - me()->Health);
-	Mich.SetCause2bit(ME2B_(Tired), 		1 - me()->Stamina);
-	Mich.SetCauseChance(ME_(HurtHead),		me()->GetDamage(ELimb::HEAD));
-	Mich.SetCauseChance(ME_(HurtTorso),		me()->GetDamage(ELimb::PECTUS) + me()->GetDamage(ELimb::LUMBUS));
-	Mich.SetCauseChance(ME_(Falling),		me()->CurrentState == EBehaveState::fall ? -me()->GetThorax()->VelocityAgainstFloor.Z*0.01 : 0.0);
+	//сохранить старые воздействия перед массовым внесением новых
+	auto OldInfluences = Mich.Influences;
 
-	//переварить сосотояния образа себя
-	UpdateEmotions(Mich, 1 - FMath::Min(Extraversy, 1.0f));
+	//накатить поводы для внутренних эмоций
+	Mich.Influences.Grade(EInfluHow::PainMost,		Mich.Chance(FMath::Min(1.0f, me()->Pain * 0.5), 0.9));
+	Mich.Influences.Grade(EInfluHow::InjuredMost,	Mich.Chance(0.9 * FMath::Square(0.5f - me()->Health), 0.8));
+	Mich.Influences.Grade(EInfluHow::TiredMost,		Mich.Chance(0.9 * FMath::Square(0.5f - me()->Stamina), 0.8));
+	Mich.Influences.Set(EInfluWhat::MeHurtHead,		Mich.Chance(me()->GetDamage(ELimb::HEAD), 0.8));
+	Mich.Influences.Set(EInfluWhat::MeHurtTorso,	Mich.Chance(me()->GetDamageTorso(), 0.8));
+	Mich.Influences.Set(EInfluWhat::MeHurtLeg,		Mich.Chance(me()->GetDamageLegs(), 0.8));
+
+	if(me()->CurrentState == EBehaveState::fall)
+		Mich.Influences.Set(EInfluWhy::Falling,		me()->GetThorax()->VelocityAtFloor().Z * 0.01);
+
+	//скоростной характер движения (тут бы не цифры, а какую-то комфортную скорость для данного классса существ)
+	Mich.Influences.Set(EInfluWhat::MeMovingFast,	me()->GetThorax()->Speed > 150);
+	Mich.Influences.Set(EInfluWhat::MeMovingSlow,	me()->GetThorax()->Speed < 50);
+	Mich.Influences.Set(EInfluWhat::MeMovingBack,	me()->GetThorax()->Speed > 10 && (me()->GetThorax()->VelDir | me()->GetAxisForth()) < 0 );
+
+	//самые общие для всех воздействия + финальная обработка их, дрейф значений эмоции
+	UpdateEmotions(Mich, 1 - FMath::Min(Extraversy, 1.0f), OldInfluences);
 
 	//если самая передняя цель не очень спереди, то передних целей нет вообще
-	if(MaxCoax < 0.7) AtFocus = nullptr;
+	if(MaxCoax < 0.8) ME()->SetObjectAtFocus(nullptr);
+
+	//пока неясно как плавно или остро отсекать по силе ИИ, но пока для протагониста все остальное не нужно
+	if (AIRuleWeight == 0) return;
 
 	////////////////////////////////////////////////////////
 	//есть две разные цели
@@ -415,7 +459,9 @@ void AMyrAIController::Tick(float DeltaTime)
 		//просто бежать к цели
 		if(GoalMaxLure.AnalogGain > 0)
 			GoalMaxLure.WhatToDo = SimpleMoveToGoal(GoalMaxLure);
-		else GoalMinLure.WhatToDo = FreeMoveAway(GoalMinLure);
+
+		//просто бежать от цели
+		else GoalMaxLure.WhatToDo = FreeMoveAway(GoalMaxLure);
 
 	}
 	//нет целей вообще
@@ -424,7 +470,6 @@ void AMyrAIController::Tick(float DeltaTime)
 		//лечь и отдыхать, а вообще на уровне не должно быть совсем без гештальтов
 		return;
 	}
-
 	//желание скрываться - суммарно от обеих целей
 	CalcStealth(GoalMinLure);
 	CalcStealth(GoalMaxLure);
@@ -464,9 +509,10 @@ void AMyrAIController::Tick(float DeltaTime)
 	{	auto& CurGoal = Period(63, Proport) ? PriGoal : SecGoal;
 		Drive.MoveDir = CurGoal.MoveToDir;
 		Drive.Gain = CurGoal.AnalogGain * 0.8;
-		 Drive.ActDir = Period(31, Proport) ?
+		Drive.ActDir = Period(31, Proport) ?
 			 PriGoal.LookAtDir() : SecGoal.LookAtDir();
 	}
+	LastRouteResult = PriGoal.WhatToDo == ERouteResult::NoGoal ? SecGoal.WhatToDo : PriGoal.WhatToDo;
 
 	////////////////////////////////////////////////////////
 	//выработка способа движения
@@ -513,84 +559,105 @@ void AMyrAIController::Tick(float DeltaTime)
 //==============================================================================================================
 void AMyrAIController::ProposeAction(FAIGoal& Goal)
 {
+	//проходим счетчиком дальше
 	ActionToTryNow++;
-	if (ActionToTryNow >= me()->GetGenePool()->Actions.Num())
-	 ActionToTryNow = 0;
+	if (ActionToTryNow >= me()->GetGenePool()->Actions.Num()) ActionToTryNow = 0;
+
+	//выудили реальное действие
 	auto A = me()->GetGenePool()->Actions[ActionToTryNow];
+
+	//тестируем применимость
 	auto R = A->IsActionFitting(me(), Goal.pGestalt->Obj.Get(), Goal.Dist(), Goal.LookAtDir() | me()->AttackDirection, true, true);
+
+	//если применимо, запускаем
 	if(ActOk(R)) me()->ActionStart(ActionToTryNow);
+	else UE_LOG(LogMyrAIC, Log, TEXT("%s ProposeAction %s towards %s result %s"), *me()->GetName(), *A->GetName(), *Goal.pGestalt->Obj->GetOwner()->GetName(), *TXTENUM(EResult, R));
 
 }
 
 //==============================================================================================================
 //рутинная обработка в тике одного конкретного гештальта
 //==============================================================================================================
-void AMyrAIController::UpdateEmotions(FUrGestalt& Gestalt, float Weight)
+void AMyrAIController::UpdateEmotions(FUrGestalt& Gestalt, float Weight, int32 OldInfluences)
 {
 	if(Weight < 0.01) return;					// совсем пассивный гештальт не должен обновляться
 	uint8 Limit = Weight * 16;					// гештальты со слабым весом меньше обрабатывают эмоции (ограничить 0-16)
-	int32 OldInfluences = Gestalt.Influences;	// сохранить влияния вокруг с предыдущего такта
 
 	//обновить стимулы внешней среды, одинаковые как для себя, так и для внешних гештальтов
-	Gestalt.SetCauseChance(YE_(Night),		0.5 * GetMyrGameMode()->NightAmount());
-	Gestalt.SetCauseChance(YE_(Shine),		0.5 * (GetMyrGameMode()->MoonIntensity() + GetMyrGameMode()->SunIntensity()));
-	Gestalt.SetCauseChance(YE_(Rain),		0.9 * (me()->Daemon ? me()->Daemon->RainAmount : GetMyrGameMode()->RainAmount()));
-	Gestalt.SetCauseChance(YE_(Fog),		0.5 * GetMyrGameMode()->FogAmount());
-	Gestalt.SetCauseChance(YE_(Cold),		0.5 * FMath::Square(1 - GetMyrGameMode()->Temperature()));
-	Gestalt.SetCause(YE_(Indoor),			(bool)me()->IsInLocation());
+	Gestalt.Influences.Set(EInfluWhere::Night,	Gestalt.Chance(0.5 * GetMyrGameMode()->NightAmount(), 0.8));
+	Gestalt.Influences.Set(EInfluWhere::Shine,	Gestalt.Chance(0.5 * (GetMyrGameMode()->MoonIntensity() + GetMyrGameMode()->SunIntensity()), 0.8));
+	Gestalt.Influences.Set(EInfluWhere::Rain,	Gestalt.Chance(0.9 * (me()->Daemon ? me()->Daemon->RainAmount : GetMyrGameMode()->RainAmount()), 0.8));
+	Gestalt.Influences.Set(EInfluWhere::Fog,	Gestalt.Chance(0.5 * GetMyrGameMode()->FogAmount(), 0.8));
+	Gestalt.Influences.Set(EInfluWhere::Cold,	Gestalt.Chance(0.5 * FMath::Square(1 - GetMyrGameMode()->Temperature()), 0.8));
+	Gestalt.Influences.Set(EInfluWhere::Indoor, (bool)me()->IsInLocation());
 
-	//----------------------------------------------------------------
-	//применение эмоциональных воздействий
-	int ChangeInEmotion = 0;
-	auto pReflex = ComplexEmotions.Find(Gestalt.Influences);
+	//если вообще никаких воздействий, то ничего не нужно считать, но можно скатиться в душевную пустоту
+	if (Gestalt.Influences == 0)
+	{	RegModEmotion(Gestalt.Emotion.Affect(FPathia(Void), 1));//◘◘>
+		return;
+	}
 
-	//сначала перебор комплексных симулов на точное совпадение
-	if (pReflex && !pReflex->Emotion.IsLatent())
+	//попытаться найти в памяти именно строго такое сочетание воздействий
+	FReflex* pReflex		= ComplexEmotions.Find (Gestalt.Influences);
+	FReflex* pReflexLatent  = ComplexEmotions.Find (Gestalt.Influences.With(EInfluWhy::Latent));
+
+	//если рефлекс уже разблокирован, применить именно комплексный рефлекс
+	if (pReflex)
 		RegModEmotion(Gestalt.Emotion.Affect(pReflex->Emotion, Limit));//◘◘>
+
+	//если полный рефлекс не найден, но найдена его латентная версия
+	else if (pReflexLatent)
+	{
+		//если произошло реальное изменение с прошлого кадра
+		if (OldInfluences != Gestalt.Influences)	
+		{
+			// усилить его, скоро можно будет раздлокировать
+			pReflexLatent->Emotion.Work++;						
+																
+			// ну а пока он латентен, время подгадать, с какой эмоцией он выйдет в свет, начав с самых похожих на него
+			auto ClosestR = FindClosest(Gestalt.Influences);
+			
+			// если ближайший найден и он сам не латентный
+			if (ClosestR && !ClosestR->IsLatent())				
+			{
+				//сначала подмешать к текущему латентному щепотку самого похожего
+				pReflexLatent->Emotion.Affect(ClosestR->Emotion, 4);
+				RegModEmotion(Gestalt.Emotion.Affect(ClosestR->Emotion, Limit));//◘◘>
+			}
+			//вообще не найдено похожих, что странно, видимо, множество как-то оказалось пустым
+			else
+			{}
+		}
+
+		//если счетчик случаев достиг порога, пора разблокировать новый рефлекс
+		if (pReflexLatent->Emotion.Work > 230)
+		{
+			pReflexLatent->Emotion.Work = 128;		// убрать значение счетчика, теперь он не нужен, поставить начальную работу среднюю по диапазону, чтобы и туда и сюда
+			FReflex UnLatent(						// создать новую болванку, теперь уже нелатентного
+				Gestalt.Influences,					// влияния изначальные, без бита латентности
+				pReflexLatent->Emotion);			// эмоция выстраданная пока рефлекс был латентным
+			ComplexEmotions.Add(UnLatent);			// добавить во множество
+			ComplexEmotions.Remove(*pReflexLatent);	// теперь латентная болванка не нужна, удалить ее
+		}
+
+	}
+	//если такой рефлекс не найден в памяти, это первый опыт данного воздействия 
 	else
 	{
-		//попытаться найти ближайший по битам рефлекс и повлиять им
-		auto CloR = FindClosest(Gestalt.Influences);
-		if(CloR)
-			RegModEmotion(Gestalt.Emotion.Affect(CloR->Emotion, Limit));//◘◘>
-
-		//если вообще никакой ближайший не найден
-		else
-		{
-			//суперпозиция элементарных рефлексов
-			for (int i = 0; i < 32; i++)
-				if ((Gestalt.Influences & (1 << i)) != 0)
-					RegModEmotion(Gestalt.Emotion.Affect(me()->GetGenePool()->ElementaryEmotionsYe[i], Limit));//◘◘>
-		}
-
-
-
-		//если запись рефлекса все же найдена, то это "латентный рефлекс" считающий разы, частотность события
-		if(pReflex)
-		{
-			//увеличить счетчик случаев с данной комбинацией условий, если она вновь появилась или достаточно длится
-			if(OldInfluences != Gestalt.Influences)
-				pReflex->Emotion.Work++;
-
-			//если достигнут предел латентности, значит событий такого рода уже достаточно накапло, чтоб создать новый рефлекс
-			if(pReflex->Emotion.Work > 200)
-			{	
-				//если мы успешно находили ближайший рефлекс, начальным значением нового рефлекса сделать эмоцию от ближайшего неравного 
-				if(CloR) pReflex->Emotion = CloR->Emotion;
-
-				//если ближайшего рефлекса не находили, то тупо собрать значение по сумме элементарных воздействий
-				else
-				{	FPathia Compound(Peace);
-					for (int i = 0; i < 32; i++)
-						if ((Gestalt.Influences & (1 << i)) != 0)
-							Compound = Compound * me()->GetGenePool()->ElementaryEmotionsYe[i];
-					pReflex->Emotion = Compound;
-				}
+		//перебрать и применить все элементарные воздействия поочередно
+		uint8 NumInfls = 0;
+		for(auto E : ComplexEmotions)
+			if(Gestalt.Influences.Contains(E.Condition))
+			{	NumInfls++;
+				RegModEmotion(
+					Gestalt.Emotion.Affect(E.Emotion, Limit));//◘◘>
 			}
-		}
-		//если запись не найдена - это первый раз такая комбинация, создать для нее латентный рефлекс, чтобы считать количество
-		else ComplexEmotions.Add ( FReflex(Gestalt.Influences, FPathia('l')) );
+
+		//создаем для него болванку "латентную", которая не будет действовать на эмоции,
+		//пока не встречена в жизни достаточное число раз, она же будет перенимать отклики реальных, похожих на нее сочитаний
+		ComplexEmotions.Add(FReflex(Gestalt.Influences.With(EInfluWhy::Latent), Gestalt.Emotion));
 	}
+
 	//----------------------------------------------------------------
 	EmoWorkAccum += Gestalt.Emotion.Work;					//◘>
 	EmoEnergyAccum += Gestalt.Emotion.uiDistAxial(Peace);	//◘>
@@ -598,8 +665,6 @@ void AMyrAIController::UpdateEmotions(FUrGestalt& Gestalt, float Weight)
 	//выразить общую внешнюю эмоцию через текущие отношения к целям внимания
 	IntegralEmotion.Interpo(Gestalt.Emotion, FMath::Min(1.0f, FMath::Abs(Weight*0.5f)));
 }
-
-
 
 
 
@@ -628,28 +693,33 @@ FGestalt* AMyrAIController::MeInYourMemory(AMyrPhyCreature* Myr)
 //==============================================================================================================
 FVector3f AMyrAIController::GetMeToYouVector(USceneComponent* C)
 {
-	auto M = Cast<AMyrPhyCreature>(C->GetOwner());					// если объект существо
-	return FVector3f ( me()->GetHeadLocation()						// из головы глянуть на случайную часть тела
-		- (M ? M->GetVisEndPoint() : C->GetComponentLocation()) );	// иначе просто в центр координат объекта
+	auto Alive = Cast<AMyrPhyCreature>(C->GetOwner());
+	auto DestPoint = (Alive ? Alive->GetVisEndPoint() : C->GetComponentLocation());
+	return VF ( DestPoint - me()->GetHeadLocation() );
 }
 
 //==============================================================================================================
-//посмотреть на объект, определить его видимость
+//посмотреть на объект, определить его видимость, либо, если объект не указан, посмотреть в опр. место и поискать прерпятствия
 //==============================================================================================================
-FHitResult AMyrAIController::See(FVector ExplicitPos, USceneComponent* NeededObj)
+bool AMyrAIController::See(FHitResult& VisHit, FVector ExplicitPos, USceneComponent* NeededObj)
 {
+	FCollisionQueryParams RV_TraceParams(TEXT("AI_Watch"), false, me());	// трассировать без полигонов и без нас
+	RV_TraceParams.AddIgnoredActor(this);									// если к демону привязано что-то трассируемое, игнорировать 
 	if(NeededObj)
 	{	auto YouCre = Cast<AMyrPhyCreature>(NeededObj->GetOwner());			// если объект существо
 		ExplicitPos = YouCre ? YouCre->GetVisEndPoint()						// из головы глянуть на случайную часть тела
 				: NeededObj->GetComponentLocation();						// иначе просто в центр координат объекта
+		RV_TraceParams.AddIgnoredComponent((UPrimitiveComponent*)NeededObj);// сам целевой объект тоже игнорировать, чтобы виделось 
 	}
-	FHitResult VisHit(ForceInit);
-	FCollisionQueryParams RV_TraceParams(TEXT("AI_Watch"), false, me());	// трассировать без полигонов и без нас
 	RV_TraceParams.bReturnPhysicalMaterial = true;							// не факт что нужно
 	
 	//запуск
 	GetWorld()->LineTraceSingleByChannel (VisHit, me()->GetHeadLocation(), ExplicitPos, ECC_WorldStatic, RV_TraceParams);
-	return VisHit;
+	if (VisHit.bBlockingHit) ExplicitPos = VisHit.ImpactPoint;
+	LINEWT(AILookDir, me()->GetHeadLocation(), ExplicitPos - me()->GetHeadLocation(), 1, VisHit.bBlockingHit ? 1.0f : 0.5f);
+
+	//"НЕ" потому что, если что-то увидел, значит это препятствие на пути к цели или на пути к точке, если не наткнулся - значит видит
+	return !VisHit.bBlockingHit;
 }
 
 //==============================================================================================================
@@ -663,13 +733,32 @@ ERouteResult AMyrAIController::SimpleWalkAroundObstacle(FVector3f TempLookDir, F
 	//оценить высоту препятствия (самая высокая точка в мировых координатах)
 	float Altitude = Hit->Component.Get()->Bounds.Origin.Z + Hit->Component.Get()->Bounds.BoxExtent.Z;
 
-	//вектор обхода в сторону - по идее всё равно, идём мы к цели или от цели
-	FVector3f RadicalByPass = TempLookDir ^ me()->GetUpVector();
+	//нормаль в точке препятствия в плоскости горизонта
+	FVector3f ObstNormal = VF(Hit->ImpactNormal) * FVector3f(1, 1, 0);
 
-	//попробовать загодя обойти объект, который мешается
-	FVector ClosestPoint = Hit->Location + RadicalByPass * Thickness;
+	FVector3f ByPassDir;
+	if (Hit->Distance < me()->GetBodyLength())				// если почти уткнулись в стену и надо срочно отходить
+	{	if ((TempLookDir | ObstNormal) > -0.5)				// если в стену мы смотрим довольно косо, под острым углом, есть возможность мирно обойти по кромке
+		{	ByPassDir = ObstNormal ^ me()->GetUpVector();	// вдоль стены
+			if ((ByPassDir | TempLookDir) < 0)				// если вдоль стены от целевого вектора
+				ByPassDir = -ByPassDir;						// развернуть, чтоб в оль стены прибилижало, а не удаляло от цели
+		}
+		else ByPassDir = ObstNormal;						//если в стену утыкаемся почти под прямым углом, то надо идти назад по нормали
+	}
+	else													//если до стены еще далеко
+	{
+		ByPassDir = TempLookDir ^ me()->GetUpVector();		// радикальный вектор обхода в сторону - тупо вбок от вектора куда смотрим
+		if ((ByPassDir|ObstNormal) < 0)						// если вектор вбок навстречу нормали, то это, видимо, курс на стык с препятствием, просто с другой стороны, поэтому инвертировать
+			ByPassDir = -ByPassDir;							// просто с другой стороны, поэтому инвертировать
+	}
+
+	//идти в сторону от курса на расстояние ширины препятствия и там зафиксировать точку цели
+	FVector ClosestPoint = Hit->Location + ByPassDir * Thickness;
+
+	//новый курс как вектор из лица в точку
 	G.MoveToDir = FVector3f(ClosestPoint - me()->GetHeadLocation());
 	G.MoveToDir.ToDirectionAndLength(G.MoveToDir, G.FirstDist);
+
 	UE_LOG(LogTemp, Log, TEXT("AI %s SimpleWalkAroundObstacle %s"), *me()->GetName(), *Hit->Component->GetOwner()->GetName());
 	if(G.AnalogGain >= 0) return ERouteResult::Towards_Walkaround;//◘◘>
 	else return ERouteResult::Away_Walkaround;//◘◘>
@@ -681,9 +770,10 @@ ERouteResult AMyrAIController::SimpleWalkAroundObstacle(FVector3f TempLookDir, F
 ERouteResult AMyrAIController::SimpleMoveToGoal(FAIGoal& G)
 {
 	//посмотреть на цель, проверить видимость
-	FHitResult HitSeen = G.pGestalt->VisCoaxis > 0 ? See(FVector(0), G.pGestalt->Obj.Get()) : FHitResult(ForceInit);
-	bool Seen = (HitSeen.Component.Get() == G.pGestalt->Obj || !HitSeen.Component.IsValid());
-	G.pGestalt->SetInfluence (EYeAt::Seen, Seen);
+	FHitResult HitSeen(ForceInit);
+	bool Seen = G.pGestalt->VisCoaxis > 0 ? See(HitSeen, FVector(0), G.pGestalt->Obj.Get()) : false;
+	G.pGestalt->Influences.Set(EInfluWhat::YouSeen, Seen);
+	G.pGestalt->Visibility += 0.5f;
 	
 	//если цель высоко, и мы не умеем летать
 	if (G.LookAtDir().Z > 0.5 && !me()->CanFly())
@@ -708,13 +798,13 @@ ERouteResult AMyrAIController::SimpleMoveToGoal(FAIGoal& G)
 		//если дошли до этого место, значит мы не можем с нашей локомоцией достичь цели, разворачиваемся 
 		G.MoveToDir = -G.LookAtDir();
 		G.FirstDist = G.Dist();
-		G.pGestalt->AddInfluence(EYeAt::Unreachable);
+		G.pGestalt->Influences.Add(EInfluWhat::YouUnreachable);
 		return ERouteResult::GiveUp_For_Unreachable;//◘◘>
 	}
 	//если цель в физическом доступе, но не видна, обогнуть препятствие, которое его загораживает
-	else if(!Seen) return SimpleWalkAroundObstacle(G.MoveToDir, &HitSeen, G);//◘◘>
+	else if(HitSeen.Component.IsValid()) return SimpleWalkAroundObstacle(G.MoveToDir, &HitSeen, G);//◘◘>
 
-	//если цель не высоко или не существо
+	//если цель не высоко или не существо, идем прямо на него
 	G.MoveToDir = G.LookAtDir();
 	return ERouteResult::Towards_Directly;//◘◘>
 }
@@ -724,34 +814,35 @@ ERouteResult AMyrAIController::SimpleMoveToGoal(FAIGoal& G)
 //==============================================================================================================
 ERouteResult AMyrAIController::FreeMoveAway(FAIGoal& MainGoal, FAIGoal* InfluentGoal)
 {
-
 	//вектор прочь не нацеленный ни на что, просто в противоположном направлении
 	FVector3f Away = -MainGoal.LookAtDir();
 	if(InfluentGoal)
 	{	Away =	MainGoal.LookAtDir() 		* MainGoal.AnalogGain +
-				InfluentGoal->LookAtDir()	* InfluentGoal->AnalogGain;}
-	Away *= MainGoal.Dist();
+				InfluentGoal->LookAtDir()	* InfluentGoal->AnalogGain;
+	}
+	Away *= MainGoal.Dist()*3;
 
 	//провести визуальную оценку, 
-	FHitResult HitSeen;
-	bool Seen = false;
+	FHitResult HitSaw(ForceInit);
+	bool Saw = false;
 
 	//если смотрим на угрозу, то бежим назад не глядя, 
-	if(MainGoal.pGestalt->VisCoaxis > 0)
-	{	HitSeen = See(FVector(0), MainGoal.pGestalt->Obj.Get());
-		Seen = (HitSeen.Component.Get() == MainGoal.pGestalt->Obj.Get() || !HitSeen.Component.IsValid());
-		MainGoal.pGestalt->SetInfluence (EYeAt::Seen, Seen);
+	if(MainGoal.pGestalt->VisCoaxis > 0.4)
+	{	Saw = See(HitSaw, FVector(0), MainGoal.pGestalt->Obj.Get());
+		MainGoal.pGestalt->Influences.Set(EInfluWhat::YouSeen, Saw);
 	}
-	//если отвеёрнуты от угрозы, то визуально детектируем препятсвие
-	else HitSeen = See(me()->GetHeadLocation() + (FVector)Away);
+
+	//вне зависимости от результатов оглядывания на цель визуально детектируем препятсвие
+	HitSaw = FHitResult(ForceInit);
+	Saw = See(HitSaw, me()->GetHeadLocation() + (FVector)Away);
 	
 	//если мы смотрели прочь от цели и увидели препятствие, постараться его обойти
-	if(HitSeen.Component.IsValid() && !Seen)
-		return SimpleWalkAroundObstacle(Away, &HitSeen, MainGoal);//◘◘>
+	if(HitSaw.Component.IsValid())
+		return SimpleWalkAroundObstacle(Away, &HitSaw, MainGoal);//◘◘>
 
 	//просто устремиться по выбранному вектору прочь от угрозы
 	//впереди на много метров никаких препятствий
-	Away.ToDirectionAndLength(MainGoal.MoveToDir, MainGoal.FirstDist);//◘◘>
+	else Away.ToDirectionAndLength(MainGoal.MoveToDir, MainGoal.FirstDist);//◘◘>
 		return ERouteResult::Away_Directly;
 }
 
@@ -811,7 +902,6 @@ FReflex* AMyrAIController::FindClosest(int32 InfluBits) const
 	}
 	return Found;
 }
-
 
 //прозвучать "виртуально", чтобы перцепция других существ могла нас услышать
 void AMyrAIController::LetOthersNotice (EHowSensed Event, float Strength)

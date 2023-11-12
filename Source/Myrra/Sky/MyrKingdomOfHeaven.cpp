@@ -188,6 +188,7 @@ void AMyrKingdomOfHeaven::Tick(float DeltaTime)
 		//возможно, ну нах, в начале просто скопировать в массив и радоваться
 		auto PD = GlobalWeatherMap->GetRunningPlatformData();
 		if (!PD) return;
+		if (!(*PD)->Mips.Num()) return;
 		FColor* Texels = static_cast<FColor*>((*PD)->Mips[0].BulkData.Lock(LOCK_READ_ONLY));
 		if (Texels)
 		{

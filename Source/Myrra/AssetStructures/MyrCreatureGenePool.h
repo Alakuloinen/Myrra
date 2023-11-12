@@ -29,8 +29,8 @@ public: // диапазоны умений
 
 
 	//новая попытка в ИИ, "безусловные рефлексы", эмоциональные реакции на отдельные элементарные стимулы
-	UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true"), Category = "Role")	FPathia	ElementaryEmotionsYe[(int)EYeAt::MAX];
-	UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true"), Category = "Role")	FPathia	ElementaryEmotionsMe[(int)EMeAt::MAX];
+	//UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true"), Category = "Role")	FPathia	ElementaryEmotionsYe[(int)EYeAt::Latent];
+	//UPROPERTY(EditAnywhere, meta = (AllowPrivateAccess = "true"), Category = "Role")	FPathia	ElementaryEmotionsMe[(int)EMeAt::Latent];
 
 	//базис для рассчёта терминальной скорости, с которой соударяясь, не получаешь травм
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"), Category = "Role") float MaxSafeShock = 600;

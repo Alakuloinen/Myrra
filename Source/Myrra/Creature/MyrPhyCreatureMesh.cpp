@@ -175,7 +175,8 @@ void UMyrPhyCreatureMesh::TickComponent (float DeltaTime, ELevelTick TickType, F
 
 	//рисануть основные траектории
 	LINELIMB(ELimbDebug::MainDirs, Head, (FVector)MyrOwner()->MoveDirection * 100);
-	LINELIMB(ELimbDebug::MainDirs, Head, (FVector)MyrOwner()->AttackDirection * 100);
+	LINELIMB(ELimbDebug::MainDirs, Head, (FVector)MyrOwner()->AttackDirection * 50);
+	LINELIMB(ELimbDebug::MainDirs, Head, (FVector)MyrOwner()->GetThorax()->VelDir * 70);
 	LINELIMBWTC(ELimbDebug::IntegralBumpedNormal, Head, (FVector)IntegralBumpNormal * 100, 1, 0.04, Bumper1().GetBumpCoaxis());
 	LINELIMBWTC(ELimbDebug::LimbStepped, Head, (FVector)FVector(0), (Head.WhatAmI == MaxBumpedLimb1 ? 4 : 2), 0.02, Head.GetBumpCoaxis());
 	LINELIMBWTC(ELimbDebug::LimbStepped, Lumbus, (FVector)FVector(0), (Lumbus.WhatAmI == MaxBumpedLimb1 ? 4 : 2), 0.02, Lumbus.GetBumpCoaxis());
@@ -513,12 +514,8 @@ void UMyrPhyCreatureMesh::HitLimb (FLimb& Limb, uint8 DistFromLeaf, const FHitRe
 						//лучьше внести разные степени восстанаовления разных частей тела
 						dD *= TheirMesh->MachineGene(TheirLimb->WhatAmI)->HitShield;
 
-						//пострадать от удара ментально в ИИ
-						//TheirMesh->MyrOwner()->SufferFromEnemy(dD, MyrOwner());	
-						MyrOwner()->MeHavingHit(dD, TheirMesh->MyrOwner());
-
-						//пострадать от удара физически
-						TheirMesh->MyrOwner()->Hurt(*TheirLimb, dD, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, TheirLimb->Floor.Surface);	
+						//пострадать от удара на уровне физики всего тела и логики ИИ
+						TheirMesh->MyrOwner()->Hurt(*TheirLimb, dD, Hit.ImpactPoint, (FVector3f)Hit.ImpactNormal, TheirLimb->Floor.Surface, MyrOwner());	
 					}
 				}
 				//жертва мертва - пинание трупа

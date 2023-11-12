@@ -527,7 +527,7 @@ USTRUCT(BlueprintType) struct FGirdleDynModels
 		return true;
 	}
 
-	FGirdleDynModels() { /*AllFlagsAir() = 0; AllFlagsFloor() = 0;*/ }
+	//FGirdleDynModels() { }
 };
 
 

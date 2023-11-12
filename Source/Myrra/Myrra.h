@@ -57,22 +57,14 @@ USTRUCT(BlueprintType) struct FCreatureDrive
 {
 	GENERATED_USTRUCT_BODY()
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f MoveDir;			// курс движения
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f ActDir;				// курс взгляда и/или удара в атаке
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FVector3f ActDir;			// курс взгляда и/или удара в атаке
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float Gain = 0.0f;			// сила тяги к движению
-	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction DoThis;		// команда (простая или сборочная) которую вот прям щас выполнить
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) EAction DoThis;				// команда (простая или сборочная) которую вот прям щас выполнить
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool Release = false;		// тру = отжатие кнопки, для атак переход к удару, для переключателей режимов - выключение, возврат
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) bool NeedCheck = false;		// нужно ли дополнительно проверять применимость действия-DoThis, или контроллер уже сам его проверил
 
-	FCreatureDrive()
-	{	MoveDir = FVector3f(0, 0, 0);
-		ActDir = FVector3f(1, 0, 0);
-		Gain = 0; 
-		DoThis = EAction::NONE;
-	}
-	FCreatureDrive(FVector3f M, FVector3f A) :MoveDir(M), ActDir(A)
-	{	Gain = 0;
-		DoThis = EAction::NONE;
-	}
+	FCreatureDrive()							:MoveDir(0), ActDir(1, 0, 0), Gain(0), DoThis(EAction::NONE), Release(0), NeedCheck(0) {}
+	FCreatureDrive(FVector3f M, FVector3f A)	:MoveDir(M), ActDir(A), Gain(0), DoThis(EAction::NONE), Release(0), NeedCheck(0) {}
 	FCreatureDrive(FCreatureDrive& A, FCreatureDrive& B, float W)
 	{	MoveDir = FMath::Lerp(A.MoveDir, B.MoveDir, W);
 		ActDir = FMath::Lerp(A.ActDir, B.ActDir, W);

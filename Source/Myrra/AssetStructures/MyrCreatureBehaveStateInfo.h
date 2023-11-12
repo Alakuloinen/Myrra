@@ -1,5 +1,6 @@
 #pragma once
 #include "..\Myrra.h"
+//#include "ScalableFloat.h"
 #include "MyrCreatureBehaveStateInfo.generated.h"
 
 //###################################################################################################################
@@ -40,6 +41,22 @@ USTRUCT(BlueprintType) struct FTurnReaction
 	bool ForFirstPerson() { return (ForWhom & (1 << (int)ETurnForWhom::PlayerFirstPerson)); }
 	bool ForThirdPerson() { return (ForWhom & (1 << (int)ETurnForWhom::PlayerThirdPerson)); }
 	bool ForNPC() { return (ForWhom & (1 << (int)ETurnForWhom::NPC)); }
+};
+
+USTRUCT(BlueprintType) struct FStepGene
+{
+	GENERATED_USTRUCT_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Leap (keep legs simultaneous)"))	uint8 Leap : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Amble (toggle legs stepping)"))	uint8 Amble : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Right leg to start with"))		uint8 Right : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Left leg to start with"))		uint8 Left : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Closest leg to start with"))		uint8 Closest : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DisplayName = "Farthest leg to start with"))	uint8 Farthest : 1;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float HeightMod = 0.3f;		// множитель графика высоты ноги, доля длины ноги
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float LengthMod = 1.0f;		// множитель графика длины шага от скорости, доля длины ноги
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) float RisingMod = 1.0f;		// множитель грфика подъема всего туловища от фазы, доля длины ноги
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) class UCurveTable* Shapes = nullptr;
+
 };
 
 //###################################################################################################################
@@ -103,19 +120,18 @@ public:
 	//список условий и реакций на моменты, когда нужно сильно повернуть тело
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Properties") TArray<FTurnReaction> TurnReactions;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") class UCurveLinearColor* StepShapePelvis;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") class UCurveLinearColor* StepShapeThorax;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") float StepHeightLegLengthFactorPelvis = 0.3;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") float StepHeightLegLengthFactorThorax = 0.3;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") FStepGene SGPelvis;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") FStepGene SGThorax;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fair Steps") FRatio PelvisThoraxPhaseShift = 0.0f;
 
 public:
 
 	// звук, который простоянно играет, пока существо находится в данном состоянии
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") USoundBase* SoundLoopWhileInState;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio") USoundBase* SoundLoopWhileInState; 
 
 	//применить автокоррекцию, если внутри что-то изменилось, и пометить как несохраненный
 	void Refine() {	if(WholeBodyDynamicsModel.Correction()) MarkPackageDirty();	}
 
-	float StepHeight(bool IsThorax) const { return IsThorax ? StepHeightLegLengthFactorThorax : StepHeightLegLengthFactorPelvis; }
-	UCurveLinearColor* StepShape(bool IsThorax) const { return IsThorax ? StepShapeThorax : StepShapePelvis; }
+	FStepGene& StepGene(bool IsThorax) { return IsThorax ? SGThorax : SGPelvis; }
 };

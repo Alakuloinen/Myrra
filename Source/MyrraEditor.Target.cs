@@ -9,7 +9,7 @@ public class MyrraEditorTarget : TargetRules
 	{
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
-		bLegacyPublicIncludePaths = true;
-		ExtraModuleNames.AddRange( new string[] { "Myrra", "MyrraEditor" } );
+        IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_1;
+        ExtraModuleNames.AddRange( new string[] { "Myrra", "MyrraEditor" } );
 	}
 }

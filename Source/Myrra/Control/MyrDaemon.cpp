@@ -197,6 +197,7 @@ void AMyrDaemon::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEv
 	}
 	else ParticleSystem->SetNiagaraVariableObject(TEXT("MyrDaemonBP"), this);
 }
+
 //==============================================================================================================
 // вызывается, когда параметр уже изменен, но имеется старое значение параметра - правильно с ним расстаться
 //==============================================================================================================
@@ -552,7 +553,7 @@ void AMyrDaemon::LowPaceTick(float DeltaTime)
 	GetMyrGameMode()->SetSoundLowHealth(1.0f - OwnedCreature->Health, 1.0f - OwnedCreature->GetMetabolism(), OwnedCreature->Pain);
 
 	//вывод имени объекта в фокусе камеры (хз, нужно ли теперь)
-	auto R = OwnedCreature->FindObjectInFocus(0.1, 0.3, ObjectAtFocus, ObjectNameAtFocus);
+	//auto R = OwnedCreature->FindObjectInFocus(0.1, 0.3, ObjectAtFocus, ObjectNameAtFocus);
 
 	//пока неясно, как нормально выставлять приращение сонности,
 	Sleepiness += 0.001*DeltaTime;

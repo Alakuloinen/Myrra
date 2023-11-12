@@ -8,6 +8,46 @@
 #include "Components/ProgressBar.h"
 #include "MyrBioStatUserWidget.generated.h"
 
+UCLASS() class MYRRA_API UMyrBPMath : public UBlueprintFunctionLibrary
+{
+	GENERATED_BODY()
+
+	//перевод однобитного дробного с фиксированной запятой в обычный флоат
+	UFUNCTION(BlueprintPure) static float RatioToF(FRatio R) { return R; }
+
+	//перевод однобитного биполярного дробного с фиксированной запятой в обычный флоат
+	UFUNCTION(BlueprintPure) static float BipolarToF(FBipolar R) { return R; }
+
+	//рандом для эмоций и ИИ
+	UFUNCTION(BlueprintPure) static float AIRand() { return FUrGestalt::RandVar / RAND_MAX; }
+
+
+	//структура эмоции в обычный цвет
+	UFUNCTION(BlueprintPure) static FColor PathiaToColor(FPathia R) { return FColor(R.Rage, R.Love, R.Fear); }
+
+	//выдать ближайшую эмоцию словесную для интерфейса
+	UFUNCTION(BlueprintPure) static float EmotionToMnemo(const FPathia In, EPathia& Out1, EPathia& Out2) { return In.GetFullArchetype(Out1, Out2); }
+
+	//структура рефлекс (биты воздействий + эмоция) в цвет (переводится только эмоция)
+	UFUNCTION(BlueprintPure) static FLinearColor EmoReflexToColor(const FReflex& In) { return (FLinearColor)In.Emotion; }
+
+	//биты воздействий в текстовую строку, переводятся взведенные биты воздействий в виде имен через запятую
+	UFUNCTION(BlueprintPure) static void InfluencesToMnemo(const FInflu& In, FText& Out);
+	UFUNCTION(BlueprintPure) static void EmoStimulusToMnemo(const FReflex& In, FText& Out) { InfluencesToMnemo(In.Condition, Out); };
+
+	//структура ррефлекс (биты воздействий + эмоция) проверяется бит указывающий на латентность (фазу накопления опыта)
+	UFUNCTION(BlueprintPure) static bool IsLatent(FReflex R) { return R.IsLatent(); }
+
+	//перевод эмоции в две строки текста ближайших опорных эмоций-мнемоник
+	UFUNCTION(BlueprintPure) static float EmotionToMnemoText(const FPathia In, FText& Out1, FText& Out2)
+	{	EPathia O1; EPathia O2;
+		float Wei = In.GetFullArchetype(O1, O2);
+		Out1 = UEnum::GetDisplayValueAsText(O1);
+		Out2 = UEnum::GetDisplayValueAsText(O2);
+		return Wei;
+	}
+};
+
 //###################################################################################################################
 //базовый класс для разных элементов интерфейса, связанных с существом
 //###################################################################################################################
@@ -75,6 +115,10 @@ public:	// функции
 
 	// события старта действий, чтоб отображать названия и не делать это в тике
 	UFUNCTION(BlueprintImplementableEvent)	void OnAction(int WhatKind, bool Start);
+
+	// отобразить инфу по актору в фокусе камеры
+	UFUNCTION(BlueprintImplementableEvent)	void SetGoalActor(AActor* GoAc);
+
 
 	UFUNCTION(BlueprintCallable) FLinearColor EmoToColor(FPathia E) const { return (FLinearColor)E; }
 

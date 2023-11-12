@@ -10,6 +10,7 @@
 #include "GameFramework/InputSettings.h"
 #include "Components/Button.h"
 
+
 //==============================================================================================================
 //для блюпринта, обработчика нажатия клавиш, чтобы выходить из меню по нажатию
 //==============================================================================================================
@@ -138,4 +139,26 @@ bool URoleParameter::MakeAsDonor()
 	if (Buf == IndexOfParam) Buf = EPhene::NUM;
 	else Buf = IndexOfParam;
 	return (Buf == IndexOfParam);
+}
+
+//==============================================================================================================
+// мнемоническая строка список воздействий по их битам
+//==============================================================================================================
+#define REVEAL(Type,Val)	St = In.ToStr(Val); \
+							if(St!=TEXT("None") && St!=TEXT("__") && St!=TEXT("All")) InflNames.Add(FText::FromString(St));	\
+							else for(uint32 Nu = 1; Nu<255; Nu *= 2)	 \
+								if (In.Has((Type)Nu))				\
+								{	FString St2 = In.ToStr((Type)Nu);	St = St + TEXT(", ") + St2; }
+
+void UMyrBPMath::InfluencesToMnemo(const FInflu& In, FText& Out)
+{
+	auto W = GEngine->GetCurrentPlayWorld();					if (!W) return;
+	auto GI = Cast<UMyrraGameInstance>(W->GetGameInstance());	if (!GI) return;
+	TArray<FText> InflNames;
+	FString St;
+	REVEAL(EInfluWhat, In.What)
+	REVEAL(EInfluWhere, In.Where)
+	REVEAL(EInfluHow, In.How)
+	REVEAL(EInfluWhy, In.Why)
+	Out = FText::Join(FText::FromString(TEXT(", ")), InflNames);
 }

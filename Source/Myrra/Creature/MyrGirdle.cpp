@@ -8,6 +8,8 @@
 #include "DrawDebugHelpers.h"							// рисовать отладочные линии
 #include "PhysicalMaterials/PhysicalMaterial.h"			// для выкорчевывания материала поверхности пола
 #include "Curves/CurveLinearColor.h"					// возможно, понадобится для прохода формы шага
+#include "Engine/CurveTable.h"							// для прохода формы шага
+#include "Curves/SimpleCurve.h"							// для прохода формы шага
 
 //рисовалки отладжочных линий
 #if WITH_EDITOR
@@ -73,11 +75,6 @@ FBodyInstance*  UMyrGirdle::GetBody (EGirdleRay R) const	{ return mec()-> GetMac
 //констрайнт, которым спинная часть пояса подсоединяется к узловой (из-за единой иерархии в разных поясах это с разной стороны)
 FConstraintInstance* UMyrGirdle::GetGirdleSpineConstraint() { return (IsThorax) ? me()->GetMachineConstraint(me()->Thorax) : me()->GetMachineConstraint(me()->Lumbus); }
 FConstraintInstance* UMyrGirdle::GetGirdleArchSpineConstraint() { return (IsThorax) ? me()->GetArchMachineConstraint(me()->Thorax) : me()->GetArchMachineConstraint(me()->Lumbus); }
-
-//режим попячки назад
-bool UMyrGirdle::IsMovingBack() const { return MyrOwner()->bMoveBack; }
-
-
 
 //то же для краткости и инлайновости
 #define ELMB(R)							GirdleRays[IsThorax][(int)EGirdleRay::R]
@@ -160,8 +157,6 @@ void UMyrGirdle::BeginPlay()
 	CI->SetAngularDriveParams(9000, 2000, 10000);
 	CI->SetOrientationDriveTwistAndSwing(false, false);
 
-	
-
 	//////////////////////////////////////////////////
 	Super::BeginPlay();
 	MaxDeltaPhase = 0;
@@ -241,8 +236,7 @@ FLegPos UMyrGirdle::PackLegLine(FVector3f AbsRay, float Lng)
 //идеальное расположение ноги для текущей позы тела, для данного пояса
 //==============================================================================================================
 FLegPos UMyrGirdle::idealLegLine(FLimb& Foot)
-{
-	FLegPos LocLineReal = GetLegLine(Foot);
+{	FLegPos LocLineReal = GetLegLine(Foot);
 	return PackLegLine(IdealAbsLegLine(Foot, LocLineReal.Length()));
 }
 
@@ -279,13 +273,14 @@ FVector3f UMyrGirdle::IdealAbsLegLine(FLimb& Foot, float Length)
 FVector UMyrGirdle::GetFootVirtualLoc(FLimb& L)
 { return GetFootRootLoc(L.WhatAmI) + (FVector)UnpackLegLine(L); }
 
+//==============================================================================================================
+//эффективная раскоряка ноги в направлении хотьбы, нужно для оценки фазы шага
+//==============================================================================================================
 float UMyrGirdle::LegStretch(FLimb & Foot)
-{
-	//терминальное растяжение ноги ограничено гипотенузой длиной конечности, немного приглушено малой скоростью именно сейчас
-	auto& Le = GetLegLine(Foot);
+{	auto& Le = GetLegLine(Foot);
 	auto& CNTR = LMB(Center);
-	return FMath::Clamp(	(0.9 * Le.BackFront * FMath::Sign(LAXIS(CNTR, Forth) | GuidedMoveDir) +
-							 0.1 * Le.LeftRight * FMath::Sign(LAXIS(CNTR, Right) | GuidedMoveDir)) / 2/IdealStepSizeX(Speed), -1, 1) + 0.5;
+	return		0.9 * Le.BackFront * FMath::Sign(LAXIS(CNTR, Forth) | GuidedMoveDir) +
+				0.3 * Le.LeftRight * FMath::Sign(LAXIS(CNTR, Right) | GuidedMoveDir);
 }
 
 //==============================================================================================================
@@ -313,9 +308,6 @@ float UMyrGirdle::GetRefLegLength()
 	//auto Root = me()->GetBoneTransformRel(ReSke, me()->MachineGene(eL)->AxisReferenceBone).GetLocation();
 	return FVector::Distance(Tip, Root);
 }
-
-
-
 
 //==============================================================================================================
 //включить или отключить проворот спинной части относительно ног (мах ногами вперед-назад)
@@ -348,19 +340,18 @@ void UMyrGirdle::SetJunctionStiffness(float Stiffness)
 }
 
 //==============================================================================================================
-//обнаружить призмеление и применить боль если нужно
+//обнаружить призмеление и применить боль если нужно - на любом членике, хоть ноге, хоть туловище
 //==============================================================================================================
 FFloor UMyrGirdle::LandingHurt(FLimb& Limb, FHitResult Hit)
 {
 	//временная опора
 	FFloor NewFloor(Hit);
 
-	//критерий приземления - в членике опоры не было и вот извне
-	//возможно, добавить еще как-то внешний критерий
+	//критерий приземления - в членике опоры не было и вот извне // возможно, добавить еще как-то внешний критерий
 	if (NewFloor.IsValid() && !Limb.Floor.IsValid())
 	{	
 		//сила удара, урон (скорость берется по оси нормали, чтобы избежать касательных быстрот, но общий модуль тоже учитывается)
-		float FallSeverity = me()->ShockResult(Limb, (VelocityAgainstFloor | (-NewFloor.Normal)) + Speed * 0.1, NewFloor);
+		float FallSeverity = me()->ShockResult(Limb, (VelocityAtFloor() | (-NewFloor.Normal)) + Speed * 0.1, NewFloor);
 
 		//порог в принципе мало-мальски ощутимого удара
 		if (FallSeverity > 0.1)
@@ -371,7 +362,6 @@ FFloor UMyrGirdle::LandingHurt(FLimb& Limb, FHitResult Hit)
 			//порог увечья по важности членика для стояния, дабы не заводить отдельной переменной (0ю8 для брюха, 0.1 для ног)
 			if (FallSeverity > 0.6f - me()->MachineGene(Limb.WhatAmI)->TouchImportance)
 				MyrOwner()->Hurt(Limb, FallSeverity * 0.1, Hit.ImpactPoint);
-
 		}
 	}
 	return NewFloor;
@@ -397,6 +387,7 @@ bool UMyrGirdle::AdoptDynModel(FGirdleDynModels& Models)
 }
 
 
+
 //==============================================================================================================
 //трассировка лучом для установление опоры, критерий - наличие компонента и материала
 //==============================================================================================================
@@ -410,12 +401,12 @@ bool UMyrGirdle::Trace(FVector Start, FVector3f Dst, FHitResult& Hit)
 	COQ.AddObjectTypesToQuery(ECC_PhysicsBody);
 	GetWorld()->LineTraceSingleByObjectType(Hit, Start, Start + (FVector)Dst, COQ, RV_TraceParams);
 	bool R = Hit.Component.IsValid() && Hit.PhysMaterial.IsValid();
-	if (R)	
+	if (R)
 	{
 		LINEWT(ELimbDebug::LineTrace, Start + (FVector)Dst * Hit.Time, FVector(0), 1, 0.5);
 		LINEWT(ELimbDebug::LineTrace, Start, FVector(0), 1, 0.2);
 	}
-	else	LINEWT(ELimbDebug::LineTrace, Start, (FVector)Dst, 0.5, 0.5);
+	else LINEWT(ELimbDebug::LineTrace, Start, (FVector)Dst, 0.5, 0.5);
 	return R;
 }
 
@@ -424,42 +415,52 @@ bool UMyrGirdle::Trace(FVector Start, FVector3f Dst, FHitResult& Hit)
 //==============================================================================================================
 bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 {
-	//сюда скидывать результаты
-	FHitResult Hit(ForceInit);
+	//всякие локальные переменные, нужные по всей длине функции
+	FLimb& StartLimb = LMB(Center);			// стартовая точка трассировки
+	float &Gain = MyrOwner()->MoveGain;		// существо хочет и может двигаться (реакция на WASD, кроме случаев усталости и смерти)
+	FHitResult Hit(ForceInit);				// сюда скидывать результаты пробы общей опоры для центра пояса
+	bool Steppable = false;					// поверхность пологая ИЛИ по ней можно карабкаться, определяется в п.2
+	bool BumpedIn = false;					// признак серьезного вписывания в стену, определяется в п.3
+
+	//преднастройки шага для этого пояса и для этого состояния поведения
+	FStepGene& StG = MyrOwner()->GetBehaveCurrentData()->StepGene(IsThorax);
 
 	//противоположный пояс и направление на него - нужен при расчётё ведомого
 	auto Opposite = MyrOwner()->GetAntiGirdle(this);
 	FVector3f ToOpp = MyrOwner()->SpineVector * (IsThorax ? -1 : 1);
+
+	//сокращенные имена всетельных направлений
 	FVector3f& MDir = MyrOwner()->MoveDirection;
 	FVector3f& ADir = MyrOwner()->AttackDirection;
 
-	//существо хочет и может двигаться (реакция на WASD, кроме случаев усталости и смерти)
-	bool Mobile = (MyrOwner()->MoveGain > 0.01);
-
-	//признак серьезного вписывания в стену, определяется в п.3
-	bool BumpedIn = false;
-
-	//в предыдущий кадр состояние всего тело определялось как в воздухе (летим, падаем)
-	//нужно для детекции преземления у второй ноги, когда первая уже привели пояс в режим приземленности
-	bool WasInAir = IS_MACRO(MyrOwner()->CurrentState, AIR);
-
-	//стартовая точка трассировки
-	FLimb& StartLimb = LMB(Center);
-
-	//локальные оси центрального членика, тупо чтобы короче писать и чтобы не корчевать трансформацию
-	FVector3f LocUp = LAXIS(StartLimb, Up);
-	FVector3f LocFront = LAXIS(StartLimb, Forth);
-
-	//вектора ориентации якоря, должны быть ортонормированы
-	FVector3f DueUp = LocUp;
-	FVector3f DueFront = LocFront;
+	//вектора ориентации якоря, должны быть ортонормированы, начальное значение - из локальных осей центрального членика
+	FVector3f DueUp		= LAXIS(StartLimb, Up);
+	FVector3f DueFront	= LAXIS(StartLimb, Forth);
 	
+	//позиции якоря 
 	FVector RealLoc = BDYLOC(Center);			// реальный центр физического пояса лошарика, ерзает из-за физики, но помогает расслабить позвоночник реальой позой
 	FVector StableLoc = GetComponentLocation(); // центр якоря, кинематический, положение, в котором тело не съезжает
 	FVector DueLoc;								// сюда будет сливаться финальная позиция якоря
 
+	//возможно, чисто для отладки - режим быстрого забирания по стене без карабканья
 	Ascending = false;
 	Descending = false;
+
+	//получение инфы из кривых по длине шага и по высоте подъема
+	float StrideNow = IdealStepSizeX(Speed), StrideToBe = IdealStepSizeX(SPEED_TOBE);
+	float ElevMod = 0;
+	if (StG.Shapes)
+	{
+		if(auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("ElevationByPhase")))
+			ElevMod = FMath::Max((*Kurwa)->Eval(GetStep(LMB(Left)).Phase), (*Kurwa)->Eval(GetStep(LMB(Right)).Phase));
+		if (auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("ElevationBySpeed")))
+			ElevMod *= (*Kurwa)->Eval(Speed * 0.01);
+		if(auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("StrideBySpeed")))
+		{	float BaseLength = TargetFeetLength * StG.LengthMod;
+			StrideNow =  BaseLength * (*Kurwa)->Eval(0.01 * Speed);
+			StrideToBe = BaseLength * (*Kurwa)->Eval(0.01 * MyrOwner()->GetCurBaseVel());
+		}
+	} 
 
 	// 1 =========== ПЕРЕРАСЧЁТ ТОГО, ЧТО НЕ ЗАВИСИТ ОТ ТРАССИРОВКИ ==================
 	//################################################################################
@@ -472,9 +473,6 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		FMath::Max(0, (int)LMB(Spine).Stepped - STEPPED_MAX + 20) + 
 		FMath::Max(0, (int)LMB(Tail).Stepped - STEPPED_MAX + 15);
 
-	//поверхность пригодна для движения = она пологая или по ней можно карабкаться, с предыдущего кадра, далее перерассчитается
-	bool Steppable = false;
-
 	//абсолютная скорость в поясе, для расчёта скорости относительной
 	FVector3f RelativeSpeedAtPoint = me()->BodySpeed(LMB(Center));
 
@@ -485,7 +483,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	FVector3f TraceTo = Flags.Vertical ? FVector3f::DownVector : -StartLimb.Floor.Normal;
 
 	//необходимое поднятие над землей, норма с учётом подогнутия, однако если карабкаемся, считаем по максимуму, чтобы не упасть от случайного недоставания
-	float Elevation = GetTargetLegLength();
+	float Elevation = GetTargetLegLength() * (1 + ElevMod*StG.RisingMod);
 
 	//прощупать опору - в результате опора найдена
 	Trace(StableLoc, TraceTo * Elevation * MyrOwner()->GetBehaveCurrentData()->TraceFeetDepthMult, Hit);
@@ -498,8 +496,8 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	bool AltFloorFound = false;
 
 	//сразу просканировать ноги 
-	ProcessSteps(LMB(Left), DeltaTime, 2 * IsThorax);
-	ProcessSteps(LMB(Right), DeltaTime, 2 * IsThorax + 1);
+	ProcessSteps(LMB(Left), DeltaTime, StrideNow, StrideToBe, Elevation, 2 * IsThorax);
+	ProcessSteps(LMB(Right), DeltaTime, StrideNow, StrideToBe, Elevation, 2 * IsThorax + 1);
 
 	//коэффициент бодания в нормаль к возможной опоре или наоборот скатывания
 	//в случае одобренной опоры сюда запишется не ноль, нужно для обнружения взбирания, скатывания в разных поведениях
@@ -511,7 +509,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		//оценка упертости (ввобзе так неправильно, поскольку ХУ могут быть сильно неединичными)
 		BumpAlongNormal = XY(MDir) | XY(-NewFloor.Normal);
 
-		// 2 ============ ОЦЕНКА ПРИГОДНОСТИ ОПОРЫ ДЛЯ ХОДЬБЫ ============================
+		// 2.1 ============ ОЦЕНКА ПРИГОДНОСТИ ОПОРЫ ДЛЯ ХОДЬБЫ ==========================
 		//################################################################################
 
 		//определить нужду и возможность карабкаться
@@ -540,16 +538,11 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		{	Flags = DynModel()->OnGnd;
 			StartLimb.AcceptFloor(NewFloor, 1.0f);
 		}
-		//новая опора непригодна для движения
-		else
-		{
-			//сорваться/соскользнуть, если уже лезем по вертикали
-			Climbing = false;
-		}
+		//новая опора непригодна для движения // сорваться/соскользнуть, если уже лезем по вертикали
+		else Climbing = false;
 
 		//если пол движется, внести его скорость в собственное представление о скорости
-		if(NewFloor.IsMovable())
-			RelativeSpeedAtPoint -= NewFloor.Speed(Hit.ImpactPoint);
+		if(NewFloor.IsMovable()) RelativeSpeedAtPoint -= NewFloor.Speed(Hit.ImpactPoint);
 	}
 	//опора не найдена или найдена совсем уж плохая
 	else
@@ -567,7 +560,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		if(!MyrOwner()->JumpTarget) Flags.FixOn = false;//◘◘
 
 		//куда устрамлять ненужную нормаль: на нормаль соседнего пояса, на нормаль своего спинного членика или на собственный верх
-		FVector3f DstNormal = LocUp;
+		FVector3f DstNormal = LAXIS(StartLimb, Up);
 		if (Opposite->Climbing) DstNormal = Opposite->GetCenter().Floor.Normal; else
 		if (GetSpine().Floor && !GetSpine().Floor.TooSteep()) DstNormal = GetSpine().Floor.Normal;
 		LRP(StartLimb.Floor.Normal, LIM1(DeltaTime*5), DstNormal);
@@ -588,7 +581,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	 else
 
 	//тело испытывает движение (только в движении вектор курса имеет большой смысл)
-	if(Mobile)
+	if(Gain > 0.01)
 	{
 		//если имеется надёжная опора, а не просто когтеточка
 		if(Steppable)
@@ -638,7 +631,7 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	//вектор курса для wannabe неподвижного пояса
 	else
 	{
-		GuidedMoveDir += 0.5*LocFront;
+		GuidedMoveDir += 0.5 * LAXIS(StartLimb, Forth);
 	}
 
 	//окончательное формирования вектора курса, универсальное
@@ -770,8 +763,9 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 	//################################################################################
 
 	//обновление вектора и скаляра скорости
-	VelocityAgainstFloor = FMath::Lerp(VelocityAgainstFloor, RelativeSpeedAtPoint, 0.5);
-	Speed = VelocityAgainstFloor.Size();
+	FVector3f VelocityAgainstFloor = FMath::Lerp(VelocityAtFloor(), RelativeSpeedAtPoint, 0.5);
+	VelocityAgainstFloor.ToDirectionAndLength(VelDir, Speed);
+	if (Speed < 1.0f) VelDir = FMath::Lerp(VelDir, GuidedMoveDir, 1 - Speed);
 
 	//если мы только включили режим карабканья и что-то не получилось, запустить вспомогательные действиия
 	if (Lead() && MyrOwner()->bClimb && !Climbing) MyrOwner()->ClimbTryActions();
@@ -806,10 +800,10 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 		float ang2 = CI->ProfileInstance.TwistLimit.TwistLimitDegrees;
 		if (Steppable)
 		{
-			if (Hit.bStartPenetrating) DrawDebugString(GetWorld(), (FVector)Ct, TEXT("P"), nullptr, FColor(255 * Mobile, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
-			if (Ascending) DrawDebugString(GetWorld(), (FVector)Ct, TEXT("A"), nullptr, FColor(255 * Mobile, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
-			if (Descending) DrawDebugString(GetWorld(), (FVector)Ct, TEXT("D"), nullptr, FColor(255 * Mobile, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
-			else DrawDebugString(GetWorld(), (FVector)Ct, TEXT("S"), nullptr, FColor(255 * Mobile, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
+			if (Hit.bStartPenetrating) DrawDebugString(GetWorld(), (FVector)Ct, TEXT("P"), nullptr, FColor(255 * Gain, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
+			if (Ascending) DrawDebugString(GetWorld(), (FVector)Ct, TEXT("A"), nullptr, FColor(255 * Gain, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
+			if (Descending) DrawDebugString(GetWorld(), (FVector)Ct, TEXT("D"), nullptr, FColor(255 * Gain, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
+			else DrawDebugString(GetWorld(), (FVector)Ct, TEXT("S"), nullptr, FColor(255 * Gain, 0, 255 * Hit.bStartPenetrating), 0.02, false, Lead() ? 1.5f : 1.0f);
 		}
 		if (Climbing)			DrawDebugString(GetWorld(), (FVector)Ct, TEXT("_C"), nullptr, FColor(0, 255, 255), 0.02, false, Lead() ? 1.5f : 1.0f);
 		if (Flags.Vertical)		DrawDebugString(GetWorld(), (FVector)Ct, TEXT("__V"), nullptr, FColor(ang, 255, 0), 0.02, false, Lead() ? 1.5f : 1.0f);
@@ -831,175 +825,211 @@ bool UMyrGirdle::SenseForAFloor(float DeltaTime)
 }
 
 //==============================================================================================================
-//шаги, пока не работает, строится + безшаговое позиционирование ноги
+//механизм шагов
 //==============================================================================================================
-void UMyrGirdle::ProcessSteps(FLimb& Foot, float DeltaTime, int ProperTurn)
+
+//трассировка для определение позиций шага
+#define TRACEBEGIN(Foot, Start, DirThruStep) auto Hit = TraceStep(Foot, Start, DirThruStep); if (!Hit.bBlockingHit) return false; auto& StM = GetStep(Foot);
+#define TRACEEND(msg, result) StM.NewFootPos = Hit.ImpactPoint; StM.Normal.EncodeDir(Hit.Normal); StM.StepLength = StM.BackToOldPos.Size(); UE_LOG(LogMyrPhyCreature,Log,TEXT("%s TraceStep %s: %s %g"), *MyrOwner()->GetName(), *TXTENUM(ELimb, Foot.WhatAmI), TEXT(msg), StM.StepLength); return result;
+
+//определение позиции шага при непосредственном приземлении, уточннение, если что-то за время шага изменилось
+bool UMyrGirdle::TraceStepToLandAt(FLimb& Foot, FVector3f DirThruStep)
+{	TRACEBEGIN(Foot, GetFootRootLoc(Foot.WhatAmI), DirThruStep);
+	if (StM.Phase >= 1)													// фаза в отрыве привязана к проекции положение стопы, так что точно достигли места шага
+	{	Foot.Floor = LandingHurt(Foot, Hit);							// отыграть удар лапой по тверди, возможно, боль + эффекты
+		MyrOwner()->MakeStep(Foot.WhatAmI, false);						// переслать событие шага наверх, для спецэффектов, фолс - это опустить, а не поднять
+		StM.Phase = -0.001;	}											// сбросить фазу на начало фазы наземной
+	else StM.BackToOldPos += VF(StM.NewFootPos - Hit.ImpactPoint);		// желание приземлиться раньше, но до фазы нельзя, сохранять абс. прошлый след
+	TRACEEND("Land.", true);
+}
+
+//определение следующей позиции шага при отрыве ноги от старой позиции
+bool UMyrGirdle::TraceStepToSoarTo(FLimb& Foot, float StepLenFromCenter)
+{	TRACEBEGIN(Foot, GetFootRootLoc(Foot.WhatAmI) + GuidedMoveDir * StepLenFromCenter, IdealAbsLegLine(Foot, TargetFeetLength * 1.5));
+	StM.BackToOldPos = VF(StM.NewFootPos - Hit.ImpactPoint);			// уточнить место шага, посчитав прошлое ошибочным, нужно ли менять фазу, неясно
+	StM.Phase = 0.001;													// если хотим поднять ногу и просчитать следующее место шага
+	MyrOwner()->MakeStep(Foot.WhatAmI, true);							// переслать событие шага наверх, для спецэффектов, фолс - это опустить, а не поднять
+	TRACEEND("Soar for a new step at ",true);
+}
+
+//переопределение новой позиции шага при коррекции, если прежняя стала недоступна, плавный переход на новую траекторию
+bool UMyrGirdle::TraceStepToTurnTo(FLimb& Foot, FVector3f DirThruStep)
+{	TRACEBEGIN(Foot, GetFootRootLoc(Foot.WhatAmI), DirThruStep);
+	StM.BackToOldPos = VF(GetFootTipLoc(Foot.WhatAmI) - Hit.ImpactPoint);
+	StM.Phase = 0.001;													
+	TRACEEND("Change Step to new pos at ", true);
+}
+
+//переопределение новой позиции шага при коррекции для приставки ноги при торможении
+bool UMyrGirdle::TraceStepToStopAt(FLimb& Foot, float StepLenFromCenter)
+{	TRACEBEGIN(Foot, GetFootRootLoc(Foot.WhatAmI) + GuidedMoveDir * StepLenFromCenter, IdealAbsLegLine(Foot, TargetFeetLength * 1.5));
+	StM.BackToOldPos = VF(GetFootTipLoc(Foot.WhatAmI) - Hit.ImpactPoint);
+	StM.Phase = 0.001;
+	TRACEEND("Change Step to Stop at ", true);
+}
+
+//==============================================================================================================
+//шаги + безшаговое позиционирование ноги
+//==============================================================================================================
+void UMyrGirdle::ProcessSteps(FLimb& Foot, float DeltaTime, float StepHalfNow, float StepHalfToBe, float Elevation, int ProperTurn)
 {
-	FLimb& CNTR = LMB(Center);
-	FLimb& SPN = LMB(Spine);
-	FVector3f UpVe = LAXIS(CNTR, Up);
-	FVector3f Fro = LAXIS(CNTR, Up);
-	FStep& StepMech = GetStep(Foot);
-	const FVector Start = GetFootRootLoc(Foot.WhatAmI);			// точка начала трассировки, уровень плеч или таза
-	auto& Le = GetLegLine(Foot);
-	float& Gain = MyrOwner()->MoveGain;
-	FHitResult Hit(ForceInit);
+	FStep& StM = GetStep(Foot);								// сборка механизма шагов для данной ноги
+	const FVector Start = GetFootRootLoc(Foot.WhatAmI);		// точка начала трассировки, уровень плеч или таза
+	float& Gain = MyrOwner()->MoveGain;						// тяга, для скоращения
+	FHitResult Hit(ForceInit);								// сюда скидвать результат трассировки земли под данной ногой
+	FLimb& OpFoot = me()->GetMirrorLimb(Foot);				// противоположная нога
+	FStep& OpStM = GetStep(OpFoot);							// механизм шагов противоположной ноги
 
-	FLimb& OpFoot = me()->GetMirrorLimb(Foot);
-	FStep& OpStepMech = GetStep(OpFoot);
-	
-	//ориентировочная длина шага, зависит от скорости + должна бы еще задаваться извне
-	auto StepHalfNow = IdealStepSizeX(Speed);
-	auto StepHalfToBe = IdealStepSizeX(SPEED_TOBE);
-
-
-	//если шаги в принципе включены
-	if (StepMech.StepsOn())
+	//1. если шаги в принципе включены
+	if (StM.StepsOn())
 	{
-		//эффективная растяга ноги от 0 до 1 при движении
-		float Stre = LegStretch(Foot);
+		//преднастройки шага для этого пояса и для этого состояния поведения
+		FStepGene& StG = MyrOwner()->GetBehaveCurrentData()->StepGene(IsThorax);
 
-		//вектор между от той до этой ступни и вектор курса, если >0 эта нога выступает вперед
-		FVector3f InterFeetToThis = VF(StepMech.NewFootPos - OpStepMech.NewFootPos);
+		float VToBe = Gain>=0.1 ? MyrOwner()->GetCurBaseVel() : 0;		// целевая скорость без учета разгона
+		float VNow = abs(Speed*VelDir|GuidedMoveDir);					// текущая скорость, модуль положительный
+		float MinStr = TargetFeetLength * 0.1f;							// пороговый растяг ноги в покое, при котором становится неудобно стоять
+		float Stretch = LegStretch(Foot);								// реальная растяга ноги с учетом направлении движения от - до + амплитуды
+		float StepHalfMax = FMath::Max3(StepHalfNow, StepHalfToBe, MinStr);
 
-		//уровень переднести текущей ноги относительно задней, при нормальном шаге отражает актуальную длину шага в плоскости курса
-		float Forthness = InterFeetToThis | GuidedMoveDir;
+		//1.1 внезапно изменилось состояние тела и шаги на этих ногах больше не нужны
+		if (!DynModel()->FairSteps)	StM.DisableSteps();
 
-		//▐▄режим на земле, стопа привязана к месту шага 
-		if (StepMech.OnGround())
+		//1.2 режим на земле, стопа привязана к месту шага 
+		else if (StM.OnGround())
 		{
-			// нога на земле - фаза детерминируется откосом ноги 			
-			StepMech.Phase = -FMath::Max(0.001, 1 - Stre);	//▐◙• 
+			//фаза в состоянии покоя нужна для выборок подъема спины по графику, а так без толку
+			StM.Phase = FMath::Min(-0.001, 0.5*(Stretch - StepHalfToBe) / StepHalfMax);
+			PackLegLine(Foot, StM.NewFootPos - Start);
 
-			// критерий окончания упора, фаза будучи мерой раскоряки делает дальнейшее стояние ноги невозможным
-			if ((-StepMech.Phase) > 1)
-			{	float AmbleAmount = LIM0(1 - LIM1(Speed * 0.01 - 1));
-				float StrideToPlan = LIM0(FMath::Min(-Forthness, 2 * StepHalfToBe));/* FMath::Clamp(, 0, 2 * StepHalfToBe)*/;
-				float ReduceAtBrake = FMath::Clamp(Gain * 10 - 1, 0, 1);
-				TraceStep(Foot, 'S', StrideToPlan * ReduceAtBrake);//◘◘
-			}
-
-			//соседняя нога на земле, значит эту можно поднимать для разных целей
-			else if (OpStepMech.OnGround())
+			//при старте с покоя, опираясь и обгоняя другую ногу, что стоит ближе к цели
+			if ((StG.Leap || OpStM.OnGround()) && VToBe > VNow * 2)
 			{
-				//старта со стойки на двух ногах	
-				if (SPEED_TOBE > Speed * 2 && Forthness > 0) TraceStep(Foot, 'S', 2 * StepHalfToBe * (1 - (-StepMech.Phase)));//◘◘
-
-				//остановки в раскорячной позе, приставить ногу
-				else if (Gain == 0 && FMath::Abs(StepMech.Phase + 0.5) > 0.2) TraceStep(Foot, 'S', 0);//◘◘
-				else PackLegLine(Foot, StepMech.NewFootPos - Start);
+				//критерии срабатывания шага при старте с места до того как нога вытянется
+				bool cFront = (Stretch > LegStretch(OpFoot));
+				bool cLev = (Foot.IsLeft());
+				if((StG.Farthest && !cFront) || (StG.Closest && cFront) || (StG.Right && !cLev) || (StG.Left && cLev))
+					TraceStepToSoarTo(Foot, 2 * StepHalfToBe);//◘◘
 			}
 
-			// иначе продолжаем стоять, рутинная трансформация ноги
-			else PackLegLine(Foot, StepMech.NewFootPos - Start);	
+			//эта нога вытянулась назад до предела на данной скорости (при покое - до порога неудобства) - оторвать и наметить новый шаг 
+			else if (-Stretch > FMath::Max(StepHalfNow, MinStr))
+			{	float Stride = 3 * FMath::Min(StepHalfNow, StepHalfToBe);						// длина шага = 4 амплитуды от кончика ноги = 3 амплитуды от центра
+				if (StG.Amble || StG.Leap)														// во скоке и шаге - править взаимное положение ног через подрезку длины шага
+				{	float Corr = StG.Amble														// корректированная длина будущего шага
+						? abs(VF(OpStM.NewFootPos - StM.NewFootPos) | VelDir) - Stretch			// хотьба, выравнивание расстояний между следами ног
+						: abs(VF(OpStM.NewFootPos - Start) | VelDir);							// скакание, постановка ноги рядом с соседней
+					Stride = FMath::Clamp(Corr, Stride * 0.8, Stride*1.05);						// ограничить, чтобы постепенными шажками корректировалось
+				}
+				TraceStepToSoarTo(Foot, Stride);//◘◘
+			}
 
+			//эта нога вытянулась вперед
+			else if (Stretch > FMath::Max(StepHalfToBe, MinStr) && OpStM.OnGround())
+				TraceStepToSoarTo(Foot, 0);//◘◘
+	
 			//постоянно показывать линию ноги
 			LINEWTC(ELimbDebug::FeetShoulders, Start, (FVector)UnpackLegLine(Foot), 1, 0, 0.5);
-			LINEWT(ELimbDebug::LimbNormals, StepMech.NewFootPos, (FVector)Foot.Floor.Normal * 10, 1, 0);
-			LINEWTC(ELimbDebug::FairStepPath, Start, -(FVector)Foot.Floor.Normal * 10 * StepMech.Phase, 0.8, 10, 0.2 - StepMech.Phase);
-
+			LINEWT(ELimbDebug::LimbNormals, StM.NewFootPos, (FVector)Foot.Floor.Normal * 10, 1, 0);
+			LINEWTC(ELimbDebug::FairStepPath, Start, -(FVector)Foot.Floor.Normal * 10 * StM.Phase, 0.8, 10, 0.2 - StM.Phase);
 		}
-		//▀▌нога на весу в воздухе, фаза (0,1) полностью определяется двумя крайними положениями, FootPos = место следующего шага
+		//1.3 переход через единицу - немедленная постановка шага или спотыкание
+		else if (StM.Phase >= 1.0f)
+		{
+			TraceStepToLandAt(Foot, VF(StM.NewFootPos - Start) * 2);//◘◘
+			PackLegLine(Foot, VF(StM.NewFootPos - Start), 0);
+		}
+		//1.4 нога на весу в воздухе, фаза (0,1) полностью определяется крайними положениями
 		else
 		{
-			//еще надо постоянно проверять расстояние от ноги до намеченного шага
-			//переход через единицу - немедленная постановка шага или спотыкание
-			if (StepMech.Phase >= 1.0f || Stre > 1)
-			{
-				if (TraceStep(Foot, 'L', VF(StepMech.FootTip() - Start) * 2))//◘◘
-					PackLegLine(Foot, VF(StepMech.NewFootPos - Start), 0);
-			}
+			//сколько еще осталось до конца шага 
+			auto DisTo = VF(StM.NewFootPos - GetFootTipLoc(Foot)) | VelDir;
 
-			//предсказуемое перемещение ноги вдоль графика фазы
+			//1.4.1 если нога вытянулась слишком далеко, и место шага дальше, чем можно раскоря\читься
+			if (Stretch > StepHalfMax && DisTo > StepHalfMax)
+	
+				//вставить внеочередной шаг прямо вниз
+				TraceStepToStopAt(Foot, StepHalfMax*0.5);//◘◘
+
+			//1.4.2 предсказуемое перемещение ноги вдоль графика фазы
 			else
 			{
+				// высота подъёма ноги, множитель длины ноги, из ассета * из кривой от скорости
+				auto StepHeight = Elevation * StG.HeightMod;
+
+				//путь, проходимый ступней за данный кадр = время*скорость, скорость = 2 скорости хода, однако если обе ноги в воздухе, надо симулировать падение
+				float Drift = FMath::Max(VNow*2, 20) * DeltaTime;
+
+				//режим падения - при замедлении ускоряемся
+				if (!OpStM.OnGround() && Gain < 0.5f)
+					 Drift = FMath::Lerp(Drift, DisTo*0.1, 0.5f - Gain);
+
+				//перевод приращения реальной координаты в приращения нормированной фазы
+				float DeltaPhase = Drift / StM.StepLength;
+
 				//расшифровка кривых образа шага для текущей фазы
-				auto ShapsSrc = MyrOwner()->BehaveCurrentData->StepShape(IsThorax);
-				auto Shapes = ShapsSrc ? ShapsSrc->GetUnadjustedLinearColorValue(StepMech.Phase) :
-					FLinearColor(StepMech.StepCurve(), StepMech.StepCurve(), StepMech.StepCurve());
-				const auto& PushCurve = Shapes.R;
-				const auto& HeightCurve = Shapes.G;
-
-				//оценочное время шага в секундах, исходя из удвоенной скорости замахнутой ноги
-				float StepTime = FMath::Clamp(2 * StepHalfToBe / (FMath::Abs(2*Speed) + 0.01), 0.1, 1.3);
-
-				// фаза должна быть 0-1, отсюда деление; либо считается по времени шага, либо по расстоянию, когда что удобнее
-				float DeltaPhase = DeltaTime / StepTime;
-
-				//если соседняя нога на земле, подстройка под фазу, чтобы двигаться попеременно; надо придумать как это отменять на большой скорости
-				if (OpStepMech.OnGround())
-					DeltaPhase *= 1 - 0.3*LIM0(OpStepMech.Phase + StepMech.Phase);
+				auto HeightCurve = 0.0f, BendCurve = 0.0f, PushCurve = 0.0f, ParaPhaseCurve = 1.0f;
+				if (StG.Shapes)
+				{	if (auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("StepHeightByPhase")))	HeightCurve =	(*Kurwa)->Eval(StM.Phase);
+					if (auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("StepHeightBySpeed")))	HeightCurve *=	(*Kurwa)->Eval(Speed*0.01);
+					if (auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("FootAngleByPhase")))	BendCurve =		(*Kurwa)->Eval(StM.Phase);
+					if (auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("FootPushByPhase")))		PushCurve =		(*Kurwa)->Eval(StM.Phase);
+					if (auto Kurwa = StG.Shapes->GetRowMap().Find(TEXT("ParaPhaseBySpeed")))	ParaPhaseCurve =(*Kurwa)->Eval(Speed*0.01);
+				}
 
 				//применение кривой скорости из пользовательского ассета, пока неясно, насколько в этом параметре онон нужно
-				StepMech.Phase += DeltaPhase * (0.9 + 0.2*PushCurve);
+				StM.Phase += DeltaPhase * (1 + PushCurve);
 
-				//LINEWTC(ELimbDebug::FairStepPredictedPos, Start , VD(Foot.Floor.Normal * 100 * DeltaPhase), 0.5+DeltaPhase*10, 1, 1);
-				MaxDeltaPhase = FMath::Max(MaxDeltaPhase, DeltaPhase);
-				MinDeltaPhase = FMath::Min(MaxDeltaPhase, DeltaPhase);
-
-
-				//ориентация стопы на поверхности, приближаясь к месту шага ориентируется на посчитанную нормаль в этом месте
-				FVector3f ObliqueNormal = OpStepMech.OnGround() ? OpFoot.Floor.Normal : LAXIS(LMB(Spine), Up);
-				if (StepMech.Normal.IsValid()) ObliqueNormal = FMath::Lerp(ObliqueNormal, StepMech.Normal.DecodeDir(), StepMech.Phase);
-				auto AbsLegLine = UnpackLegLine(Foot);					
-				Foot.Floor.Normal = FMath::Lerp(ObliqueNormal, AbsLegLine, HeightCurve);
+				//ориентация стопы на поверхности, нормаль на поверхности по возможности должна отражать поверхность будущего шага
+				FVector3f ObliqueNormal = OpStM.OnGround() ? OpFoot.Floor.Normal : (StM.Normal.IsValid() ? StM.Normal.DecodeDir() : LAXIS(LMB(Spine), Up));
+				Foot.Floor.Normal = ObliqueNormal + LAXIS(LMB(Spine),Forth) * BendCurve;
 				Foot.Floor.Normal.Normalize();
 
-				// высота подъёма ноги, надо будет брать из ассета
-				auto StepHeight = GetTargetLegLength() * MyrOwner()->BehaveCurrentData->StepHeight(IsThorax);
-
-				//запаковка новой линии ноги
-				FVector FootTip = StepMech.FootTip() + LAXIS(LMB(Spine), Up) * HeightCurve * StepHeight;
-				//LINEWTC(ELimbDebug::FairStepPath, FootTip, Start + UnpackLegLine(Foot) - FootTip, 0.8, 10, 0.9);
-				LINEWT(ELimbDebug::LimbNormals, FootTip, VD(Foot.Floor.Normal * 10), 1, 0);
+				//позиция кончика ноги
+				FVector FootTip = StM.FootTip() + LAXIS(LMB(Spine), Up) * HeightCurve * StepHeight;
 				PackLegLine(Foot, VF(FootTip - Start), 0);
 			}
 
 			//отладка
 			LINEWT(ELimbDebug::FeetShoulders, Start, VD(UnpackLegLine(Foot)), 1, 0);
+			LINEWT(ELimbDebug::FairStepPredictedPos, StM.NewFootPos, VD(Foot.Floor.Normal * 5), 1, 1);
+			LINEWTC(ELimbDebug::FairStepPredictedPos, StM.NewFootPos, VD(StM.BackToOldPos), 0.5, 1, (1-StM.Phase));
 		}
 	}
-	//реальные шаги выключены, идёт подстройка стойки по узловым членикам вниз + анимация шагов
+	//2. реальные шаги выключены, но модель велит включить их
+	else if (DynModel()->FairSteps)
+	{	
+		StM.Phase = 1.0f; //искусственно задрать фазу, чтобы TraceStepToLandAt сразу инициализовала опору
+		TraceStepToLandAt(Foot, UnpackLegLine(Foot) + IdealAbsLegLine(Foot, TargetFeetLength*1.5));//◘◘
+	}
+	//3. Реальные шаги выключены, идёт подстройка стойки по узловым членикам вниз + анимация шагов
 	else
 	{
-		// 3 ============= ПЕРЕРАСЧЁТ ЖЕЛАЕМОЙ ЛИНИИ НОГИ ========================
-		//################################################################################
-
 		//подготовить целевой вектор линии ноги, оименовать компоненты, чтоб было понятно
 		FLegPos LocLineReal = GetLegLine(Foot);
 		FLegPos LocLineToBe = idealLegLine(Foot);
 
 		float SwingAlpha = LIM1(DeltaTime * (Foot.Floor ? 8 * Speed * Speed * 0.0001f : 1.5f));		// скорость схождения по раскоряке сильно от скорости, при стоянии раскоряка не меняется
-		float PushAlpha = LIM1(DeltaTime * (Foot.Floor ? (CNTR.Floor ? 200 : 20) : 5.0f));			// скорость схождения по осям маха вперед-назад
+		float PushAlpha = LIM1(DeltaTime * (Foot.Floor ? (LMB(Center).Floor ? 200 : 20) : 5.0f));	// скорость схождения по осям маха вперед-назад
 
 		//внесение маленьких отклонений в сторону идеала, теперь эта линия может использоваться для трассировки
-		GetLegLine(Foot).DownUp = FMath::Lerp(LocLineReal.DownUp, LocLineToBe.DownUp, PushAlpha);		// проекция на ось "вверх"
-		GetLegLine(Foot).BackFront = FMath::Lerp(LocLineReal.BackFront, LocLineToBe.BackFront, PushAlpha);		// проекция на ость "вперед"
+		GetLegLine(Foot).DownUp =	 FMath::Lerp(LocLineReal.DownUp,	LocLineToBe.DownUp, PushAlpha);		// проекция на ось "вверх"
+		GetLegLine(Foot).BackFront = FMath::Lerp(LocLineReal.BackFront, LocLineToBe.BackFront, PushAlpha);	// проекция на ость "вперед"
 		GetLegLine(Foot).LeftRight = FMath::Lerp(LocLineReal.LeftRight, LocLineToBe.LeftRight, SwingAlpha);	// проекция на ость "вдево/вправо", вокруг оси вперед
 
-		// 3 ============= ТРАССИРОВКА, ПОЛУЧЕНИЕ РЕАЛЬНОЙ ПОЗЫ ========================
-		//################################################################################
 		bool MyTime = Foot.IsLeft();
 		bool CanEverTrace = (me()->GetPredictedLODLevel() < 2);			// для дальних существ трассировку нафиг
 		bool AltFloorFound = false;										// принесли для туловища более удобную опору
 
-		//если модель хочет перейти в режим шагов
-		if (DynModel()->FairSteps)
-		{	StepMech.Phase = 1.0f;
-			if (TraceStep(Foot, 'L', 0))//◘◘
-			{	StandHardness += 100; return;
-			}
-		}
-
 		//критерий обновления желаемой позы и, возможно, подтверждения ее с помощью трассировки
 		if((FRAME & 3) == ProperTurn)
 		{
-			//распаковать линию ноги в абсолютных координатах (ту самую, что изменили выше)
+			//распаковать линию ноги сверху вниз в абсолютных координатах (ту самую, что изменили выше)
 			FVector3f AbsLegLine = UnpackLegLine(Foot);
 			LINEWT(ELimbDebug::FeetShoulders, Start, (FVector)AbsLegLine, 1, 0);
 
 			// брюшной сенсор уже нашупал опору, то есть у ног в принципе есть шанс правильно лечь на ту же поверхность
-			if (CNTR.Floor.IsValid())
+			if (LMB(Center).Floor.IsValid())
 			{
 				//модель сблизи, вдали нах лишние трассировки
 				if (CanEverTrace)
@@ -1008,7 +1038,7 @@ void UMyrGirdle::ProcessSteps(FLimb& Foot, float DeltaTime, int ProperTurn)
 					if (Trace(Start, AbsLegLine * 3, Hit))
 					{
 						//шаги не используются, но если вдруг начнут, чтобы начинали с этой
-						StepMech.RegNextStep(Hit);
+						StM.RegNextStep(Hit);
 
 						//если до опоры дотянулись лучом, но он длинее ноги - сорваться
 						if (Hit.Distance > TargetFeetLength * MyrOwner()->GetBehaveCurrentData()->TraceFeetDepthMult * 1.2)
@@ -1025,97 +1055,22 @@ void UMyrGirdle::ProcessSteps(FLimb& Foot, float DeltaTime, int ProperTurn)
 					{
 						//убрать инфу о поле, восстановить длину ноги, чтобы не подгибалась
 						Foot.EraseFloor();
-						LRP(GetLegLine(Foot).Pitch, DeltaTime * 3, GetTargetLegLength());
+						LRP(GetLegLine(Foot).Pitch, DeltaTime * 3, Elevation);
 					}
 				}
 
 				//быстрый способ позиционировать ноги
-				else Foot.Floor = CNTR.Floor;
+				else Foot.Floor = LMB(Center).Floor;
 			}
 		}
 		//весь пояс в воздухе - восстановить натуральную длину ноги, чтобы не подгибалась
-		else LRP(GetLegLine(Foot).Pitch, DeltaTime, GetTargetLegLength());
+		else LRP(GetLegLine(Foot).Pitch, DeltaTime, Elevation);
 	}
 
-	DrawDebugString(GetWorld(), Start + VD(LAXIS(CNTR, Up) * 30), FString::SanitizeFloat(MaxDeltaPhase) + TEXT(" / ") + FString::SanitizeFloat(MinDeltaPhase), 0, FColor(255, 255, 0, 255), 0.02, false, 1.0f);
+	//DrawDebugString(GetWorld(), Start + VD(LAXIS(LMB(Center), Up) * 30), FString::SanitizeFloat(MaxDeltaPhase) + TEXT(" / ") + FString::SanitizeFloat(MinDeltaPhase), 0, FColor(255, 255, 0, 255), 0.02, false, 1.0f);
 
 	//обновить устойчивость, это сильно влияет на смену состояний поведения
 	if (Foot.Floor)	StandHardness += 100;		
-}
-
-//==============================================================================================================
-//получить точную позицию шага или текущего, или следующего
-//==============================================================================================================
-bool UMyrGirdle::TraceStep(FLimb &Foot, char LandNotSoar, FVector3f Dir)
-{
-
-	//нашли опору, вектор должен быть полной длины
-	FHitResult Hit(ForceInit);
-	bool Resu = Trace(GetFootRootLoc(Foot.WhatAmI), Dir, Hit);
-	auto& StM = GetStep(Foot);
-
-	//неудачно, трассир не дотянулся до опоры, видать, в воздухе
-	if (!Resu)
-	{	GetStep(Foot).DisableSteps();
-		Foot.EraseFloor();
-		UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TraceStep %s Phase %g lost contact %g"),
-			*GetOwner()->GetName(), *TXTENUM(ELimb, Foot.WhatAmI), GetStep(Foot).Phase, Hit.Distance);
-		return false;
-	}
-	//удачно
-	else
-	{	
-		//если хотим приземлиться, уточнить шаг
-		if (LandNotSoar == 'L')
-		{
-			//приземление по достижению конца фазы, тождественно позиции в точке конца шага
-			if (StM.Phase >= 1)
-			{	Foot.Floor = LandingHurt(Foot, Hit);
-				StM.Phase = -0.001;
-			}
-			//желание экстренно приземлиться по иной причине: по раскоряке или по взлёту противоположной ноги,
-			// поскольку фаза еще не кончилась, нога еще слишком высоко от земли и не может вот прям щас уткнуться в землю
-			// обновление вектора к прошлому следу, его позицию следует пока сохранить до полного касания ноги,
-			// изменится позиция нового следа, поэтому
-			//к существующему вектору добавляется вектор разности между прошлой и новой позицией нового шага
-			else StM.BackToOldPos += VF(StM.NewFootPos - Hit.ImpactPoint);
-		}
-		else
-		{
-			StM.BackToOldPos = VF(StM.NewFootPos - Hit.ImpactPoint);	//уточнить место шага, посчитав прошлое ошибочным, нужно ли менять фазу, неясно
-			if (LandNotSoar == 'S') StM.Phase = 0.001;					//если хотим поднять ногу и просчитать следующее место шага
-		}
-		
-
-		//регистрация нового целевого места шага
-		StM.NewFootPos = Hit.ImpactPoint; 
-		StM.Normal.EncodeDir(Hit.Normal);
-
-		UE_LOG(LogMyrPhyCreature, Log, TEXT("%s: TraceStep %s, %c, Phase %g, Step Length %g"),
-			*GetOwner()->GetName(), *TXTENUM(ELimb, Foot.WhatAmI), LandNotSoar, StM.Phase, StM.BackToOldPos.Size());
-		LINEWT(ELimbDebug::FairStepPredictedPos, StM.NewFootPos, VD(StM.Normal.DecodeDir())*5, 1, 1);
-		LINEWT(ELimbDebug::FairStepPredictedPos, StM.NewFootPos, FVector(StM.BackToOldPos), 0.5, 1);
-		LINEWTC(ELimbDebug::LineTrace, GetFootRootLoc(Foot.WhatAmI), (FVector)Dir*Hit.Time, 0.5, 0.5, LandNotSoar == 'S'? 0.5 : 1.0);
-		return true;
-	}
-	return false;
-}
-
-//начать двигаться из бесшагового состояния или из неподвижности 
-bool UMyrGirdle::StartFoot(FLimb& Foot)
-{
-	//шаги текущей и противоположной ноги
-	FStep& StE = GetStep(Foot); 
-	FStep& StO = GetStep(me()->GetMirrorLimb(Foot));
-
-	//выбор той ноги, c которой начинать шаг, логично, что нога, которая позади, проще поднимается в шаг
-	//хотя не столь очевидно, возможно, сделать вероятность
-	if ((VF(StE.NewFootPos - StO.NewFootPos) | GuidedMoveDir) > 0)
-		return TraceStep(Foot, 'S', VecToWannabeStep(Foot, IdealStepSizeX(SPEED_TOBE)));
-
-	//вторая нога
-	else return TraceStep(Foot, 'L', IdealAbsLegLine(Foot, TargetFeetLength*2));
-	return false;
 }
 
 //==============================================================================================================

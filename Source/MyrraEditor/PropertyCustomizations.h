@@ -197,3 +197,22 @@ private:
     TSharedPtr<IPropertyUtilities> PropertyUtilities;
 
 };
+
+//#######################################################################################################
+//для структуры FInflu из файла psyche.h
+//#######################################################################################################
+class FInfluCustomization : public IPropertyTypeCustomization
+{
+public:
+    //создать экземпляр
+    static TSharedRef<IPropertyTypeCustomization> MakeInstance();
+
+    //видимо, здесь происходит украшение заголовка и его составляющих
+    virtual void CustomizeHeader(TSharedRef<class IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+    virtual void CustomizeChildren(TSharedRef<class IPropertyHandle> StructPropertyHandle, class IDetailChildrenBuilder& StructBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils) override;
+
+private:
+    TSharedPtr<IPropertyHandle> MainHandle;
+    TSharedPtr<IPropertyUtilities> PropertyUtilities;
+
+};

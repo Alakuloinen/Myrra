@@ -36,6 +36,7 @@ public class Myrra : ModuleRules
                 "HeadMountedDisplay",
                 "AIModule",
                 "GameplayTasks",
+                "GameplayAbilities",
                 "MoviePlayer",
                 "Niagara",
                 "Paper2D",

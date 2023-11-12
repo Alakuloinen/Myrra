@@ -183,7 +183,7 @@ void UMyrPhyCreatureAnimInst::NativeUpdateAnimation(float DeltaTimeX)
 	if(IS_MACRO(CurrentState,AIR))
 	{
 		//глобальный уклон тела - сложный расчёт только для птицы
-		float WaveOrSoar = (gP->VelocityAgainstFloor | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005 * gP->Speed;
+		float WaveOrSoar = ((gP->VelDir | Ma->GetLimbAxisUp(ELimb::PELVIS)) * 0.2f + 0.005) * gP->Speed;
 		if (WaveOrSoar < 0)
 			WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.05);
 		else WholeBodyUpDown = FMath::Lerp(WholeBodyUpDown, 1.0f + WaveOrSoar, 0.15);
@@ -282,7 +282,7 @@ void UMyrPhyCreatureAnimInst::UpdateGirdle(FAGirdle& AnimGirdle, class UMyrGirdl
 	
 	//скорость берется 1/100, чтобы проще было ассоциировать с animation Rate, который хорош когда 1.0
 	//делится на масштаб, чтобы маленький котенок чаще семенил ногами
-	FVector3f DirVel = PhyGirdle->VelocityAgainstFloor * 0.01 / M->GetComponentScale().X;
+	FVector3f DirVel = PhyGirdle->VelocityAtFloor() * 0.01 / M->GetComponentScale().X;
 
 	//проекции скорости - вдоль туловища и поперек туловища
 	AnimGirdle.GainDirect =		DirVel | PhyGirdle->GuidedMoveDir;

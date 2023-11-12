@@ -79,7 +79,7 @@ public:	//свои методы
 	bool IsNowUIPause() const { return bUI; }
 
 	//впендюрить трясунов
-	void AddCameraShake(TSubclassOf<UCameraShakeBase> s) { Shake = PlayerCameraManager->StartCameraShake(s); Shake->ShakeScale = 0; }
+	void AddCameraShake(TSubclassOf<UCameraShakeBase> s) { Shake = PlayerCameraManager->StartCameraShake(s); if(Shake) Shake->ShakeScale = 0; }
 	void AddPainCameraShake(TSubclassOf<UCameraShakeBase> s) { PainShake = PlayerCameraManager->StartCameraShake(s);  PainShake->ShakeScale = 0; }
 	UCameraShakeBase* GetCameraShake() { return Shake; }
 	UCameraShakeBase* GetPainCameraShake() { return PainShake; }

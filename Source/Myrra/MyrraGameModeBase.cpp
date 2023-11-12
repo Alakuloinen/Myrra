@@ -102,7 +102,11 @@ void AMyrraGameModeBase::BeginPlay()
 		//связать напрямую игрока и небо
 		if (!Sky->Protagonist) Sky->Protagonist = Protagonist;
 		if (!Protagonist->Sky) Protagonist->Sky = Sky;
+
 	}
+	//если нет неба, убрать дождь, если он для теста включен в редакторе
+	else SetWeatherRainAmount (0);
+
 	//ВНИМАНИЕ, это включает отображение всех форм коллизий, наглядно но медленно
 	//GetWorld()->Exec(GetWorld(), TEXT("pxvis collision"));
 }
@@ -214,26 +218,16 @@ bool AMyrraGameModeBase::ProtagonistFirstPerson() const
 
 
 //степени выраженности времен дня, чтоб вовне не тащить класс небесной механики
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::MorningAmount() const 
-{	return Sky->MorningAmount();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::DayAmount() const 
-{	return Sky->NoonAmount(); }
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::EveningAmount() const 
-{	return Sky->EveningAmount();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::NightAmount() const 
-{	return Sky->NightAmount();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::MoonIntensity() const 
-{	return Sky->MoonIntensity();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::SunIntensity() const 
-{	return Sky->SunIntensity();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::Cloudiness() const 
-{	return Sky->SunIntensity();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::RainAmount() const 
-{	return Sky->WeatherBase.RainAmount();	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::FogAmount() const 
-{	return Sky->WeatherDerived.FogDensity;	}
-UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::Temperature() const 
-{	return Sky->WeatherDerived.Temperature;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::MorningAmount() const {	return Sky ? Sky->MorningAmount() : 0;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::DayAmount() const {		return Sky ? Sky->NoonAmount() : 1; }
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::EveningAmount() const {	return Sky ? Sky->EveningAmount() : 0;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::NightAmount() const {	return Sky ? Sky->NightAmount() : 0;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::MoonIntensity() const {	return Sky ? Sky->MoonIntensity() : 0;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::SunIntensity() const {	return Sky ? Sky->SunIntensity() : 1;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::Cloudiness() const {		return Sky ? Sky->Cloudiness() : 0.5;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::RainAmount() const {		return Sky ? Sky->WeatherBase.RainAmount() : 0;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::FogAmount() const {		return Sky ? Sky->WeatherDerived.FogDensity : 0.0f;	}
+UFUNCTION(BlueprintCallable) float AMyrraGameModeBase::Temperature() const {	return Sky ? Sky->WeatherDerived.Temperature : 0.5;	}
 
 //направление ветра (теперь лежит в другом классе, посему доступ через функцию)
 FVector2D* AMyrraGameModeBase::WindDir()

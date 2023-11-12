@@ -111,7 +111,7 @@ EResult UMyrActionInfo::IsActionFitting(
 	bool CheckMyself = true;
 	EResult R = EResult::INCOMPLETE_DATA;
 
-	if(Owner->MyrAIController()->AIRuleWeight > MinAIWeight)
+	if (Owner->MyrAIController()->AIRuleWeight < MinAIWeight)
 		return EResult::TOO_WEAK_AI;//◘◘>
 
 	//если имеются сборки атак
